@@ -1,0 +1,15 @@
+# Ruby / Rails
+/backend/log/*
+/backend/tmp/*
+/backend/storage/*
+/backend/.env
+
+# Node
+/gateway/node_modules
+/frontend/node_modules
+
+# OS
+.DS_Store
+
+# Docker
+*.pid
