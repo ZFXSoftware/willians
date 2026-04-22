@@ -1,5 +1,3 @@
-# Willians System
-
 Sistema full-stack com Rails (API), Node.js (Gateway/BFF) e PostgreSQL, orquestrado via Docker.
 
 ---
