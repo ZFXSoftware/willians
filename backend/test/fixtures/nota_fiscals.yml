@@ -1,0 +1,9 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  numero: MyString
+  valor: 9.99
+
+two:
+  numero: MyString
+  valor: 9.99

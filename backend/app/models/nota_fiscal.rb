@@ -1,0 +1,2 @@
+class NotaFiscal < ApplicationRecord
+end

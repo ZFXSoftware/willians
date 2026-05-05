@@ -1,0 +1,102 @@
+.dashboard-container {
+  padding: 24px;
+  background: #0f172a;
+  min-height: 100vh;
+  color: white;
+}
+
+.dashboard-title {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+/* KPIs */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.kpi-card {
+  background: #1e293b;
+  padding: 16px;
+  border-radius: 10px;
+  transition: 0.2s;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+}
+
+.kpi-card span {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.kpi-card h2 {
+  margin-top: 6px;
+  font-size: 20px;
+}
+
+.kpi-card.danger {
+  background: #7f1d1d;
+}
+
+/* Tabela */
+.table-container {
+  background: #1e293b;
+  padding: 16px;
+  border-radius: 10px;
+}
+
+.table-container h2 {
+  margin-bottom: 12px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  padding: 10px;
+  text-align: left;
+  font-size: 14px;
+}
+
+thead {
+  background: #334155;
+}
+
+tr {
+  border-bottom: 1px solid #334155;
+}
+
+/* Status */
+.status {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.status.matched {
+  background: #065f46;
+}
+
+.status.pending {
+  background: #92400e;
+}
+
+.status.divergent {
+  background: #7f1d1d;
+}
+
+/* Loading */
+.loading {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

@@ -10,9 +10,27 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_22_200311) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_05_211549) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "conciliacao_registros", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.text "descricao"
+    t.decimal "diferenca", precision: 15, scale: 2
+    t.text "observacao"
+    t.string "referencia"
+    t.string "status"
+    t.datetime "updated_at", null: false
+    t.decimal "valor", precision: 15, scale: 2
+  end
+
+  create_table "nota_fiscals", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "numero"
+    t.datetime "updated_at", null: false
+    t.decimal "valor"
+  end
 
   create_table "users", force: :cascade do |t|
     t.datetime "created_at", null: false
