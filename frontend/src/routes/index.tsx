@@ -1,24 +1,35 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom"
+
 import Login from "../pages/Login"
-import Home from "../pages/Home"
+
 import Dashboard from "../pages/Dashboard"
+import ReconciliationDashboard from "../pages/Reconciliation/reconciliation-dashboard"
+
 import PrivateRoute from "./privateRoute"
+import MainLayout from "../layouts/MainLayout"
 
 export default function AppRoutes() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* pública */}
         <Route path="/login" element={<Login />} />
 
+        {/* privadas */}
         <Route
-          path="/"
           element={
             <PrivateRoute>
-              <Home />
-              <Dashboard />
+              <MainLayout />
             </PrivateRoute>
           }
-        />
+        >
+          <Route path="/" element={<Dashboard />} />
+
+          <Route
+            path="/conciliation"
+            element={<ReconciliationDashboard />}
+          />
+        </Route>
       </Routes>
     </BrowserRouter>
   )

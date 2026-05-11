@@ -14,6 +14,9 @@ services:
 
   gateway:
     build: ./gateway
+    command: npm run dev
+    environment:
+      - MODE=api
     volumes:
       - ./gateway:/app
       - /app/node_modules
@@ -21,6 +24,42 @@ services:
       - "3001:3001"
     depends_on:
       - backend
+      - redis
+
+  worker:
+    build: ./gateway
+    command: npm run dev
+    environment:
+      - MODE=worker
+    volumes:
+      - ./gateway:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+      - redis
+
+  scheduler:
+    build: ./gateway
+    command: npm run dev
+    environment:
+      - MODE=scheduler
+    volumes:
+      - ./gateway:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+      - redis
+
+  redis:
+    image: redis:7
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
 
   backend:
     build: ./backend
@@ -29,6 +68,11 @@ services:
       - ./backend:/app
     ports:
       - "3003:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       - db
 
@@ -44,3 +88,8 @@ services:
 
 volumes:
   db_data:
+  redis_data:
+
+
+
+
