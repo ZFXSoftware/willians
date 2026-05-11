@@ -8,4 +8,16 @@ export default defineConfig({
     react(),
     babel({ presets: [reactCompilerPreset()] })
   ],
+
+  server: {
+    host: "0.0.0.0",
+
+    allowedHosts: [
+      "dev.conciliation.zfxsoftware.cloud"
+    ],
+
+    hmr: {
+      clientPort: 443
+    }
+  }
 })
