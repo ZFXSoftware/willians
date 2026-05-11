@@ -7,7 +7,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - "3000:3000"
+      - "3050:3000"
       - "5173:5173"
     depends_on:
       - gateway
@@ -21,7 +21,7 @@ services:
       - ./gateway:/app
       - /app/node_modules
     ports:
-      - "3001:3001"
+      - "3051:3001"
     depends_on:
       - backend
       - redis
@@ -67,7 +67,7 @@ services:
     volumes:
       - ./backend:/app
     ports:
-      - "3003:3000"
+      - "3053:3000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
       interval: 10s
