@@ -1,0 +1,11 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  tenant: one
+  supabase_user_id: MyString
+  role: MyString
+
+two:
+  tenant: two
+  supabase_user_id: MyString
+  role: MyString

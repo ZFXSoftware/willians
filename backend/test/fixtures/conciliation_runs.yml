@@ -1,0 +1,23 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  tenant: one
+  platform: MyString
+  started_at: 2026-05-13 17:04:40
+  finished_at: 2026-05-13 17:04:40
+  status: MyString
+  total_entries: 1
+  reconciled_entries: 1
+  divergent_entries: 1
+  metadata: 
+
+two:
+  tenant: two
+  platform: MyString
+  started_at: 2026-05-13 17:04:40
+  finished_at: 2026-05-13 17:04:40
+  status: MyString
+  total_entries: 1
+  reconciled_entries: 1
+  divergent_entries: 1
+  metadata: 

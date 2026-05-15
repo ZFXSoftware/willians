@@ -1,0 +1,17 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  tenant: one
+  name: MyString
+  platform: MyString
+  external_id: MyString
+  status: MyString
+  metadata: 
+
+two:
+  tenant: two
+  name: MyString
+  platform: MyString
+  external_id: MyString
+  status: MyString
+  metadata: 

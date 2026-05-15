@@ -1,0 +1,41 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  tenant: one
+  platform_account: one
+  external_id: MyString
+  external_reference: MyString
+  platform: MyString
+  status: MyString
+  buyer_name: MyString
+  buyer_document: MyString
+  total_amount: 9.99
+  shipping_amount: 9.99
+  discount_amount: 9.99
+  paid_amount: 9.99
+  currency: MyString
+  ordered_at: 2026-05-13 17:38:17
+  approved_at: 2026-05-13 17:38:17
+  delivered_at: 2026-05-13 17:38:17
+  cancelled_at: 2026-05-13 17:38:17
+  metadata: 
+
+two:
+  tenant: two
+  platform_account: two
+  external_id: MyString
+  external_reference: MyString
+  platform: MyString
+  status: MyString
+  buyer_name: MyString
+  buyer_document: MyString
+  total_amount: 9.99
+  shipping_amount: 9.99
+  discount_amount: 9.99
+  paid_amount: 9.99
+  currency: MyString
+  ordered_at: 2026-05-13 17:38:17
+  approved_at: 2026-05-13 17:38:17
+  delivered_at: 2026-05-13 17:38:17
+  cancelled_at: 2026-05-13 17:38:17
+  metadata: 

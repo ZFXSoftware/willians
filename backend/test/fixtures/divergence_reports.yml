@@ -1,0 +1,25 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  tenant: one
+  financial_entry: one
+  divergence_type: MyString
+  expected_amount: 9.99
+  received_amount: 9.99
+  difference_amount: 9.99
+  status: MyString
+  resolution_notes: MyText
+  resolved_at: 2026-05-13 17:04:57
+  metadata: 
+
+two:
+  tenant: two
+  financial_entry: two
+  divergence_type: MyString
+  expected_amount: 9.99
+  received_amount: 9.99
+  difference_amount: 9.99
+  status: MyString
+  resolution_notes: MyText
+  resolved_at: 2026-05-13 17:04:57
+  metadata: 

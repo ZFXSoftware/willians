@@ -1,0 +1,47 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  tenant: one
+  platform_account: one
+  order: one
+  invoice: one
+  conciliacao_registro: one
+  external_id: MyString
+  external_reference: MyString
+  entry_type: MyString
+  status: MyString
+  amount: 9.99
+  fee_amount: 9.99
+  net_amount: 9.99
+  occurred_at: 2026-05-13 17:03:19
+  expected_settlement_at: 2026-05-13 17:03:19
+  settled_at: 2026-05-13 17:03:19
+  virtual_balance_after: 9.99
+  metadata: 
+  reconciled: false
+  reconciled_at: 2026-05-13 17:03:19
+  has_divergence: false
+  divergence_reason: MyText
+
+two:
+  tenant: two
+  platform_account: two
+  order: two
+  invoice: two
+  conciliacao_registro: two
+  external_id: MyString
+  external_reference: MyString
+  entry_type: MyString
+  status: MyString
+  amount: 9.99
+  fee_amount: 9.99
+  net_amount: 9.99
+  occurred_at: 2026-05-13 17:03:19
+  expected_settlement_at: 2026-05-13 17:03:19
+  settled_at: 2026-05-13 17:03:19
+  virtual_balance_after: 9.99
+  metadata: 
+  reconciled: false
+  reconciled_at: 2026-05-13 17:03:19
+  has_divergence: false
+  divergence_reason: MyText
