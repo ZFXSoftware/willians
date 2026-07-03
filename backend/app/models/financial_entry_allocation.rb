@@ -1,23 +1,18 @@
-# app/models/financial_entry_allocation.rb
-
 class FinancialEntryAllocation < ApplicationRecord
-  belongs_to :tenant
-
   belongs_to :financial_entry
 
-  belongs_to :invoice,
+  belongs_to :receivable_unit,
              optional: true
 
-  belongs_to :order,
+  belongs_to :payout_batch,
              optional: true
-
-  validates :allocated_amount,
-            presence: true
 
   enum :allocation_type, {
-    settlement: "settlement",
-    refund: "refund",
-    fee: "fee",
+    receivable: "receivable",
+    payout: "payout",
     adjustment: "adjustment"
   }
+
+  validates :amount,
+            presence: true
 end

@@ -1,0 +1,19 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  tenant: one
+  platform_account: one
+  snapshot_date: 2026-05-18
+  available_balance: 9.99
+  future_balance: 9.99
+  blocked_balance: 9.99
+  metadata: 
+
+two:
+  tenant: two
+  platform_account: two
+  snapshot_date: 2026-05-18
+  available_balance: 9.99
+  future_balance: 9.99
+  blocked_balance: 9.99
+  metadata: 

@@ -12,6 +12,12 @@ class PlatformAccount < ApplicationRecord
     error: "error"
   }
 
+  enum :provider, {
+    mercado_livre: "mercado_livre",
+    shopee: "shopee",
+    amazon: "amazon"
+  }
+
   validates :name, presence: true
   validates :platform, presence: true
 end

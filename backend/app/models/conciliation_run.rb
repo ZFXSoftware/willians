@@ -1,15 +1,17 @@
-# app/models/conciliation_run.rb
-
 class ConciliationRun < ApplicationRecord
-  belongs_to :tenant
+  belongs_to :tenant,
+             optional: true
+
+  belongs_to :platform_account,
+             optional: true
+
+  has_many :conciliacao_registros,
+           dependent: :destroy
 
   enum :status, {
     pending: "pending",
-    running: "running",
+    processing: "processing",
     completed: "completed",
     failed: "failed"
   }
-
-  validates :platform,
-            presence: true
 end

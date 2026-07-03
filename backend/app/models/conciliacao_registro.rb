@@ -1,7 +1,34 @@
 class ConciliacaoRegistro < ApplicationRecord
+  belongs_to :tenant,
+             optional: true
+
+  belongs_to :conciliation_run,
+             optional: true
+
+  belongs_to :financial_entry,
+             optional: true
+
+  belongs_to :receivable_unit,
+             optional: true
+
+  belongs_to :payout_batch,
+             optional: true
+
   enum :status, {
-    ok: "ok",
-    divergente: "divergente",
-    nao_encontrado: "nao_encontrado"
+    pending: "pending",
+    matched: "matched",
+    divergent: "divergent",
+    manual_review: "manual_review",
+    resolved: "resolved"
   }
+
+  enum :match_type, {
+    exact: "exact",
+    approximate: "approximate",
+    batch: "batch",
+    manual: "manual"
+  }
+
+  validates :status,
+            presence: true
 end
