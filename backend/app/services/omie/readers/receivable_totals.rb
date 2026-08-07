@@ -76,8 +76,16 @@ module Omie
         )
       end
 
+      # A chave de conciliação é o NÚMERO DA NOTA FISCAL.
+      #
+      # Medido no Omie do cliente: `codigo_tipo_documento` é NFE em 100% dos
+      # títulos, mas `numero_documento_fiscal` vem preenchido em apenas 1% — nos
+      # títulos importados o número da NF fica em `numero_documento`.
+      #
+      # `codigo_lancamento_integracao` NÃO serve: pertence a quem criou o
+      # título (hoje o TrackCash, com prefixo `R_`) e não é um dado de negócio.
       def reference_for(record)
-        record["codigo_lancamento_integracao"].presence ||
+        record["numero_documento_fiscal"].presence ||
           record["numero_documento"].presence
       end
 

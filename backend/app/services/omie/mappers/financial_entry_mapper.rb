@@ -6,16 +6,25 @@ module Omie
     # codigo_cliente_fornecedor, data_vencimento, valor_documento,
     # codigo_categoria, data_previsao e id_conta_corrente.
     class FinancialEntryMapper
+      # Namespace dos títulos criados por nós.
+      #
+      # O Omie do cliente já tem títulos do TrackCash, que usa o prefixo `R_` em
+      # codigo_lancamento_integracao. Durante a substituição os dois sistemas
+      # convivem, então nossos lançamentos precisam ser distinguíveis — e nunca
+      # sobrescrever a referência do outro.
+      INTEGRATION_PREFIX = "WLL".freeze
+
       def initialize(financial_entry:)
         @financial_entry = financial_entry
       end
 
       def call
         @call ||= {
-          # Chave do round-trip: é por ela que a conciliação reencontra o título
-          # no OMIE depois.
+          # Identifica o título como nosso e permite reencontrá-lo sem depender
+          # de valor ou data. NÃO é a chave de conciliação — essa é o número da
+          # nota fiscal, que é o que existe nos títulos de todas as origens.
           codigo_lancamento_integracao:
-            financial_entry.external_id,
+            "#{INTEGRATION_PREFIX}-#{financial_entry.id}",
 
           codigo_cliente_fornecedor:
             settings.cliente_fornecedor_id,
