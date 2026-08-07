@@ -99,8 +99,8 @@ module Marketplace
       end
 
       def missing_credentials_message
-        "Conta ##{platform_account.id} (#{platform_account.platform}) sem credencial de acesso. " \
-          "Grave o token em platform_account.metadata antes de ingerir."
+        "Conta ##{platform_account.id} (#{platform_account.platform}) não está conectada. " \
+          "Autorize o acesso pelo fluxo de OAuth antes de ingerir."
       end
 
       def resolve_orders!(events)

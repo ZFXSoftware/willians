@@ -132,7 +132,7 @@ Chamadas máquina-a-máquina (worker/scheduler) usam o header `X-Service-Token`.
 | Integração    | Estado                                                             |
 | ------------- | ------------------------------------------------------------------ |
 | Omie          | leitura de títulos funcionando; escrita bloqueada por padrão       |
-| Mercado Livre | OAuth e renovação de token prontos; **leitura financeira pendente** |
+| Mercado Livre | OAuth pronto; faturamento (encargos) lido; **repasses pendentes**   |
 | Shopee        | não implementada                                                   |
 | Amazon        | não implementada                                                   |
 | Magalu        | não implementada                                                   |
@@ -156,6 +156,27 @@ concorrentes não desconectem a conta.
 `Marketplace::RefreshCredentialsJob` é a rede de segurança para contas ociosas,
 mas depende do supervisor do Solid Queue (`bin/jobs`), que ainda não está no
 docker-compose.
+
+#### O que já é lido do Mercado Livre
+
+A API de Relatórios de Faturamento (`/billing/integration`), nos grupos `ML` e
+`MP`. Dela vêm os **encargos** (comissão de venda, Mercado Envios, Product Ads)
+como lançamentos de `fee`, e as **bonificações** — devoluções desses encargos —
+como `adjustment`.
+
+Só períodos **fechados** são ingeridos: enquanto o período está `OPEN` os valores
+ainda mudam, e o ledger é imutável, então ingerir cedo congelaria um valor
+parcial para sempre.
+
+#### O que ainda falta
+
+- **Os repasses** (o dinheiro efetivamente liberado ao vendedor). A API de
+  faturamento cobre o que o ML *cobra*, não o que ele *paga*. Sem isso, os
+  `PayoutBatch` continuam vindo de outra origem.
+- **O detalhe por venda.** O faturamento vem agregado por período mensal, sem
+  vínculo com o pedido — por isso esses lançamentos não são alocados a nenhum
+  recebível. Existe um endpoint `/details` por período que traria o detalhe, mas
+  o schema da resposta ainda não foi confirmado.
 
 Sem credencial, a ingestão usa um provider de **simulação** que gera lançamentos
 fictícios — ligado por padrão só em desenvolvimento. Em produção é preciso
