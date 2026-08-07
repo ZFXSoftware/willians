@@ -25,9 +25,34 @@ module Omie
     # cria títulos e baixas de verdade na contabilidade dele.
     READ_PREFIXES = %w[Listar Consultar Pesquisar Obter].freeze
 
+    # O Omie serializa chamadas por método e recusa uma segunda enquanto a
+    # primeira roda: "Já existe uma requisição desse método sendo executada".
+    # É temporário e deve ser repetido — ao contrário dos demais erros de
+    # negócio, que são definitivos.
+    CONCURRENT_REQUEST = /j[áa] existe uma requisi[çc][ãa]o desse m[ée]todo/i
+
+    CONCURRENCY_BACKOFF = 3
+
+    # Proteção diferente e mais severa: repetir a MESMA requisição em sequência
+    # rende bloqueio de cerca de um minuto. Não é retentável de imediato — o
+    # certo é não repetir a chamada.
+    REDUNDANT_CONSUMPTION = /consumo redundante/i
+
     class Error < StandardError; end
 
     class TransportError < Error; end
+
+    class ConcurrentRequest < Error; end
+
+    class RedundantConsumption < Error
+      attr_reader :retry_after
+
+      def initialize(message, retry_after: nil)
+        @retry_after = retry_after
+
+        super(message)
+      end
+    end
 
     class WriteBlocked < Error; end
 
@@ -77,12 +102,13 @@ module Omie
         param: [params]
       }
 
-      response = post_with_retry(
-        uri_for(endpoint),
-        body
-      )
+      uri = uri_for(endpoint)
 
-      parse!(response, call)
+      # O parse entra no laço porque o erro de concorrência chega no corpo da
+      # resposta, não como falha de transporte.
+      with_retries do
+        parse!(post(uri, body), call)
+      end
     end
 
     private
@@ -107,13 +133,19 @@ module Omie
       )
     end
 
-    def post_with_retry(uri, body)
+    def with_retries
       attempt = 0
 
       begin
         attempt += 1
 
-        post(uri, body)
+        yield
+      rescue ConcurrentRequest
+        raise if attempt >= MAX_ATTEMPTS
+
+        sleep(CONCURRENCY_BACKOFF * attempt)
+
+        retry
       rescue *RETRIABLE => e
         raise TransportError, "Falha de rede ao chamar Omie: #{e.class} #{e.message}" if attempt >= MAX_ATTEMPTS
 
@@ -151,8 +183,19 @@ module Omie
       parsed = JSON.parse(response.body.to_s)
 
       if parsed.is_a?(Hash) && parsed["faultstring"].present?
+        fault = parsed["faultstring"]
+
+        raise ConcurrentRequest, "Omie ocupado em #{call}: #{fault}" if fault.match?(CONCURRENT_REQUEST)
+
+        if fault.match?(REDUNDANT_CONSUMPTION)
+          raise RedundantConsumption.new(
+            "Omie bloqueou #{call} por consumo redundante — a mesma requisição foi repetida. #{fault}",
+            retry_after: fault[/(\d+)\s*segundos?/, 1]&.to_i
+          )
+        end
+
         raise ApiError.new(
-          "Erro Omie em #{call}: #{parsed['faultstring']}",
+          "Erro Omie em #{call}: #{fault}",
           fault_code: parsed["faultcode"]
         )
       end
