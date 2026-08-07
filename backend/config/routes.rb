@@ -10,6 +10,14 @@ Rails.application.routes.draw do
     get    "me",       to: "me#show"
   end
 
+  get "painel", to: "painel#show"
+
+  get "integracoes", to: "integracoes#index"
+
+  get "divergencias", to: "divergencias#index"
+
+  get "conciliacoes/registros", to: "conciliacoes/registros#index"
+
   namespace :integracoes do
     post   "mercado-livre/autorizar",   to: "mercado_livre#autorizar"
     get    "mercado-livre/callback",    to: "mercado_livre#callback"
