@@ -1,6 +1,8 @@
 # app/models/tenant.rb
 
 class Tenant < ApplicationRecord
+  has_many :tenant_users, dependent: :destroy
+  has_many :users, through: :tenant_users
   has_many :platform_accounts, dependent: :destroy
   has_many :orders, dependent: :destroy
   has_many :invoices, dependent: :destroy

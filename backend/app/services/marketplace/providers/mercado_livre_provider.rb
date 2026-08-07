@@ -1,39 +1,23 @@
 module Marketplace
   module Providers
     class MercadoLivreProvider < BaseProvider
-      def financial_events(
-        start_date:,
-        end_date:
-      )
-        response =
-          client.get(
-            "/financial/events",
-            {
-              start_date: start_date,
-              end_date: end_date
-            }
-          )
+      SOURCE = :mercado_livre
 
-        response.map do |event|
-          normalize_event(event)
-        end
+      def financial_events(start_date:, end_date:)
+        client
+          .financial_events(
+            start_date: start_date,
+            end_date: end_date
+          )
+          .map { |event| normalize(SOURCE, event) }
       end
 
       private
 
       def client
-        @client ||= MercadoLivreClient.new(
-          access_token: account.access_token
+        @client ||= Marketplace::Clients::MercadoLivreClient.new(
+          access_token: access_token
         )
-      end
-
-      def normalize_event(event)
-        Marketplace::Normalizers::FinancialEntryNormalizer
-          .new(
-            source: :mercado_livre,
-            payload: event
-          )
-          .call
       end
     end
   end

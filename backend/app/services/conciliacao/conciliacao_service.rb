@@ -1,208 +1,107 @@
 module Conciliacao
+  # Orquestra a conciliação de todas as contas de marketplace no escopo pedido.
+  #
+  # Cada conta é isolada: uma falha de integração em uma delas não derruba as
+  # demais, apenas entra no resumo como falha.
   class ConciliacaoService
-    def initialize(data_inicio:, data_fim:)
-      @data_inicio = data_inicio
-      @data_fim    = data_fim
-      @omie        = OmieClient.new
-      @log_prefix  = "[ConciliacaoService]"
+    DEFAULT_WINDOW_DAYS = 30
+
+    LOG_PREFIX = "[ConciliacaoService]".freeze
+
+    def initialize(
+      omie_client: nil,
+      tenant: nil,
+      platform_account: nil,
+      start_date: nil,
+      end_date: nil
+    )
+      @omie_client = omie_client
+
+      @tenant = tenant
+
+      @platform_account = platform_account
+
+      @end_date = (end_date || Date.current).to_date
+
+      @start_date =
+        (start_date || @end_date - DEFAULT_WINDOW_DAYS).to_date
     end
 
-    def processar!
-      log "Iniciando conciliação #{@data_inicio} -> #{@data_fim}"
+    def processar
+      contas = platform_accounts.to_a
 
-      ActiveRecord::Base.transaction do
-        titulos = buscar_titulos_omie
-        movimentos = buscar_movimentos_marketplace
+      log "Conciliando #{contas.size} conta(s) de #{start_date} a #{end_date}"
 
-        index_movimentos = indexar_movimentos(movimentos)
+      resultados = contas.map { |conta| processar_conta(conta) }
 
-        titulos.each do |titulo|
-          processar_titulo(titulo, index_movimentos)
-        end
-      end
-
-      log "Conciliação finalizada com sucesso"
-      true
-    rescue => e
-      log "Erro geral: #{e.message}"
-      raise e
+      {
+        start_date: start_date,
+        end_date: end_date,
+        processed: resultados.count { |r| r[:status] == "completed" },
+        failed: resultados.count { |r| r[:status] == "failed" },
+        runs: resultados
+      }
     end
 
     private
 
-    # =========================
-    # OMIE
-    # =========================
+    attr_reader :omie_client,
+                :tenant,
+                :platform_account,
+                :start_date,
+                :end_date
 
-    def buscar_titulos_omie
-      log "Buscando títulos no OMIE"
+    def platform_accounts
+      return PlatformAccount.where(id: platform_account.id) if platform_account
 
-      response = @omie.call(
-        endpoint: "financas/contareceber/listar",
-        body: {
-          pagina: 1,
-          registros_por_pagina: 500,
-          apenas_importado_api: "N"
-        }
-      )
+      scope = PlatformAccount.where(status: :active)
 
-      response["conta_receber_cadastro"] || []
+      scope = scope.where(tenant: tenant) if tenant
+
+      scope.where(tenant: Tenant.where(status: :active))
     end
 
-    def baixar_titulo(titulo, valor, data)
-      log "Baixando título #{titulo['codigo_lancamento']} com valor #{valor}"
+    def processar_conta(conta)
+      run = build_engine(conta).call
 
-      @omie.call(
-        endpoint: "financas/contareceber/receber",
-        body: {
-          codigo_lancamento: titulo["codigo_lancamento"],
-          valor_recebido: valor,
-          data_recebimento: data
-        }
-      )
+      log "Conta #{conta.id} (#{conta.platform}): #{run.matches_found} match(es), #{run.divergences_found} divergência(s)"
+
+      {
+        platform_account_id: conta.id,
+        platform: conta.platform,
+        status: run.status,
+        conciliation_run_id: run.id,
+        total_entries: run.total_entries,
+        matches: run.matches_found,
+        divergences: run.divergences_found
+      }
+    rescue StandardError => e
+      Rails.logger.error "#{LOG_PREFIX} Falha na conta #{conta.id}: #{e.class} #{e.message}"
+
+      {
+        platform_account_id: conta.id,
+        platform: conta.platform,
+        status: "failed",
+        error: e.message
+      }
     end
 
-    def criar_ajuste(valor, descricao)
-      log "Criando ajuste: #{descricao} (#{valor})"
+    def build_engine(conta)
+      ConciliacaoEngine.new(
+        tenant: conta.tenant,
 
-      @omie.call(
-        endpoint: "financas/contapagar/incluir",
-        body: {
-          valor_documento: valor.abs,
-          data_vencimento: Date.today.to_s,
-          observacao: descricao
-        }
-      )
-    end
+        platform_account: conta,
 
-    # =========================
-    # MARKETPLACE (mock/pluggable)
-    # =========================
+        start_date: start_date,
 
-    def buscar_movimentos_marketplace
-      log "Buscando movimentos do marketplace"
+        end_date: end_date,
 
-      # TODO: substituir por integração real
-      ConciliacaoRegistro
-        .where(data: @data_inicio..@data_fim)
-        .to_a
-    end
-
-    def indexar_movimentos(movimentos)
-      movimentos.group_by { |m| m.external_id }
-    end
-
-    # =========================
-    # CORE
-    # =========================
-
-    def processar_titulo(titulo, index_movimentos)
-      external_id = extrair_external_id(titulo)
-
-      movimentos = index_movimentos[external_id]
-
-      if movimentos.blank?
-        registrar_nao_encontrado(titulo)
-        return
-      end
-
-      valor_omie = titulo["valor_documento"].to_f
-      valor_marketplace = movimentos.sum(&:valor)
-
-      if ja_conciliado?(titulo)
-        log "Título #{titulo['codigo_lancamento']} já conciliado — pulando"
-        return
-      end
-
-      if valores_batem?(valor_omie, valor_marketplace)
-        conciliar_perfeito(titulo, valor_marketplace)
-      else
-        conciliar_com_diferenca(titulo, valor_omie, valor_marketplace)
-      end
-    end
-
-    def extrair_external_id(titulo)
-      # Ajusta aqui conforme seu padrão
-      titulo["numero_documento_fiscal"] || titulo["numero_documento"]
-    end
-
-    def valores_batem?(v1, v2)
-      (v1 - v2).abs < 0.01
-    end
-
-    def ja_conciliado?(titulo)
-      ConciliacaoRegistro.exists?(
-        omie_id: titulo["codigo_lancamento"],
-        status: "conciliado"
+        omie_client: omie_client
       )
     end
 
-    # =========================
-    # TIPOS DE CONCILIAÇÃO
-    # =========================
-
-    def conciliar_perfeito(titulo, valor)
-      baixar_titulo(titulo, valor, Date.today.to_s)
-
-      salvar_registro(titulo, valor, valor, "conciliado")
-
-      log "Conciliado OK #{titulo['codigo_lancamento']}"
-    end
-
-    def conciliar_com_diferenca(titulo, valor_omie, valor_marketplace)
-      diferenca = valor_marketplace - valor_omie
-
-      baixar_titulo(titulo, valor_marketplace, Date.today.to_s)
-
-      criar_ajuste(
-        diferenca,
-        "Divergência conciliação título #{titulo['codigo_lancamento']}"
-      )
-
-      salvar_registro(
-        titulo,
-        valor_omie,
-        valor_marketplace,
-        "divergente",
-        diferenca
-      )
-
-      log "Conciliado com divergência #{titulo['codigo_lancamento']}: #{diferenca}"
-    end
-
-    def registrar_nao_encontrado(titulo)
-      salvar_registro(
-        titulo,
-        titulo["valor_documento"],
-        0,
-        "nao_encontrado"
-      )
-
-      log "Título sem correspondência #{titulo['codigo_lancamento']}"
-    end
-
-    # =========================
-    # PERSISTÊNCIA
-    # =========================
-
-    def salvar_registro(titulo, valor_omie, valor_marketplace, status, diferenca = 0)
-      ConciliacaoRegistro.create!(
-        omie_id: titulo["codigo_lancamento"],
-        external_id: extrair_external_id(titulo),
-        valor_omie: valor_omie,
-        valor_marketplace: valor_marketplace,
-        diferenca: diferenca,
-        status: status,
-        data: Date.today
-      )
-    end
-
-    # =========================
-    # LOG
-    # =========================
-
-    def log(msg)
-      Rails.logger.info "#{@log_prefix} #{msg}"
+    def log(message)
+      Rails.logger.info "#{LOG_PREFIX} #{message}"
     end
   end
 end

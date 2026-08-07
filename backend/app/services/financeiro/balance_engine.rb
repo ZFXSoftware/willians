@@ -28,38 +28,33 @@ module Financeiro
                 :platform_account
 
     def available_balance
-      settled_credits -
-        settled_debits
+      settled_by_direction["credit"] -
+        settled_by_direction["debit"]
     end
 
     def future_balance
-      scheduled_receivables.sum(
-        :net_amount
-      )
+      scheduled_receivables.sum(:net_amount)
     end
 
     def blocked_balance
-      disputed_entries.sum(
-        :amount
+      entries.where(status: :disputed).sum(:amount)
+    end
+
+    # Uma única varredura agrupada em vez de um SUM por direção.
+    def settled_by_direction
+      @settled_by_direction ||=
+        entries
+          .where(status: :settled)
+          .group(:direction)
+          .sum(:amount)
+          .tap { |totals| totals.default = BigDecimal("0") }
+    end
+
+    def entries
+      FinancialEntry.where(
+        tenant: tenant,
+        platform_account: platform_account
       )
-    end
-
-    def settled_credits
-      FinancialEntry.where(
-        tenant: tenant,
-        platform_account: platform_account,
-        direction: :credit,
-        status: :settled
-      ).sum(:amount)
-    end
-
-    def settled_debits
-      FinancialEntry.where(
-        tenant: tenant,
-        platform_account: platform_account,
-        direction: :debit,
-        status: :settled
-      ).sum(:amount)
     end
 
     def scheduled_receivables
@@ -70,14 +65,6 @@ module Financeiro
           :scheduled,
           :available
         ]
-      )
-    end
-
-    def disputed_entries
-      FinancialEntry.where(
-        tenant: tenant,
-        platform_account: platform_account,
-        status: :disputed
       )
     end
   end

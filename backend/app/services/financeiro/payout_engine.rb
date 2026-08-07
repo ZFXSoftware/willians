@@ -1,4 +1,8 @@
 module Financeiro
+  # Liquida os recebíveis agendados de uma conta em um repasse do marketplace.
+  #
+  # Idempotente pela referência externa do repasse: reprocessar o mesmo
+  # `payout_reference` devolve o lote já existente em vez de duplicar a baixa.
   class PayoutEngine
     def initialize(
       tenant:,
@@ -16,14 +20,21 @@ module Financeiro
     end
 
     def call
+      existing = find_payout
+
+      return existing if existing
+
       ActiveRecord::Base.transaction do
-        payout =
-          create_payout_batch!
+        payout = create_payout!(create_settlement_entry!)
 
         allocate_receivables!(payout)
 
+        settle_receivables!
+
         payout
       end
+    rescue ActiveRecord::RecordNotUnique
+      find_payout || raise
     end
 
     private
@@ -33,38 +44,50 @@ module Financeiro
                 :payout_reference,
                 :paid_at
 
-    def create_payout_batch!
-      existing_payout =
-        PayoutBatch.find_by(
-          tenant: tenant,
-          external_id: payout_reference
-        )
+    def find_payout
+      PayoutBatch.find_by(
+        tenant: tenant,
+        external_id: payout_reference
+      )
+    end
 
-      return existing_payout if existing_payout
+    def create_settlement_entry!
+      FinancialEntry.create!(
+        tenant: tenant,
 
-      settlement_entry =
-        FinancialEntry.create!(
-          tenant: tenant,
+        platform_account: platform_account,
 
-          platform_account: platform_account,
+        external_id: payout_reference,
 
-          external_id: payout_reference,
+        source: settlement_source,
 
-          source: platform_account.provider,
+        entry_type: :settlement,
 
-          entry_type: :settlement,
+        direction: :credit,
 
-          direction: :credit,
+        amount: totals[:net],
 
-          amount: receivables.sum(&:net_amount),
+        occurred_at: paid_at,
 
-          occurred_at: paid_at,
+        available_on: paid_at.to_date,
 
-          available_on: paid_at.to_date,
+        status: :settled,
 
-          status: :settled
-        )
+        raw_payload: {
+          platform: platform_account.platform,
+          receivable_ids: receivables.map(&:id)
+        }
+      )
+    end
 
+    # `source` é um enum mais restrito que a lista de plataformas suportadas.
+    def settlement_source
+      return platform_account.platform if FinancialEntry.sources.key?(platform_account.platform)
+
+      "manual"
+    end
+
+    def create_payout!(settlement_entry)
       PayoutBatch.create!(
         tenant: tenant,
 
@@ -76,60 +99,99 @@ module Financeiro
 
         status: :paid,
 
-        gross_amount:
-          receivables.sum(&:gross_amount),
+        gross_amount: totals[:gross],
 
-        fee_amount:
-          receivables.sum(&:fee_amount),
+        fee_amount: totals[:fee],
 
-        net_amount:
-          receivables.sum(&:net_amount),
+        net_amount: totals[:net],
 
         paid_at: paid_at
       )
     end
 
     def allocate_receivables!(payout)
-      receivables.each do |receivable|
-        allocate_receivable!(
-          payout,
-          receivable
-        )
+      now = Time.current
 
-        receivable.update!(
-          status: :paid,
-          released_on: paid_at.to_date
-        )
-      end
+      rows =
+        receivables.flat_map do |receivable|
+          receivable_allocations(receivable).map do |allocation|
+            {
+              tenant_id: tenant.id,
+
+              financial_entry_id: allocation.financial_entry_id,
+
+              receivable_unit_id: receivable.id,
+
+              payout_batch_id: payout.id,
+
+              order_id: allocation.order_id,
+
+              invoice_id: allocation.invoice_id,
+
+              allocation_type: "payout",
+
+              allocated_amount: allocation.allocated_amount,
+
+              amount: allocation.allocated_amount,
+
+              metadata: { payout_reference: payout_reference },
+
+              created_at: now,
+
+              updated_at: now
+            }
+          end
+        end
+
+      return if rows.empty?
+
+      FinancialEntryAllocation.insert_all(
+        rows,
+        unique_by: :idx_allocations_unique
+      )
     end
 
-    def allocate_receivable!(
-      payout,
+    def receivable_allocations(receivable)
       receivable
-    )
-      receivable.financial_entries.each do |entry|
-        FinancialEntryAllocation.create!(
-          financial_entry: entry,
+        .financial_entry_allocations
+        .select { |allocation| allocation.allocation_type == "receivable" }
+    end
 
-          receivable_unit: receivable,
+    def settle_receivables!
+      return if receivables.empty?
 
-          payout_batch: payout,
-
-          allocation_type: :payout,
-
-          amount: entry.amount
+      ReceivableUnit
+        .where(id: receivables.map(&:id))
+        .update_all(
+          status: "paid",
+          released_on: paid_at.to_date,
+          updated_at: Time.current
         )
-      end
+    end
+
+    def totals
+      @totals ||= {
+        gross: sum_of(:gross_amount),
+        fee: sum_of(:fee_amount),
+        net: sum_of(:net_amount)
+      }
+    end
+
+    def sum_of(field)
+      receivables.sum(BigDecimal("0")) { |receivable| receivable.public_send(field).to_d }
     end
 
     def receivables
       @receivables ||=
-        ReceivableUnit.where(
-          tenant: tenant,
-          platform_account: platform_account,
-          status: :scheduled,
-          expected_on: ..paid_at.to_date
-        )
+        ReceivableUnit
+          .where(
+            tenant: tenant,
+            platform_account: platform_account,
+            status: :scheduled
+          )
+          .where(expected_on: ..paid_at.to_date)
+          .includes(:financial_entry_allocations)
+          .to_a
     end
   end
 end

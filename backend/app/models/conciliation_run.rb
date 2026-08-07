@@ -1,6 +1,5 @@
 class ConciliationRun < ApplicationRecord
-  belongs_to :tenant,
-             optional: true
+  belongs_to :tenant
 
   belongs_to :platform_account,
              optional: true
@@ -13,5 +12,12 @@ class ConciliationRun < ApplicationRecord
     processing: "processing",
     completed: "completed",
     failed: "failed"
+  }
+
+  validates :platform,
+            presence: true
+
+  scope :recent, -> {
+    order(started_at: :desc)
   }
 end

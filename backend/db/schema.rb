@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_22_112831) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_07_120100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -78,6 +78,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_22_112831) do
     t.bigint "tenant_id", null: false
     t.datetime "updated_at", null: false
     t.index ["divergence_type"], name: "index_divergence_reports_on_divergence_type"
+    t.index ["financial_entry_id", "divergence_type", "status"], name: "idx_divergence_reports_unique", unique: true
     t.index ["financial_entry_id"], name: "index_divergence_reports_on_financial_entry_id"
     t.index ["status"], name: "index_divergence_reports_on_status"
     t.index ["tenant_id"], name: "index_divergence_reports_on_tenant_id"
@@ -151,6 +152,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_22_112831) do
     t.index ["invoice_id"], name: "index_financial_entry_allocations_on_invoice_id"
     t.index ["order_id"], name: "index_financial_entry_allocations_on_order_id"
     t.index ["payout_batch_id"], name: "index_financial_entry_allocations_on_payout_batch_id"
+    t.index ["receivable_unit_id", "financial_entry_id", "allocation_type"], name: "idx_allocations_unique", unique: true
     t.index ["receivable_unit_id"], name: "index_financial_entry_allocations_on_receivable_unit_id"
     t.index ["tenant_id"], name: "index_financial_entry_allocations_on_tenant_id"
   end
@@ -174,11 +176,51 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_22_112831) do
     t.index ["tenant_id"], name: "index_invoices_on_tenant_id"
   end
 
+  create_table "marketplace_credentials", force: :cascade do |t|
+    t.text "access_token"
+    t.datetime "created_at", null: false
+    t.datetime "expires_at"
+    t.string "external_user_id"
+    t.datetime "last_refreshed_at"
+    t.jsonb "metadata", default: {}, null: false
+    t.string "platform", null: false
+    t.bigint "platform_account_id", null: false
+    t.text "refresh_error"
+    t.datetime "refresh_failed_at"
+    t.text "refresh_token"
+    t.string "scope"
+    t.string "status", default: "connected", null: false
+    t.bigint "tenant_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["expires_at"], name: "index_marketplace_credentials_on_expires_at"
+    t.index ["platform_account_id"], name: "index_marketplace_credentials_on_platform_account_id", unique: true
+    t.index ["status"], name: "index_marketplace_credentials_on_status"
+    t.index ["tenant_id"], name: "index_marketplace_credentials_on_tenant_id"
+  end
+
   create_table "nota_fiscals", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "numero"
     t.datetime "updated_at", null: false
     t.decimal "valor"
+  end
+
+  create_table "oauth_states", force: :cascade do |t|
+    t.string "code_verifier"
+    t.datetime "consumed_at"
+    t.datetime "created_at", null: false
+    t.datetime "expires_at", null: false
+    t.string "platform", null: false
+    t.bigint "platform_account_id"
+    t.string "state", null: false
+    t.bigint "tenant_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["expires_at"], name: "index_oauth_states_on_expires_at"
+    t.index ["platform_account_id"], name: "index_oauth_states_on_platform_account_id"
+    t.index ["state"], name: "index_oauth_states_on_state", unique: true
+    t.index ["tenant_id"], name: "index_oauth_states_on_tenant_id"
+    t.index ["user_id"], name: "index_oauth_states_on_user_id"
   end
 
   create_table "omie_financial_mappings", force: :cascade do |t|
@@ -241,6 +283,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_22_112831) do
     t.datetime "updated_at", null: false
     t.index ["financial_entry_id"], name: "index_payout_batches_on_financial_entry_id"
     t.index ["platform_account_id"], name: "index_payout_batches_on_platform_account_id"
+    t.index ["tenant_id", "external_id"], name: "idx_payout_batches_unique", unique: true
     t.index ["tenant_id"], name: "index_payout_batches_on_tenant_id"
   end
 
@@ -298,13 +341,31 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_22_112831) do
     t.index ["tenant_id"], name: "index_receivable_units_on_tenant_id"
   end
 
+  create_table "sessions", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.datetime "expires_at", null: false
+    t.string "ip_address"
+    t.datetime "last_used_at"
+    t.datetime "revoked_at"
+    t.string "token_digest", null: false
+    t.datetime "updated_at", null: false
+    t.string "user_agent"
+    t.bigint "user_id", null: false
+    t.index ["expires_at"], name: "index_sessions_on_expires_at"
+    t.index ["token_digest"], name: "index_sessions_on_token_digest", unique: true
+    t.index ["user_id"], name: "index_sessions_on_user_id"
+  end
+
   create_table "tenant_users", force: :cascade do |t|
     t.datetime "created_at", null: false
-    t.string "role"
-    t.string "supabase_user_id"
+    t.string "role", default: "member", null: false
     t.bigint "tenant_id", null: false
     t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["role"], name: "index_tenant_users_on_role"
+    t.index ["tenant_id", "user_id"], name: "index_tenant_users_on_tenant_id_and_user_id", unique: true
     t.index ["tenant_id"], name: "index_tenant_users_on_tenant_id"
+    t.index ["user_id"], name: "index_tenant_users_on_user_id"
   end
 
   create_table "tenants", force: :cascade do |t|
@@ -320,9 +381,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_22_112831) do
 
   create_table "users", force: :cascade do |t|
     t.datetime "created_at", null: false
-    t.string "email"
-    t.string "name"
+    t.string "email", null: false
+    t.datetime "last_login_at"
+    t.string "name", null: false
+    t.string "password_digest"
+    t.string "status", default: "active", null: false
     t.datetime "updated_at", null: false
+    t.index ["email"], name: "index_users_on_email", unique: true
+    t.index ["status"], name: "index_users_on_status"
   end
 
   add_foreign_key "conciliacao_registros", "conciliation_runs"
@@ -348,6 +414,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_22_112831) do
   add_foreign_key "financial_entry_allocations", "tenants"
   add_foreign_key "invoices", "orders"
   add_foreign_key "invoices", "tenants"
+  add_foreign_key "marketplace_credentials", "platform_accounts"
+  add_foreign_key "marketplace_credentials", "tenants"
+  add_foreign_key "oauth_states", "platform_accounts"
+  add_foreign_key "oauth_states", "tenants"
+  add_foreign_key "oauth_states", "users"
   add_foreign_key "omie_financial_mappings", "financial_entries"
   add_foreign_key "omie_financial_mappings", "tenants"
   add_foreign_key "orders", "platform_accounts"
@@ -362,5 +433,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_22_112831) do
   add_foreign_key "receivable_units", "orders"
   add_foreign_key "receivable_units", "platform_accounts"
   add_foreign_key "receivable_units", "tenants"
+  add_foreign_key "sessions", "users"
   add_foreign_key "tenant_users", "tenants"
+  add_foreign_key "tenant_users", "users"
 end

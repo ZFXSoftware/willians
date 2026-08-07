@@ -1,3 +1,8 @@
+# Segredos
+.env
+.env.*
+!.env.example
+
 # Ruby / Rails
 /backend/log/*
 /backend/tmp/*

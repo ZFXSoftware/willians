@@ -31,6 +31,9 @@ class FinancialEntry < ApplicationRecord
   has_many :divergence_reports,
            dependent: :destroy
 
+  has_many :conciliacao_registros,
+           dependent: :nullify
+
   enum :entry_type, {
     sale: "sale",
     fee: "fee",
@@ -62,6 +65,7 @@ class FinancialEntry < ApplicationRecord
     mercado_livre: "mercado_livre",
     shopee: "shopee",
     amazon: "amazon",
+    magalu: "magalu",
     omie: "omie",
     manual: "manual"
   }
@@ -123,9 +127,9 @@ class FinancialEntry < ApplicationRecord
     update_column(:immutable, true)
   end
 
+  # Quem decide se o lançamento afeta um recebível é o engine: taxas e estornos
+  # chegam depois da venda e precisam recalcular o recebível já existente.
   def generate_receivable!
-    return unless sale?
-
     Financeiro::ReceivableEngine
       .new(
         financial_entry: self

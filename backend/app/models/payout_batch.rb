@@ -1,7 +1,9 @@
 class PayoutBatch < ApplicationRecord
   belongs_to :tenant
 
-  belongs_to :platform_account,
+  belongs_to :platform_account
+
+  belongs_to :financial_entry,
              optional: true
 
   has_many :financial_entry_allocations,
@@ -9,6 +11,9 @@ class PayoutBatch < ApplicationRecord
 
   has_many :financial_entries,
            through: :financial_entry_allocations
+
+  has_many :conciliacao_registros,
+           dependent: :nullify
 
   enum :status, {
     pending: "pending",

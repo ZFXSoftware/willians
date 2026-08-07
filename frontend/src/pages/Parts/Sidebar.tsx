@@ -6,10 +6,31 @@ import {
   LogOut,
 } from "lucide-react"
 
-import { Link, useLocation } from "react-router-dom"
+import { Link, useLocation, useNavigate } from "react-router-dom"
+import { useState } from "react"
+
+import { logout } from "../../api/auth"
+import { useAuth } from "../../store/useAuth"
 
 export default function Sidebar() {
   const location = useLocation()
+  const navigate = useNavigate()
+
+  const user = useAuth((state) => state.user)
+  const tenants = useAuth((state) => state.tenants)
+  const currentTenantId = useAuth((state) => state.currentTenantId)
+
+  const [signingOut, setSigningOut] = useState(false)
+
+  const currentTenant = tenants.find((t) => t.id === currentTenantId)
+
+  async function handleLogout() {
+    setSigningOut(true)
+
+    await logout()
+
+    navigate("/login", { replace: true })
+  }
 
   const items = [
     {
@@ -98,29 +119,34 @@ export default function Sidebar() {
       <div className="pt-6 border-t border-white/5">
         <div className="bg-white/5 border border-white/5 rounded-3xl p-4 mb-4">
           <p className="text-xs uppercase tracking-wider text-zinc-500">
-            Ambiente
+            Organização
           </p>
 
-          <div className="flex items-center justify-between mt-3">
-            <div>
-              <h3 className="text-white font-medium">
-                Produção
+          <div className="flex items-center justify-between mt-3 gap-3">
+            <div className="min-w-0">
+              <h3 className="text-white font-medium truncate">
+                {currentTenant?.name ?? "—"}
               </h3>
 
-              <p className="text-sm text-zinc-400 mt-1">
-                Sincronização ativa
+              <p className="text-sm text-zinc-400 mt-1 truncate">
+                {user?.email ?? ""}
+                {currentTenant ? ` · ${currentTenant.role}` : ""}
               </p>
             </div>
 
-            <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse shrink-0" />
           </div>
         </div>
 
-        <button className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-zinc-400 hover:bg-red-500/10 hover:text-red-400 transition-all duration-200">
+        <button
+          onClick={handleLogout}
+          disabled={signingOut}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-zinc-400 hover:bg-red-500/10 hover:text-red-400 transition-all duration-200 disabled:opacity-50"
+        >
           <LogOut size={18} />
 
           <span className="font-medium">
-            Sair
+            {signingOut ? "Saindo..." : "Sair"}
           </span>
         </button>
       </div>

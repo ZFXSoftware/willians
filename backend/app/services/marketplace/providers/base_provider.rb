@@ -5,9 +5,39 @@ module Marketplace
         @account = account
       end
 
+      # => Array de hashes normalizados (ver FinancialEntryNormalizer)
+      def financial_events(start_date:, end_date:)
+        raise NotImplementedError, "#{self.class} precisa implementar #financial_events"
+      end
+
+      # Credenciais vivem em marketplace_credentials, com os tokens cifrados.
+      def self.configured?(account)
+        MarketplaceCredential
+          .connected
+          .where(platform_account_id: account.id)
+          .where.not(access_token: nil)
+          .exists?
+      end
+
       private
 
       attr_reader :account
+
+      # Sempre passa pelo TokenProvider: ele renova se estiver perto de vencer.
+      def access_token
+        Marketplace::Credentials::TokenProvider
+          .new(platform_account: account)
+          .access_token
+      end
+
+      def normalize(source, payload)
+        Marketplace::Normalizers::FinancialEntryNormalizer
+          .new(
+            source: source,
+            payload: payload
+          )
+          .call
+      end
     end
   end
 end

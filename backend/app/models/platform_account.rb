@@ -5,6 +5,12 @@ class PlatformAccount < ApplicationRecord
 
   has_many :orders, dependent: :destroy
   has_many :financial_entries, dependent: :destroy
+  has_many :receivable_units, dependent: :destroy
+  has_many :payout_batches, dependent: :destroy
+  has_many :conciliation_runs, dependent: :destroy
+  has_many :platform_balance_snapshots, dependent: :destroy
+
+  has_one :marketplace_credential, dependent: :destroy
 
   enum :status, {
     active: "active",
@@ -12,10 +18,13 @@ class PlatformAccount < ApplicationRecord
     error: "error"
   }
 
-  enum :provider, {
+  # A coluna é `platform`. Não existe `provider` no schema — o enum anterior
+  # apontava para uma coluna inexistente e estourava em qualquer instanciação.
+  enum :platform, {
     mercado_livre: "mercado_livre",
     shopee: "shopee",
-    amazon: "amazon"
+    amazon: "amazon",
+    magalu: "magalu"
   }
 
   validates :name, presence: true

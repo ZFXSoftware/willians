@@ -1,58 +1,80 @@
 module Omie
   module Sync
+    # Baixa do título no OMIE.
+    #
+    # A chamada é `LancarRecebimento` (não existe `RegistrarRecebimento`) e os
+    # campos são codigo_lancamento / codigo_conta_corrente / valor / data.
     class SettlementSync
-      def initialize(financial_entry:)
-        @financial_entry =
-          financial_entry
+      ENDPOINT = "financas/contareceber/".freeze
+
+      CALL = "LancarRecebimento".freeze
+
+      class MissingMapping < StandardError; end
+
+      def initialize(financial_entry:, client: nil)
+        @financial_entry = financial_entry
+
+        @client = client
       end
 
       def call
-        return unless settlement?
+        return unless financial_entry.settlement?
 
-        client.request(
-          "/financas/contareceber/",
+        raise MissingMapping, "Lançamento #{financial_entry.id} não tem título no OMIE" if omie_financial_id.blank?
 
-          "RegistrarRecebimento",
+        response = client.request(ENDPOINT, CALL, request_payload)
 
-          request_payload
-        )
+        record_settlement!(response)
+
+        response
       end
 
       private
 
       attr_reader :financial_entry
 
-      def settlement?
-        financial_entry.settlement?
-      end
-
       def client
         @client ||=
-          OmieClient.new(
-            app_key:
-              ENV.fetch("OMIE_APP_KEY"),
+          Omie::Client.configured? ? Omie::Client.new : Omie::FakeOmieClient.new
+      end
 
-            app_secret:
-              ENV.fetch("OMIE_APP_SECRET")
-          )
+      def omie_financial_id
+        omie_mapping&.omie_financial_id
+      end
+
+      def omie_mapping
+        @omie_mapping ||= financial_entry.omie_financial_mapping
+      end
+
+      def settings
+        @settings ||= Omie::Settings.for(financial_entry)
       end
 
       def request_payload
         {
-          codigo_lancamento_omie:
-            omie_mapping.omie_id,
+          codigo_lancamento: omie_financial_id.to_i,
 
-          valor_recebido:
-            financial_entry.amount,
+          codigo_conta_corrente: settings.conta_corrente_id,
 
-          data_recebimento:
-            financial_entry.occurred_at
+          valor: financial_entry.amount.to_f,
+
+          data: financial_entry.occurred_at&.to_date&.strftime("%d/%m/%Y"),
+
+          observacao: "Baixa automática — #{financial_entry.external_id}"
         }
       end
 
-      def omie_mapping
-        financial_entry
-          .omie_financial_mapping
+      def record_settlement!(response)
+        return if omie_mapping.blank?
+
+        omie_mapping.update!(
+          metadata: omie_mapping.metadata.merge(
+            "baixa" => {
+              "codigo_baixa" => response["codigo_baixa"],
+              "registrada_em" => Time.current
+            }
+          )
+        )
       end
     end
   end
