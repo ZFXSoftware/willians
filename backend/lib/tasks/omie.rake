@@ -30,20 +30,47 @@ namespace :omie do
     puts "Nesta página:      #{titulos.size}"
     puts
 
-    com_integracao = titulos.count { |t| t["codigo_lancamento_integracao"].present? }
+    # Qual campo serve de chave de casamento é a decisão mais importante da
+    # conciliação, e só os dados reais respondem.
+    candidatos = %w[
+      codigo_lancamento_integracao
+      numero_documento_fiscal
+      numero_documento
+      numero_pedido
+      chave_nfe
+    ]
 
-    puts "Títulos com codigo_lancamento_integracao: #{com_integracao}/#{titulos.size}"
-    puts "  (é a chave que a conciliação usa para reencontrar o título — títulos"
-    puts "   lançados manualmente no ERP não têm esse código)"
+    puts "Preenchimento dos candidatos a chave de casamento:"
+
+    candidatos.each do |campo|
+      preenchidos = titulos.count { |t| t[campo].present? }
+
+      marca = preenchidos == titulos.size ? "  <-- serve" : ""
+
+      puts format("  %-30s %3d/%-3d%s", campo, preenchidos, titulos.size, marca)
+    end
+
+    puts
+    puts "Campos disponíveis no título (para achar outros candidatos):"
+    puts "  #{titulos.first&.keys&.sort&.join(', ')}"
     puts
 
     titulos.first(3).each_with_index do |t, i|
       puts "Amostra #{i + 1}:"
-      puts "  codigo_lancamento_omie:       #{t['codigo_lancamento_omie']}"
-      puts "  codigo_lancamento_integracao: #{t['codigo_lancamento_integracao'].inspect}"
-      puts "  numero_documento:             #{t['numero_documento'].inspect}"
-      puts "  valor_documento:              #{t['valor_documento']}"
-      puts "  data_vencimento:              #{t['data_vencimento']}"
+
+      (candidatos + %w[valor_documento data_vencimento status_titulo]).each do |campo|
+        puts format("  %-30s %s", campo + ":", t[campo].inspect)
+      end
+
+      puts
+    end
+
+    if ENV["FULL"].present?
+      puts "Título completo (FULL=1):"
+      puts JSON.pretty_generate(titulos.first)
+      puts
+    else
+      puts "Dica: rode com FULL=1 para ver um título inteiro."
       puts
     end
 

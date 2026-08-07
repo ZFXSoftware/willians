@@ -194,21 +194,28 @@ docker compose exec backend bin/rails omie:settings
 
 ## Limitações conhecidas
 
-### As credenciais do Omie são globais, não por cliente
+### Distância entre o construído e o briefing
 
-`Omie::Client` lê `OMIE_APP_KEY`/`OMIE_APP_SECRET` do ambiente — **um único par
-para toda a instância**. O resto do sistema é multi-tenant (tenants, papéis,
-consultas escopadas, e até os códigos de cliente/conta/categoria por conta de
-marketplace), mas a conexão com o ERP não é.
+O briefing ancora a conciliação na **nota fiscal**: baixa dos recebimentos das
+NFs, recebíveis futuros vinculados a NF e pedido, devoluções ligadas à NF de
+origem. Hoje a conciliação é ancorada no repasse, e a tabela `invoices` não é
+populada por ninguém.
 
-Com dois clientes na mesma instância, conciliar o Tenant B consultaria o Omie do
-Tenant A: leria os títulos de A, tentaria casar com os repasses de B e todo
-resultado sairia errado. Com `OMIE_ALLOW_WRITES=true`, lançaria os recebíveis de
-B na contabilidade de A.
+Também não existem, e estão no escopo: valores não vinculados em categoria
+transitória, transferências e pagamentos no modelo OMIE.Cash, contestação de
+divergência na central da plataforma, e o espelho do saldo da conta virtual.
 
-**Hoje o sistema só é seguro com um cliente por instância.** Para atender vários
-clientes no mesmo deploy é preciso mover a credencial para o banco, cifrada e por
-tenant, e fazer `Omie::Client` receber o tenant nos sete pontos de uso.
+### Dívida planejada: credencial do Omie é global
+
+`Omie::Client` lê `OMIE_APP_KEY`/`OMIE_APP_SECRET` do ambiente — um par para toda
+a instância. **Isso está correto para o modelo atual**, de um cliente por
+instância.
+
+Se o sistema virar SaaS multi-cliente, isso passa a ser uma falha grave:
+conciliar o Tenant B consultaria o Omie do Tenant A e todo resultado sairia
+errado. A correção é mover a credencial para o banco, cifrada por tenant, e fazer
+`Omie::Client` receber o tenant nos sete pontos de uso. A estrutura multi-tenant
+do resto do sistema já está pronta para isso.
 
 ### Não há tela de configuração
 
