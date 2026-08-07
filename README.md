@@ -171,6 +171,30 @@ docker compose exec backend bin/rails omie:settings
 
 ---
 
+## Limitações conhecidas
+
+### As credenciais do Omie são globais, não por cliente
+
+`Omie::Client` lê `OMIE_APP_KEY`/`OMIE_APP_SECRET` do ambiente — **um único par
+para toda a instância**. O resto do sistema é multi-tenant (tenants, papéis,
+consultas escopadas, e até os códigos de cliente/conta/categoria por conta de
+marketplace), mas a conexão com o ERP não é.
+
+Com dois clientes na mesma instância, conciliar o Tenant B consultaria o Omie do
+Tenant A: leria os títulos de A, tentaria casar com os repasses de B e todo
+resultado sairia errado. Com `OMIE_ALLOW_WRITES=true`, lançaria os recebíveis de
+B na contabilidade de A.
+
+**Hoje o sistema só é seguro com um cliente por instância.** Para atender vários
+clientes no mesmo deploy é preciso mover a credencial para o banco, cifrada e por
+tenant, e fazer `Omie::Client` receber o tenant nos sete pontos de uso.
+
+### Não há tela de configuração
+
+Credenciais e códigos do Omie só podem ser configurados por variável de ambiente
+ou editando `metadata` pelo console do Rails. A página de Integrações do frontend
+é mock.
+
 ## Estado do frontend
 
 As telas de Dashboard, Conciliação, Divergências e Integrações ainda usam dados
