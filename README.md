@@ -132,10 +132,19 @@ Chamadas máquina-a-máquina (worker/scheduler) usam o header `X-Service-Token`.
 | Integração    | Estado                                                             |
 | ------------- | ------------------------------------------------------------------ |
 | Omie          | leitura de títulos funcionando; escrita bloqueada por padrão       |
-| Mercado Livre | OAuth pronto; faturamento (encargos) lido; **repasses pendentes**   |
-| Shopee        | não implementada                                                   |
-| Amazon        | não implementada                                                   |
+| Amazon        | **conexão e leitura financeira completas**                         |
+| Mercado Livre | conexão pronta; faturamento lido; repasses pendentes               |
+| Shopee        | conexão pronta; **leitura financeira pendente**                    |
 | Magalu        | não implementada                                                   |
+
+As três conexões usam a mesma fundação: token cifrado em `marketplace_credentials`,
+`state` de uso único e renovação sob lock. O que muda é a autenticação de cada uma:
+
+| | Autenticação | access token | refresh token |
+| --- | --- | --- | --- |
+| Mercado Livre | OAuth 2.0, Bearer | 6 horas | uso único, 6 meses |
+| Shopee | HMAC-SHA256 por chamada | 4 horas | 30 dias |
+| Amazon | LWA (sem SigV4 desde 2023) | 1 hora | até o vendedor revogar |
 
 ### Conectando uma conta do Mercado Livre
 

@@ -41,6 +41,7 @@ export async function fetchIntegracoes(): Promise<IntegracoesResponse> {
 const ROTA_POR_PLATAFORMA: Record<string, string> = {
   mercado_livre: "mercado-livre",
   shopee: "shopee",
+  amazon: "amazon",
 }
 
 export function conexaoDisponivel(plataforma: string): boolean {

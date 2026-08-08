@@ -42,9 +42,13 @@ module Marketplace
 
       class Error < StandardError; end
 
-      class AuthError < Error; end
+      class AuthError < Error
+        include Marketplace::TokenRefreshRejected
+      end
 
       class ApiError < Error
+        include Marketplace::TokenRefreshRejected
+
         attr_reader :code
 
         def initialize(message, code: nil)

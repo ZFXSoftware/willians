@@ -2,17 +2,21 @@ module Marketplace
   module Credentials
     # Entrega um access_token válido, renovando quando está perto de vencer.
     #
-    # O refresh_token do Mercado Livre é de USO ÚNICO: cada renovação devolve um
-    # novo e invalida o anterior. Duas renovações concorrentes desconectariam a
-    # conta, então a renovação acontece sob lock de linha — quem chega depois
-    # recarrega e vê que já foi renovado.
+    # O refresh_token costuma ser de USO ÚNICO: cada renovação devolve um novo e
+    # invalida o anterior. Duas renovações concorrentes desconectariam a conta,
+    # então a renovação acontece sob lock de linha — quem chega depois recarrega
+    # e vê que já foi renovado.
+    #
+    # Recusa definitiva é sinalizada por Marketplace::TokenRefreshRejected, que
+    # todas as plataformas marcam nos seus erros de token.
     class TokenProvider
       # A Shopee assina cada chamada com o shop_id, então o cliente precisa
       # nascer sabendo de qual loja é — por isso a conta entra na construção,
       # mantendo `refresh(refresh_token:)` igual para todas as plataformas.
       OAUTH_CLIENTS = {
         "mercado_livre" => ->(_account) { Marketplace::MercadoLivre::OauthClient.new },
-        "shopee" => ->(account) { Marketplace::Shopee::OauthClient.new(shop_id: account.external_id) }
+        "shopee" => ->(account) { Marketplace::Shopee::OauthClient.new(shop_id: account.external_id) },
+        "amazon" => ->(_account) { Marketplace::Amazon::OauthClient.new }
       }.freeze
 
       class MissingCredential < StandardError; end
@@ -47,7 +51,7 @@ module Marketplace
 
           begin
             perform_refresh!(credential)
-          rescue Marketplace::MercadoLivre::OauthClient::TokenError => e
+          rescue Marketplace::TokenRefreshRejected => e
             failure = e
           end
         end

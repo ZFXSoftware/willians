@@ -3,7 +3,7 @@ class IntegracoesController < ApplicationController
 
   # Plataformas cuja conexão (OAuth) está pronta. A leitura financeira pode
   # ainda estar pendente — ver os providers.
-  IMPLEMENTADAS = %w[mercado_livre shopee].freeze
+  IMPLEMENTADAS = %w[mercado_livre shopee amazon].freeze
 
   def index
     contas = current_tenant

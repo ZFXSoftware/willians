@@ -25,6 +25,9 @@ Rails.application.routes.draw do
     post "shopee/autorizar", to: "shopee#autorizar"
     get  "shopee/callback",  to: "shopee#callback"
 
+    post "amazon/autorizar", to: "amazon#autorizar"
+    get  "amazon/callback",  to: "amazon#callback"
+
     # Vale para qualquer plataforma.
     delete "desconectar", to: "conexoes#destroy"
   end

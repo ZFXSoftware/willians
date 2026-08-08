@@ -8,7 +8,8 @@ module Marketplace
     class MarketplaceIngestor
       PROVIDERS = {
         "mercado_livre" => "Marketplace::Providers::MercadoLivreProvider",
-        "shopee" => "Marketplace::Providers::ShopeeProvider"
+        "shopee" => "Marketplace::Providers::ShopeeProvider",
+        "amazon" => "Marketplace::Providers::AmazonProvider"
       }.freeze
 
       FALLBACK_PROVIDER = "Marketplace::Providers::FakeProvider".freeze

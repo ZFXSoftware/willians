@@ -28,6 +28,8 @@ module Marketplace
       class ConfigError < Error; end
 
       class TokenError < Error
+        include Marketplace::TokenRefreshRejected
+
         attr_reader :code
 
         def initialize(message, code: nil)
