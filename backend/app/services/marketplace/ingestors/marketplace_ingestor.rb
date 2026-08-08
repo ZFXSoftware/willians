@@ -7,7 +7,8 @@ module Marketplace
     # evento — além de mais barato, evita abortar a transação no Postgres.
     class MarketplaceIngestor
       PROVIDERS = {
-        "mercado_livre" => "Marketplace::Providers::MercadoLivreProvider"
+        "mercado_livre" => "Marketplace::Providers::MercadoLivreProvider",
+        "shopee" => "Marketplace::Providers::ShopeeProvider"
       }.freeze
 
       FALLBACK_PROVIDER = "Marketplace::Providers::FakeProvider".freeze

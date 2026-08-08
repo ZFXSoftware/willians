@@ -7,8 +7,12 @@ module Marketplace
     # conta, então a renovação acontece sob lock de linha — quem chega depois
     # recarrega e vê que já foi renovado.
     class TokenProvider
+      # A Shopee assina cada chamada com o shop_id, então o cliente precisa
+      # nascer sabendo de qual loja é — por isso a conta entra na construção,
+      # mantendo `refresh(refresh_token:)` igual para todas as plataformas.
       OAUTH_CLIENTS = {
-        "mercado_livre" => "Marketplace::MercadoLivre::OauthClient"
+        "mercado_livre" => ->(_account) { Marketplace::MercadoLivre::OauthClient.new },
+        "shopee" => ->(account) { Marketplace::Shopee::OauthClient.new(shop_id: account.external_id) }
       }.freeze
 
       class MissingCredential < StandardError; end
@@ -112,11 +116,11 @@ module Marketplace
 
       def oauth_client
         @client ||= begin
-          name = OAUTH_CLIENTS[platform_account.platform.to_s]
+          fabrica = OAUTH_CLIENTS[platform_account.platform.to_s]
 
-          raise UnsupportedPlatform, "Sem cliente OAuth para #{platform_account.platform}" if name.blank?
+          raise UnsupportedPlatform, "Sem cliente OAuth para #{platform_account.platform}" if fabrica.blank?
 
-          name.constantize.new
+          fabrica.call(platform_account)
         end
       end
     end

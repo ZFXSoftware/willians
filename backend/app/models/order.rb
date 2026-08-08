@@ -14,6 +14,11 @@ class Order < ApplicationRecord
   has_many :financial_entry_allocations,
            dependent: :nullify
 
+  # Sem isto, apagar um pedido deixa recebíveis apontando para ele e a foreign
+  # key barra a exclusão.
+  has_many :receivable_units,
+           dependent: :nullify
+
   enum :status, {
     pending: "pending",
     approved: "approved",

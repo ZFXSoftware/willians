@@ -34,6 +34,9 @@ class FinancialEntry < ApplicationRecord
   has_many :conciliacao_registros,
            dependent: :nullify
 
+  has_many :payout_batches,
+           dependent: :nullify
+
   enum :entry_type, {
     sale: "sale",
     fee: "fee",

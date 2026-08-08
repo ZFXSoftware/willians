@@ -11,6 +11,9 @@ class Invoice < ApplicationRecord
   has_many :financial_entry_allocations,
            dependent: :nullify
 
+  has_many :receivable_units,
+           dependent: :nullify
+
   enum :status, {
     issued: "issued",
     cancelled: "cancelled",

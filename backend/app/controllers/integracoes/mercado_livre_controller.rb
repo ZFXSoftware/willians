@@ -7,7 +7,7 @@ module Integracoes
 
     before_action :require_tenant!, only: :autorizar
 
-    before_action :authorize_write!, only: [:autorizar, :desconectar]
+    before_action :authorize_write!, only: :autorizar
 
     def autorizar
       resultado = Marketplace::MercadoLivre::Authorization.new(
@@ -40,23 +40,6 @@ module Integracoes
       Rails.logger.error "[MercadoLivre] callback: #{e.class} #{e.message}"
 
       redirect_with(status: "erro", message: e.message)
-    end
-
-    def desconectar
-      credential = MarketplaceCredential
-                     .joins(:platform_account)
-                     .where(platform_accounts: { tenant_id: accessible_tenants.select(:id) })
-                     .find_by!(platform_account_id: params[:platform_account_id])
-
-      credential.update!(
-        status: :revoked,
-        access_token: nil,
-        refresh_token: nil
-      )
-
-      head :no_content
-    rescue ActiveRecord::RecordNotFound
-      render json: { error: "Conexão não encontrada" }, status: :not_found
     end
 
     private

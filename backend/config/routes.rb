@@ -19,9 +19,14 @@ Rails.application.routes.draw do
   get "conciliacoes/registros", to: "conciliacoes/registros#index"
 
   namespace :integracoes do
-    post   "mercado-livre/autorizar",   to: "mercado_livre#autorizar"
-    get    "mercado-livre/callback",    to: "mercado_livre#callback"
-    delete "mercado-livre/desconectar", to: "mercado_livre#desconectar"
+    post "mercado-livre/autorizar", to: "mercado_livre#autorizar"
+    get  "mercado-livre/callback",  to: "mercado_livre#callback"
+
+    post "shopee/autorizar", to: "shopee#autorizar"
+    get  "shopee/callback",  to: "shopee#callback"
+
+    # Vale para qualquer plataforma.
+    delete "desconectar", to: "conexoes#destroy"
   end
 
   post "/conciliacoes/processar", to: "conciliacoes#processar"

@@ -37,10 +37,25 @@ export async function fetchIntegracoes(): Promise<IntegracoesResponse> {
   return data
 }
 
-export async function conectarMercadoLivre(
+// A rota usa hífen; o banco guarda a plataforma com underline.
+const ROTA_POR_PLATAFORMA: Record<string, string> = {
+  mercado_livre: "mercado-livre",
+  shopee: "shopee",
+}
+
+export function conexaoDisponivel(plataforma: string): boolean {
+  return plataforma in ROTA_POR_PLATAFORMA
+}
+
+export async function conectar(
+  plataforma: string,
   platformAccountId?: number,
 ): Promise<{ authorization_url: string }> {
-  const { data } = await api.post("/integracoes/mercado-livre/autorizar", {
+  const rota = ROTA_POR_PLATAFORMA[plataforma]
+
+  if (!rota) throw new Error(`Conexão com ${plataforma} não implementada`)
+
+  const { data } = await api.post(`/integracoes/${rota}/autorizar`, {
     platform_account_id: platformAccountId,
   })
 
@@ -48,7 +63,7 @@ export async function conectarMercadoLivre(
 }
 
 export async function desconectar(platformAccountId: number): Promise<void> {
-  await api.delete("/integracoes/mercado-livre/desconectar", {
+  await api.delete("/integracoes/desconectar", {
     params: { platform_account_id: platformAccountId },
   })
 }

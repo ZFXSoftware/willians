@@ -11,6 +11,12 @@ class Tenant < ApplicationRecord
   has_many :omie_financial_mappings, dependent: :destroy
   has_many :conciliation_runs, dependent: :destroy
   has_many :divergence_reports, dependent: :destroy
+  has_many :receivable_units, dependent: :destroy
+  has_many :payout_batches, dependent: :destroy
+  has_many :platform_balance_snapshots, dependent: :destroy
+  has_many :marketplace_credentials, dependent: :destroy
+  has_many :conciliacao_registros, dependent: :destroy
+  has_many :oauth_states, dependent: :destroy
 
   enum :status, {
     active: "active",

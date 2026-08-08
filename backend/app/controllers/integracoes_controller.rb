@@ -1,9 +1,9 @@
 class IntegracoesController < ApplicationController
   before_action :require_tenant!
 
-  # Plataformas com provider implementado. As demais aparecem como disponíveis
-  # para conectar, mas sem integração pronta.
-  IMPLEMENTADAS = %w[mercado_livre].freeze
+  # Plataformas cuja conexão (OAuth) está pronta. A leitura financeira pode
+  # ainda estar pendente — ver os providers.
+  IMPLEMENTADAS = %w[mercado_livre shopee].freeze
 
   def index
     contas = current_tenant

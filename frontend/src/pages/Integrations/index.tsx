@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 
 import {
-  conectarMercadoLivre,
+  conectar,
   desconectar,
   fetchIntegracoes,
   type Integracao,
@@ -46,12 +46,12 @@ export default function Integrations() {
     setParams(params, { replace: true })
   }
 
-  async function conectar(conta: Integracao) {
+  async function iniciarConexao(conta: Integracao) {
     setAcao(conta.id)
     setAviso(null)
 
     try {
-      const { authorization_url } = await conectarMercadoLivre(conta.id)
+      const { authorization_url } = await conectar(conta.plataforma, conta.id)
       window.location.href = authorization_url
     } catch (e) {
       setAviso(errorMessage(e, "Não foi possível iniciar a conexão"))
@@ -245,7 +245,7 @@ export default function Integrations() {
                         </button>
                       ) : (
                         <button
-                          onClick={() => conectar(conta)}
+                          onClick={() => iniciarConexao(conta)}
                           disabled={ocupado}
                           className="flex-1 flex items-center justify-center gap-2 bg-white text-black hover:opacity-90 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
                         >
