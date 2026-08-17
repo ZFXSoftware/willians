@@ -2,7 +2,8 @@ namespace :tiny do
   desc "Testa a conexão com o Tiny e mede o elo pedido -> NF (SOMENTE LEITURA)"
   task check: :environment do
     unless Fiscal::Tiny::Settings.configured?
-      abort "TINY_TOKEN não configurado. Gere em Configurações > Geral > Token API no Tiny."
+      abort "TINY_TOKEN não configurado. No Tiny: instale a extensão 'Token API' em " \
+            "Início > Extensões da Olist, depois Configurações > aba E-commerce > Token API."
     end
 
     dias = (ENV["DIAS"] || 30).to_i

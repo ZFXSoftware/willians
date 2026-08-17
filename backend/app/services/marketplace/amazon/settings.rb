@@ -43,6 +43,13 @@ module Marketplace
 
       def self.app_id = ENV["AMAZON_APP_ID"].presence
 
+      # App recém-registrado no Seller Central nasce em rascunho, e nesse estado
+      # a autorização exige `version=beta`. Ligue enquanto testa; desligue ao
+      # publicar o app.
+      def self.draft_app?
+        %w[true 1].include?(ENV["AMAZON_APP_DRAFT"].to_s.strip.downcase)
+      end
+
       def self.host
         ENV["AMAZON_HOST"].presence ||
           REGIONS.fetch(ENV["AMAZON_REGION"].presence || DEFAULT_REGION, REGIONS[DEFAULT_REGION])

@@ -38,16 +38,25 @@ module Marketplace
       def self.configured? = Settings.configured?
 
       # A autorização acontece no Seller Central, não num domínio de API.
+      #
+      # Enquanto o app está em RASCUNHO no Seller Central, a Amazon exige
+      # `version=beta` na URL — sem isso a autorização é recusada. Depois de
+      # publicar o app, o parâmetro precisa sair. Como o código não tem como
+      # saber o estado do app, isso é explícito por ambiente.
       def authorization_url(state:, redirect_uri:)
         ensure_configured!
 
-        uri = URI.parse(Settings.consent_url)
-
-        uri.query = URI.encode_www_form(
+        params = {
           application_id: Settings.app_id,
           state: state,
           redirect_uri: redirect_uri
-        )
+        }
+
+        params[:version] = "beta" if Settings.draft_app?
+
+        uri = URI.parse(Settings.consent_url)
+
+        uri.query = URI.encode_www_form(params)
 
         uri.to_s
       end

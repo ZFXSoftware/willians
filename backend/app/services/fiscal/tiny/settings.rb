@@ -38,8 +38,9 @@ module Fiscal
         return if configured?
 
         raise MissingConfig,
-              "TINY_TOKEN não configurado. Gere o token nas configurações do Tiny " \
-              "(Configurações > Geral > Token API) e preencha o .env."
+              "TINY_TOKEN não configurado. No Tiny: Início > Extensões da Olist > " \
+              "instale 'Token API' (seção Vendas); depois Configurações > aba " \
+              "E-commerce > Token API. Preencha TINY_TOKEN no .env."
       end
     end
   end
