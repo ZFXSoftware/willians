@@ -25,6 +25,7 @@ module Omie
         :valor,
         :vencimento,
         :status,
+        :previsao,
         :cliente_id,
         :conta_corrente_id,
         keyword_init: true
@@ -118,6 +119,7 @@ module Omie
           valor: registro["valor_documento"].to_d,
           vencimento: registro["data_vencimento"],
           status: registro["status_titulo"],
+          previsao: registro["data_previsao"],
           cliente_id: registro["codigo_cliente_fornecedor"],
           conta_corrente_id: registro["id_conta_corrente"]
         )
