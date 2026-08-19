@@ -9,8 +9,10 @@
 DEFAULT_ORIGINS = %w[
   http://localhost:5173
   http://localhost:3050
+  http://localhost:8080
   http://127.0.0.1:5173
   http://127.0.0.1:3050
+  http://127.0.0.1:8080
 ].freeze
 
 allowed_origins =

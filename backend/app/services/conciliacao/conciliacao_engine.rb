@@ -26,12 +26,24 @@ module Conciliacao
       nao_encontrado: "titulo_nao_encontrado"
     }.freeze
 
+    # Índice de títulos do OMIE por referência. Fica na classe porque o serviço
+    # carrega uma vez e injeta em todas as contas da execução.
+    def self.carregar_totais(client:, start_date:, end_date:)
+      Omie::Readers::ReceivableTotals
+        .new(client: client)
+        .call(
+          start_date: start_date.to_date - EMISSION_LOOKBACK_DAYS,
+          end_date: end_date
+        )
+    end
+
     def initialize(
       tenant:,
       platform_account:,
       start_date:,
       end_date:,
-      omie_client: nil
+      omie_client: nil,
+      omie_totals: nil
     )
       @tenant = tenant
 
@@ -42,6 +54,12 @@ module Conciliacao
       @end_date = end_date.to_date
 
       @omie_client = omie_client || default_client
+
+      # Os títulos são da EMPRESA, não da conta de marketplace. Quando várias
+      # contas são conciliadas na mesma execução, o índice é carregado uma vez
+      # e injetado aqui — buscar por conta repetiria a mesma requisição e o
+      # Omie bloqueia por consumo redundante.
+      @omie_totals = omie_totals
 
       @counters = Hash.new(0)
     end
@@ -69,6 +87,7 @@ module Conciliacao
                 :start_date,
                 :end_date,
                 :omie_client,
+                :omie_totals,
                 :counters,
                 :run
 
@@ -92,13 +111,13 @@ module Conciliacao
       )
     end
 
+    # Já veio carregado pelo serviço quando há mais de uma conta na execução.
     def fetch_omie_totals
-      Omie::Readers::ReceivableTotals
-        .new(client: omie_client)
-        .call(
-          start_date: start_date - EMISSION_LOOKBACK_DAYS,
-          end_date: end_date
-        )
+      omie_totals || self.class.carregar_totais(
+        client: omie_client,
+        start_date: start_date,
+        end_date: end_date
+      )
     end
 
     def process_payouts!(omie_totals)

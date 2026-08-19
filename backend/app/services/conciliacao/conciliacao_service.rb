@@ -32,7 +32,10 @@ module Conciliacao
 
       log "Conciliando #{contas.size} conta(s) de #{start_date} a #{end_date}"
 
-      resultados = contas.map { |conta| processar_conta(conta) }
+      # Uma leitura só do Omie para todas as contas.
+      totais = carregar_totais_omie(contas)
+
+      resultados = contas.map { |conta| processar_conta(conta, totais) }
 
       {
         start_date: start_date,
@@ -61,8 +64,26 @@ module Conciliacao
       scope.where(tenant: Tenant.where(status: :active))
     end
 
-    def processar_conta(conta)
-      run = build_engine(conta).call
+    # Os títulos a receber são da empresa e não variam por conta de marketplace.
+    # Buscá-los uma vez por conta faria requisições idênticas em sequência, e o
+    # Omie responde a isso bloqueando por "consumo redundante".
+    def carregar_totais_omie(contas)
+      return if contas.empty?
+
+      ConciliacaoEngine.carregar_totais(
+        client: omie_client || (Omie::Client.configured? ? Omie::Client.new : Omie::FakeOmieClient.new),
+        start_date: start_date,
+        end_date: end_date
+      )
+    rescue StandardError => e
+      # Sem o índice, cada conta tenta por conta própria e reporta o erro dela.
+      Rails.logger.warn "#{LOG_PREFIX} não consegui carregar os títulos de uma vez: #{e.class} #{e.message}"
+
+      nil
+    end
+
+    def processar_conta(conta, totais = nil)
+      run = build_engine(conta, totais).call
 
       log "Conta #{conta.id} (#{conta.platform}): #{run.matches_found} match(es), #{run.divergences_found} divergência(s)"
 
@@ -86,7 +107,7 @@ module Conciliacao
       }
     end
 
-    def build_engine(conta)
+    def build_engine(conta, totais = nil)
       ConciliacaoEngine.new(
         tenant: conta.tenant,
 
@@ -96,7 +117,9 @@ module Conciliacao
 
         end_date: end_date,
 
-        omie_client: omie_client
+        omie_client: omie_client,
+
+        omie_totals: totais
       )
     end
 
