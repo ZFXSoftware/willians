@@ -3,7 +3,7 @@ import { startHttpServer } from "./http/server"
 import { startWorker } from "./workers/conciliacao.worker"
 import { startScheduler } from "./schedulers/conciliacao.scheduler"
 
-const MODE = process.env.MODE ?? "api"
+const MODE = process.env.MODE || "api"
 
 // Os módulos são importados sem efeito colateral: antes, o import do worker no
 // topo do arquivo subia um consumidor da fila também nos modos api e scheduler.

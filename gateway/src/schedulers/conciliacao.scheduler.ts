@@ -2,7 +2,7 @@ import { conciliacaoQueue } from "../queues/conciliacao.queue"
 
 const SCHEDULER_ID = "conciliacao-periodica"
 
-const EVERY_MS = Number(process.env.CONCILIACAO_INTERVAL_MS ?? 5 * 60 * 1000)
+const EVERY_MS = Number(process.env.CONCILIACAO_INTERVAL_MS || 5 * 60 * 1000)
 
 // Job repetível do BullMQ em vez de setInterval: o agendamento vive no Redis,
 // sobrevive a restart do container e não duplica se mais de um scheduler subir.

@@ -1,7 +1,7 @@
 import express from "express"
 import { router } from "./routes"
 
-const PORT = Number(process.env.PORT ?? 3001)
+const PORT = Number(process.env.PORT || 3001)
 
 export function startHttpServer() {
   const app = express()

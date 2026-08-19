@@ -4,8 +4,8 @@ import { useAuth } from "../store/useAuth"
 
 // Rails (autenticação, dados) e gateway (disparo da conciliação) ficam em
 // portas diferentes — ver docker-compose.
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3053"
-const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL ?? "http://localhost:3051"
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3053"
+const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || "http://localhost:3051"
 
 function withAuth(instance: AxiosInstance): AxiosInstance {
   instance.interceptors.request.use((config) => {

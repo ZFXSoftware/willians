@@ -3,9 +3,9 @@ import axios from "axios"
 // Uma conciliação varre todos os repasses da janela e chama o OMIE — 10s
 // estouravam antes do Rails responder e o job era marcado como falho mesmo
 // quando o processamento seguia até o fim.
-const TIMEOUT_MS = Number(process.env.RAILS_TIMEOUT_MS ?? 120_000)
+const TIMEOUT_MS = Number(process.env.RAILS_TIMEOUT_MS || 120_000)
 
-const SERVICE_TOKEN = process.env.SERVICE_API_TOKEN ?? ""
+const SERVICE_TOKEN = process.env.SERVICE_API_TOKEN || ""
 
 if (!SERVICE_TOKEN) {
   console.warn(
@@ -13,7 +13,7 @@ if (!SERVICE_TOKEN) {
   )
 }
 
-const baseURL = process.env.RAILS_URL ?? "http://backend:3000"
+const baseURL = process.env.RAILS_URL || "http://backend:3000"
 
 // Chamadas máquina-a-máquina (worker/scheduler): carregam a credencial de
 // serviço, que vale por todos os tenants.
