@@ -19,6 +19,13 @@ module Omie
 
     CATEGORIAS_KEY = "omie_categorias".freeze
 
+    # Categorias para valores sem vínculo com pedido ou nota (briefing 2.6).
+    # Não têm padrão: são códigos do plano de contas de cada empresa, e chutar
+    # um lançaria receita ou despesa na conta errada.
+    TRANSITORIA_RECEITA_KEY = "omie_categoria_transitoria_receita".freeze
+
+    TRANSITORIA_DESPESA_KEY = "omie_categoria_transitoria_despesa".freeze
+
     DEFAULT_CATEGORIES = {
       "sale" => "1.01.01",
       "fee" => "1.02.01",
@@ -54,6 +61,17 @@ module Omie
       configured = categorias[entry_type.to_s].presence
 
       configured || DEFAULT_CATEGORIES.fetch(entry_type.to_s, FALLBACK_CATEGORY)
+    end
+
+    # direction: :credit (recebido) ou :debit (cobrado)
+    def categoria_transitoria(direction)
+      chave = direction.to_s == "credit" ? TRANSITORIA_RECEITA_KEY : TRANSITORIA_DESPESA_KEY
+
+      valor = lookup(chave)
+
+      raise MissingConfig, mensagem_transitoria(chave, direction) if valor.blank?
+
+      valor.to_s
     end
 
     def categorias
@@ -118,6 +136,15 @@ module Omie
       fetch_integer!(key)
     rescue MissingConfig
       nil
+    end
+
+    def mensagem_transitoria(chave, direction)
+      tipo = direction.to_s == "credit" ? "receita (1.x)" : "despesa (2.x)"
+
+      "#{chave} não configurado. É a categoria de #{tipo} onde entram os valores " \
+        "sem vínculo com pedido ou nota fiscal. Escolha uma no plano de contas do " \
+        "OMIE (ListarCategorias) e grave em platform_account.metadata ou " \
+        "tenant.metadata, ou defina #{chave.upcase} no ambiente."
     end
 
     def missing_message(key)
