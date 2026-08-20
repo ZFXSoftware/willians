@@ -28,24 +28,35 @@ module Conciliacao
     end
 
     def processar
-      Current.with_tenant(tenant) do
-        contas = platform_accounts.to_a
+      # Agrupado por empresa porque as credenciais do OMIE são dela: o
+      # disparo agendado vem sem tenant e varre todo mundo de uma vez.
+      grupos = platform_accounts.includes(:tenant).group_by(&:tenant)
 
-        log "Conciliando #{contas.size} conta(s) de #{start_date} a #{end_date}"
+      log "Conciliando #{grupos.values.sum(&:size)} conta(s) em #{grupos.size} empresa(s), " \
+          "de #{start_date} a #{end_date}"
 
-        # Uma leitura só do Omie para todas as contas.
-        totais = carregar_totais_omie(contas)
+      simulacoes = []
 
-        resultados = contas.map { |conta| processar_conta(conta, totais) }
+      resultados = grupos.flat_map do |empresa, contas|
+        Current.with_tenant(empresa) do
+          simulacoes << empresa.name unless credenciais_reais?
 
-        {
-          start_date: start_date,
-          end_date: end_date,
-          processed: resultados.count { |r| r[:status] == "completed" },
-          failed: resultados.count { |r| r[:status] == "failed" },
-          runs: resultados
-        }
+          # Uma leitura só do OMIE para todas as contas da empresa.
+          totais = carregar_totais_omie(contas)
+
+          contas.map { |conta| processar_conta(conta, totais) }
+        end
       end
+
+      {
+        start_date: start_date,
+        end_date: end_date,
+        processed: resultados.count { |r| r[:status] == "completed" },
+        failed: resultados.count { |r| r[:status] == "failed" },
+        simulacao: simulacoes.any?,
+        empresas_em_simulacao: simulacoes,
+        runs: resultados
+      }
     end
 
     private
@@ -66,6 +77,12 @@ module Conciliacao
       scope.where(tenant: Tenant.where(status: :active))
     end
 
+    # Sem credencial do OMIE a conciliação roda contra o cliente de simulação —
+    # útil em desenvolvimento, mas o resultado não vale como conferência.
+    def credenciais_reais?
+      omie_client.present? || Omie::Client.configured?
+    end
+
     # Os títulos a receber são da empresa e não variam por conta de marketplace.
     # Buscá-los uma vez por conta faria requisições idênticas em sequência, e o
     # Omie responde a isso bloqueando por "consumo redundante".
@@ -73,7 +90,7 @@ module Conciliacao
       return if contas.empty?
 
       ConciliacaoEngine.carregar_totais(
-        client: omie_client || (Omie::Client.configured? ? Omie::Client.new : Omie::FakeOmieClient.new),
+        client: omie_client || (credenciais_reais? ? Omie::Client.new : Omie::FakeOmieClient.new),
         start_date: start_date,
         end_date: end_date
       )

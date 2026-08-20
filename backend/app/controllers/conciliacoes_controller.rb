@@ -4,14 +4,14 @@ class ConciliacoesController < ApplicationController
   before_action :authorize_write!
 
   def processar
-    Rails.logger.warn "[Conciliacoes] Rodando em modo SIMULAÇÃO (sem credencial Omie)" unless Omie::Client.configured?
-
     resumo = Conciliacao::ConciliacaoService.new(**service_args).processar
 
-    render json: resumo.merge(
-      status: "ok",
-      simulacao: !Omie::Client.configured?
-    )
+    if resumo[:simulacao]
+      Rails.logger.warn "[Conciliacoes] SIMULAÇÃO (sem credencial do OMIE): " \
+                        "#{resumo[:empresas_em_simulacao].join(', ')}"
+    end
+
+    render json: resumo.merge(status: "ok")
   rescue ActiveRecord::RecordNotFound
     render json: { status: "error", error: "Conta de marketplace não encontrada" }, status: :not_found
   rescue ArgumentError, Date::Error => e
