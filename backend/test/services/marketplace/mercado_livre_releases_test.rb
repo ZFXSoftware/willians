@@ -1,0 +1,166 @@
+require "test_helper"
+
+module Marketplace
+  # O relatório de Liberações é o extrato do dinheiro do Mercado Pago. É a
+  # única fonte do ML que traz ORDER_ID junto com o valor bruto — sem ele não
+  # há como ligar o repasse à nota fiscal, e a baixa automática não acontece.
+  class MercadoLivreReleasesTest < ActiveSupport::TestCase
+    ML = Marketplace::MercadoLivre
+
+    DE = Date.new(2026, 8, 1)
+
+    ATE = Date.new(2026, 8, 7)
+
+    # Colunas conferidas na documentação. Traz de propósito: uma venda com
+    # deduções, um estorno, um saque e as linhas de resumo.
+    CSV_RELATORIO = <<~CSV
+      DATE,SOURCE_ID,EXTERNAL_REFERENCE,ORDER_ID,RECORD_TYPE,DESCRIPTION,GROSS_AMOUNT,MP_FEE_AMOUNT,SHIPPING_FEE_AMOUNT,TAXES_AMOUNT,NET_CREDIT_AMOUNT,NET_DEBIT_AMOUNT,PAYMENT_METHOD
+      2026-08-01T10:00:00Z,,,,initial_available_balance,Saldo anterior,0,0,0,0,0,0,
+      2026-08-02T10:00:00Z,PAY-111,,2000000111,release,Venda,150.00,-15.50,-8.00,-2.25,124.25,0,credit_card
+      2026-08-03T10:00:00Z,PAY-222,,2000000222,release,Estorno,-40.00,4.10,0,0,0,35.90,credit_card
+      2026-08-04T10:00:00Z,PAY-333,,,payout,Transferência bancária,0,0,0,0,0,100.00,
+      2026-08-05T10:00:00Z,PAY-444,,2000000444,chargeback,Contestação,-30.00,0,0,0,0,30.00,
+      2026-08-06T10:00:00Z,PAY-555,,2000000555,tipo_novo_do_ml,Algo que não conhecemos,-5.00,0,0,0,0,5.00,
+      2026-08-07T10:00:00Z,,,,total,Valor líquido total,0,0,0,0,124.25,0,
+    CSV
+
+    def eventos(csv = CSV_RELATORIO)
+      ML::ReleaseEvents.new(csv: csv).call
+    end
+
+    def por_id(csv = CSV_RELATORIO)
+      eventos(csv).index_by { |e| e[:external_id] }
+    end
+
+    # ----------------------------------------------------------- normalização
+
+    test "a venda entra pelo bruto, vinculada ao pedido" do
+      venda = por_id.fetch("MLREL-PAY-111-SALE")
+
+      # Bruto, e não líquido: é assim que o título existe no OMIE, e é o que a
+      # conciliação compara.
+      assert_equal BigDecimal("150.00"), venda[:amount]
+      assert_equal :sale, venda[:entry_type]
+      assert_equal :credit, venda[:direction]
+      assert_equal "2000000111", venda[:external_order_id], "o elo com a NF do Tiny"
+    end
+
+    test "cada dedução vira um lançamento discriminado" do
+      lancamentos = por_id
+
+      tarifa = lancamentos.fetch("MLREL-PAY-111-FEE")
+      frete = lancamentos.fetch("MLREL-PAY-111-SHIP")
+      imposto = lancamentos.fetch("MLREL-PAY-111-TAX")
+
+      assert_equal [BigDecimal("15.50"), BigDecimal("8.00"), BigDecimal("2.25")],
+                   [tarifa, frete, imposto].map { |e| e[:amount] }
+      assert [tarifa, frete, imposto].all? { |e| e[:direction] == :debit }
+      # O razão não tem tipo para imposto; o sufixo do identificador é o que
+      # mantém a distinção legível.
+      assert_equal :fee, imposto[:entry_type]
+      # A taxa fica amarrada ao mesmo pedido da venda.
+      assert_equal "2000000111", tarifa[:external_order_id]
+    end
+
+    test "bruto negativo é estorno, e taxa devolvida volta como crédito" do
+      lancamentos = por_id
+
+      estorno = lancamentos.fetch("MLREL-PAY-222-REFUND")
+
+      assert_equal :refund, estorno[:entry_type]
+      assert_equal :debit, estorno[:direction], "estorno tira dinheiro"
+      assert_equal BigDecimal("40.00"), estorno[:amount], "guardamos o módulo"
+
+      devolvida = lancamentos.fetch("MLREL-PAY-222-FEE")
+
+      assert_equal :credit, devolvida[:direction], "tarifa devolvida é dinheiro voltando"
+      assert_equal BigDecimal("4.10"), devolvida[:amount]
+    end
+
+    test "saque é liquidação, não despesa, e não tem pedido" do
+      saque = por_id.fetch("MLREL-PAY-333-PAYOUT")
+
+      assert_equal :settlement, saque[:entry_type]
+      assert_equal BigDecimal("100.00"), saque[:amount]
+      assert_nil saque[:external_order_id], "saque é da conta, não de um pedido"
+    end
+
+    test "linhas de resumo não viram lançamento" do
+      ids = eventos.map { |e| e[:external_id] }
+
+      assert ids.none? { |id| id.include?("BALANCE") || id.include?("TOTAL") },
+             "saldo anterior e total são conferência, não movimentação"
+    end
+
+    test "contestação vira lançamento rastreável até o pedido" do
+      contestacao = por_id.fetch("MLREL-PAY-444-CHARGEBACK")
+
+      assert_equal :chargeback, contestacao[:entry_type]
+      assert_equal :debit, contestacao[:direction]
+      assert_equal BigDecimal("30.00"), contestacao[:amount]
+      assert_equal "2000000444", contestacao[:external_order_id],
+                   "sem o pedido não há como chegar na NF de origem"
+    end
+
+    test "tipo desconhecido é contado, não engolido" do
+      leitor = ML::ReleaseEvents.new(csv: CSV_RELATORIO)
+      leitor.call
+
+      assert_equal({ "tipo_novo_do_ml" => 1 }, leitor.ignorados,
+                   "o que não sabemos tratar precisa aparecer, não sumir")
+    end
+
+    test "external_id é estável entre execuções e único" do
+      primeira = eventos.map { |e| e[:external_id] }
+
+      assert_equal primeira.sort, eventos.map { |e| e[:external_id] }.sort
+      assert_equal primeira.size, primeira.uniq.size
+    end
+
+    test "relatório vazio não quebra" do
+      assert_empty eventos("")
+      assert_empty eventos("DATE,SOURCE_ID,ORDER_ID,RECORD_TYPE,GROSS_AMOUNT\n")
+    end
+
+    test "valor ilegível não derruba a leitura inteira" do
+      csv = "DATE,SOURCE_ID,ORDER_ID,RECORD_TYPE,GROSS_AMOUNT,MP_FEE_AMOUNT\n" \
+            "2026-08-02T10:00:00Z,PAY-9,2000000999,release,abc,-1.00\n"
+
+      lancamentos = eventos(csv)
+
+      assert_equal 1, lancamentos.size, "só a taxa sobrevive; o bruto ilegível vira zero"
+      assert_equal :fee, lancamentos.first[:entry_type]
+    end
+
+    # -------------------------------------------------------------- persistência
+
+    test "as vendas do ML viram lançamentos e não duplicam na reingestão" do
+      tenant = criar_tenant
+      conta = criar_conta(tenant: tenant)
+      fixos = eventos
+
+      ingerir = lambda do
+        Ingestors::MarketplaceIngestor.new(
+          tenant: tenant, platform_account: conta, start_date: DE, end_date: ATE
+        ).call
+      end
+
+      com_metodo(Providers::MercadoLivreProvider, :financial_events,
+                 ->(start_date:, end_date:) { fixos }) do
+        com_metodo(Providers::MercadoLivreProvider.singleton_class, :configured?, ->(_c) { true }) do
+          primeiro = ingerir.call
+
+          assert_equal fixos.size, primeiro[:created]
+
+          persistidos = FinancialEntry.where(tenant: tenant).where("external_id LIKE 'MLREL-%'")
+
+          assert_equal fixos.size, persistidos.count
+          assert_operator persistidos.sales.count, :>, 0, "agora o ML traz venda de verdade"
+          assert_operator persistidos.where.not(order_id: nil).count, :>, 0, "pedido vinculado"
+
+          assert_equal 0, ingerir.call[:created]
+        end
+      end
+    end
+  end
+end
