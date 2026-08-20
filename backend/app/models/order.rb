@@ -8,6 +8,8 @@ class Order < ApplicationRecord
 
   has_many :invoices, dependent: :destroy
 
+  has_many :devolucoes, dependent: :nullify
+
   has_many :financial_entries,
            dependent: :nullify
 

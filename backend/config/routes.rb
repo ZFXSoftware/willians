@@ -16,6 +16,10 @@ Rails.application.routes.draw do
 
   get "divergencias", to: "divergencias#index"
 
+  # Devoluções e disputas rastreáveis (briefing 2.8).
+  get  "devolucoes", to: "devolucoes#index"
+  post "devolucoes/rastrear", to: "devolucoes#rastrear"
+
   # Espelho da conta virtual das plataformas (briefing 2.4).
   get  "saldos", to: "saldos#index"
   post "saldos/conferir", to: "saldos#conferir"

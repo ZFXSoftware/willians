@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Plug,
   Scale,
+  Undo2,
   KeyRound,
   LogOut,
 } from "lucide-react"
@@ -54,6 +55,11 @@ export default function Sidebar() {
       label: "Divergências",
       icon: AlertTriangle,
       path: "/divergencias",
+    },
+    {
+      label: "Devoluções",
+      icon: Undo2,
+      path: "/devolucoes",
     },
     {
       label: "Integrações",

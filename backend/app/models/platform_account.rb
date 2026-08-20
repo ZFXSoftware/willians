@@ -9,6 +9,7 @@ class PlatformAccount < ApplicationRecord
   has_many :payout_batches, dependent: :destroy
   has_many :conciliation_runs, dependent: :destroy
   has_many :platform_balance_snapshots, dependent: :destroy
+  has_many :devolucoes, dependent: :nullify
 
   has_one :marketplace_credential, dependent: :destroy
 

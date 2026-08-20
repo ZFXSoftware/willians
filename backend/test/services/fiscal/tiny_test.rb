@@ -38,6 +38,20 @@ module Fiscal
       }
     }.freeze
 
+    # Nota de ENTRADA: a devolução do mesmo pedido, com id e número próprios.
+    PAGINA_DEVOLUCAO = {
+      "retorno" => {
+        "status_processamento" => "3", "status" => "OK", "pagina" => 1, "numero_paginas" => 1,
+        "notas_fiscais" => [
+          { "nota_fiscal" => { "id" => "9500", "numero" => "700001", "serie" => "1",
+                               "tipo" => "E", "data_emissao" => "10/08/2026",
+                               "chave_acesso" => "35260745896022000110550040001085131479999900",
+                               "valor" => "119.99", "numero_ecommerce" => "PED-ML-001",
+                               "situacao" => "6", "descricao_situacao" => "Autorizada" } }
+        ]
+      }
+    }.freeze
+
     VAZIO = {
       "retorno" => { "status_processamento" => "3", "status" => "Erro",
                      "erros" => [{ "erro" => "A consulta não retornou registros" }] }
@@ -176,6 +190,36 @@ module Fiscal
       assert_equal 0, segundo[:criadas]
       assert_equal 1, segundo[:atualizadas]
       assert_equal 1, Invoice.where(tenant: tenant).count
+    end
+
+    test "nota de devolução é lida como entrada e não rouba o vínculo da venda" do
+      tenant = criar_tenant
+      conta = criar_conta(tenant: tenant)
+      pedido = criar_pedido(tenant: tenant, conta: conta, external_id: "PED-ML-001")
+      lancamento = criar_lancamento(tenant: tenant, conta: conta, pedido: pedido, valor: 119.99)
+
+      sincronizar(tenant)
+
+      venda = Invoice.find_by!(tenant: tenant, number: "251372")
+
+      http = HttpFalso.new(PAGINA_DEVOLUCAO)
+
+      resumo = T::InvoiceSync
+                 .new(tenant: tenant, reader: T::Reader.new(client: ClienteEspiao.new(http)))
+                 .call(start_date: DE, end_date: ATE, devolucoes: true)
+
+      assert_equal "E", http.chamadas.first[:tipoNota], "devolução é nota de entrada"
+      assert_equal 1, resumo[:criadas]
+
+      nota_de_devolucao = Invoice.find_by!(tenant: tenant, number: "700001")
+
+      assert_equal "refund", nota_de_devolucao.operation_type
+      assert_equal pedido.id, nota_de_devolucao.order_id, "amarrada ao mesmo pedido"
+      assert_equal "sale", venda.reload.operation_type, "a NF de venda continua sendo venda"
+
+      # O ponto: a devolução não pode sequestrar o lançamento da venda, senão a
+      # baixa passa a apontar para a nota errada.
+      assert_equal venda.id, lancamento.reload.invoice_id
     end
 
     test "número da nota do Tiny casa com o numero_documento do título no OMIE" do

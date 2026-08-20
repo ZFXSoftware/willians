@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_20_140000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_20_160000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -62,6 +62,31 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_140000) do
     t.index ["platform_account_id"], name: "index_conciliation_runs_on_platform_account_id"
     t.index ["status"], name: "index_conciliation_runs_on_status"
     t.index ["tenant_id"], name: "index_conciliation_runs_on_tenant_id"
+  end
+
+  create_table "devolucoes", force: :cascade do |t|
+    t.decimal "amount", precision: 15, scale: 2, default: "0.0"
+    t.datetime "created_at", null: false
+    t.string "external_id", null: false
+    t.bigint "invoice_id"
+    t.string "kind", default: "devolucao", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "opened_at"
+    t.bigint "order_id"
+    t.string "platform"
+    t.bigint "platform_account_id"
+    t.datetime "resolved_at"
+    t.bigint "return_invoice_id"
+    t.string "status", default: "aberta", null: false
+    t.bigint "tenant_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["invoice_id"], name: "index_devolucoes_on_invoice_id"
+    t.index ["order_id"], name: "index_devolucoes_on_order_id"
+    t.index ["platform_account_id"], name: "index_devolucoes_on_platform_account_id"
+    t.index ["return_invoice_id"], name: "index_devolucoes_on_return_invoice_id"
+    t.index ["status"], name: "index_devolucoes_on_status"
+    t.index ["tenant_id", "external_id"], name: "index_devolucoes_on_tenant_id_and_external_id", unique: true
+    t.index ["tenant_id"], name: "index_devolucoes_on_tenant_id"
   end
 
   create_table "divergence_reports", force: :cascade do |t|
@@ -418,6 +443,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_140000) do
   add_foreign_key "conciliacao_registros", "tenants"
   add_foreign_key "conciliation_runs", "platform_accounts"
   add_foreign_key "conciliation_runs", "tenants"
+  add_foreign_key "devolucoes", "invoices"
+  add_foreign_key "devolucoes", "invoices", column: "return_invoice_id"
+  add_foreign_key "devolucoes", "orders"
+  add_foreign_key "devolucoes", "platform_accounts"
+  add_foreign_key "devolucoes", "tenants"
   add_foreign_key "divergence_reports", "financial_entries"
   add_foreign_key "divergence_reports", "tenants"
   add_foreign_key "financial_entries", "conciliacao_registros"

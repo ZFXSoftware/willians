@@ -21,9 +21,18 @@ module Fiscal
         @resumo = Hash.new(0)
       end
 
-      def call(start_date:, end_date:)
+      # `devolucoes: true` lê as notas de ENTRADA — é assim que a NF de
+      # devolução volta do Tiny (briefing 2.8).
+      def call(start_date:, end_date:, devolucoes: false)
         Current.with_tenant(tenant) do
-          notas = reader.notas_fiscais(start_date: start_date, end_date: end_date)
+          @devolucoes = devolucoes
+
+          notas =
+            if devolucoes
+              reader.notas_de_devolucao(start_date: start_date, end_date: end_date)
+            else
+              reader.notas_fiscais(start_date: start_date, end_date: end_date)
+            end
 
           resumo[:lidas] = notas.size
 
@@ -66,7 +75,9 @@ module Fiscal
 
         invoice = upsert!(nota, order_id)
 
-        vincular_lancamentos!(invoice, order_id)
+        # Só a NF de venda amarra lançamentos e recebíveis: a de devolução
+        # roubaria o vínculo da venda e quebraria a baixa.
+        vincular_lancamentos!(invoice, order_id) unless @devolucoes
       end
 
       def upsert!(nota, order_id)
@@ -93,7 +104,7 @@ module Fiscal
 
           status: situacao_de(nota),
 
-          operation_type: :sale,
+          operation_type: operacao,
 
           metadata: (invoice.metadata || {}).merge(
             "origem" => "tiny",
@@ -109,6 +120,8 @@ module Fiscal
 
         invoice
       end
+
+      def operacao = @devolucoes ? :refund : :sale
 
       # Sem isto a NF ficaria solta: são estes vínculos que permitem ir do
       # repasse até o número da nota na hora de conciliar.

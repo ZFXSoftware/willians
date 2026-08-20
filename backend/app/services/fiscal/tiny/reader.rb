@@ -18,15 +18,25 @@ module Fiscal
         @client = client || CLIENTES.fetch(Settings.version).constantize.new
       end
 
+      SAIDA = "S".freeze
+
+      # A devolução volta como nota de ENTRADA: é a mercadoria retornando.
+      ENTRADA = "E".freeze
+
       # => Array de hashes normalizados
-      def notas_fiscais(start_date:, end_date:)
+      def notas_fiscais(start_date:, end_date:, tipo: SAIDA)
         coletar do |pagina|
           client.pesquisar_notas(
             pagina: pagina,
             data_inicial: start_date,
-            data_final: end_date
+            data_final: end_date,
+            tipo: tipo
           )
         end
+      end
+
+      def notas_de_devolucao(start_date:, end_date:)
+        notas_fiscais(start_date: start_date, end_date: end_date, tipo: ENTRADA)
       end
 
       def por_pedido(numero_ecommerce)

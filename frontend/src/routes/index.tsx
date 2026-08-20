@@ -9,6 +9,7 @@ import Divergences from "../pages/Divergences"
 import Integrations from "../pages/Integrations"
 import Settings from "../pages/Settings"
 import Balances from "../pages/Balances"
+import Returns from "../pages/Returns"
 
 import PrivateRoute from "./privateRoute"
 import MainLayout from "../layouts/MainLayout"
@@ -39,6 +40,7 @@ export default function AppRoutes() {
           <Route path="/divergencias" element={<Divergences />} />
           <Route path="/integracoes" element={<Integrations />} />
           <Route path="/saldos" element={<Balances />} />
+          <Route path="/devolucoes" element={<Returns />} />
           <Route path="/configuracoes" element={<Settings />} />
         </Route>
       </Routes>
