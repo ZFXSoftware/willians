@@ -31,28 +31,36 @@ module Marketplace
 
       class MissingConfig < StandardError; end
 
-      def self.configured?
-        ENV["AMAZON_CLIENT_ID"].present? &&
-          ENV["AMAZON_CLIENT_SECRET"].present? &&
-          ENV["AMAZON_APP_ID"].present?
+      def self.configured?(tenant: Current.tenant)
+        Integracoes::Config.configurado?(PLATFORM, tenant: tenant)
       end
 
-      def self.client_id = ENV["AMAZON_CLIENT_ID"].presence
+      def self.client_id(tenant: Current.tenant)
+        Integracoes::Config.get(PLATFORM, :client_id, tenant: tenant)
+      end
 
-      def self.client_secret = ENV["AMAZON_CLIENT_SECRET"].presence
+      def self.client_secret(tenant: Current.tenant)
+        Integracoes::Config.get(PLATFORM, :client_secret, tenant: tenant)
+      end
 
-      def self.app_id = ENV["AMAZON_APP_ID"].presence
+      def self.app_id(tenant: Current.tenant)
+        Integracoes::Config.get(PLATFORM, :app_id, tenant: tenant)
+      end
 
       # App recém-registrado no Seller Central nasce em rascunho, e nesse estado
       # a autorização exige `version=beta`. Ligue enquanto testa; desligue ao
       # publicar o app.
-      def self.draft_app?
-        %w[true 1].include?(ENV["AMAZON_APP_DRAFT"].to_s.strip.downcase)
+      def self.draft_app?(tenant: Current.tenant)
+        Integracoes::Config.bool(PLATFORM, :app_draft, tenant: tenant)
       end
 
-      def self.host
-        ENV["AMAZON_HOST"].presence ||
-          REGIONS.fetch(ENV["AMAZON_REGION"].presence || DEFAULT_REGION, REGIONS[DEFAULT_REGION])
+      def self.region(tenant: Current.tenant)
+        Integracoes::Config.get(PLATFORM, :region, tenant: tenant) || DEFAULT_REGION
+      end
+
+      # AMAZON_HOST continua fora da tela: é escape de ambiente, não credencial.
+      def self.host(tenant: Current.tenant)
+        ENV["AMAZON_HOST"].presence || REGIONS.fetch(region(tenant: tenant), REGIONS[DEFAULT_REGION])
       end
 
       def self.consent_url

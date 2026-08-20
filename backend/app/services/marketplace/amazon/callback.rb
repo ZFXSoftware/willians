@@ -29,12 +29,16 @@ module Marketplace
 
         raise InvalidState, "State de outra plataforma" unless oauth_state.platform == Settings::PLATFORM
 
-        tokens = client.exchange_code(code: code, redirect_uri: Settings.redirect_uri)
+        # O tenant sai do state — quem chama este endpoint é o navegador
+        # redirecionado pela plataforma, sem sessão nossa.
+        Current.with_tenant(oauth_state.tenant) do
+          tokens = client.exchange_code(code: code, redirect_uri: Settings.redirect_uri)
 
-        ActiveRecord::Base.transaction do
-          conta = resolve_account!(oauth_state)
+          ActiveRecord::Base.transaction do
+            conta = resolve_account!(oauth_state)
 
-          persist_credential!(oauth_state, conta, tokens)
+            persist_credential!(oauth_state, conta, tokens)
+          end
         end
       end
 

@@ -3,6 +3,7 @@ import {
   ArrowLeftRight,
   AlertTriangle,
   Plug,
+  KeyRound,
   LogOut,
 } from "lucide-react"
 
@@ -52,6 +53,11 @@ export default function Sidebar() {
       label: "Integrações",
       icon: Plug,
       path: "/integracoes",
+    },
+    {
+      label: "Configurações",
+      icon: KeyRound,
+      path: "/configuracoes",
     },
   ]
 

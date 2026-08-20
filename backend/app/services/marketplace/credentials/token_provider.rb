@@ -32,27 +32,35 @@ module Marketplace
       end
 
       def access_token
-        credential = fetch_credential!
+        Current.with_tenant(platform_account.tenant) do
+          credential = fetch_credential!
 
-        credential = refresh!(credential) if credential.needs_refresh?
+          credential = refresh!(credential) if credential.needs_refresh?
 
-        credential.access_token
+          credential.access_token
+        end
       end
 
       # A falha é registrada FORA do lock de propósito: `with_lock` abre uma
       # transação, e levantar de dentro dela desfaria o próprio registro da
       # falha no rollback.
+      # As credenciais de app são do tenant dono da conta, não de quem chamou:
+      # o job de renovação roda sem requisição e passa por aqui.
       def refresh!(credential = fetch_credential!)
         failure = nil
 
-        credential.with_lock do
-          # Outra thread pode ter renovado enquanto esperávamos o lock.
-          next unless credential.needs_refresh?
+        # Escopo restaurável, não atribuição: o job de renovação percorre
+        # credenciais de tenants diferentes numa execução só.
+        Current.with_tenant(platform_account.tenant) do
+          credential.with_lock do
+            # Outra thread pode ter renovado enquanto esperávamos o lock.
+            next unless credential.needs_refresh?
 
-          begin
-            perform_refresh!(credential)
-          rescue Marketplace::TokenRefreshRejected => e
-            failure = e
+            begin
+              perform_refresh!(credential)
+            rescue Marketplace::TokenRefreshRejected => e
+              failure = e
+            end
           end
         end
 

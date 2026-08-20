@@ -38,18 +38,20 @@ module Marketplace
       end
 
       def call
-        events = provider.financial_events(
-          start_date: start_date,
-          end_date: end_date
-        )
+        Current.with_tenant(tenant) do
+          events = provider.financial_events(
+            start_date: start_date,
+            end_date: end_date
+          )
 
-        events = events.select { |event| event[:external_id].present? }
+          events = events.select { |event| event[:external_id].present? }
 
-        summary[:received] = events.size
+          summary[:received] = events.size
 
-        persist!(events, resolve_orders!(events)) if events.any?
+          persist!(events, resolve_orders!(events)) if events.any?
 
-        summary
+          summary
+        end
       end
 
       private

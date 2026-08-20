@@ -20,7 +20,9 @@ module Financeiro
     def initialize(payout_batch:, client: nil, titulos: nil, dry_run: nil)
       @payout = payout_batch
 
-      @client = client || (Omie::Client.configured? ? Omie::Client.new : Omie::FakeOmieClient.new)
+      tenant = payout_batch.tenant
+
+      @client = client || (Omie::Client.configured?(tenant: tenant) ? Omie::Client.new(tenant: tenant) : Omie::FakeOmieClient.new)
 
       @titulos = titulos
 

@@ -23,7 +23,7 @@ module Financeiro
     def initialize(tenant:, client: nil, titulos: nil, dry_run: nil, limite: nil)
       @tenant = tenant
 
-      @client = client || (Omie::Client.configured? ? Omie::Client.new : Omie::FakeOmieClient.new)
+      @client = client || (Omie::Client.configured?(tenant: tenant) ? Omie::Client.new(tenant: tenant) : Omie::FakeOmieClient.new)
 
       @titulos = titulos
 

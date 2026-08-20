@@ -16,25 +16,27 @@ module Marketplace
       end
 
       def call
-        verifier = pkce_verifier
+        Current.with_tenant(tenant) do
+          verifier = pkce_verifier
 
-        state = OauthState.issue!(
-          platform: Settings::PLATFORM,
-          tenant: tenant,
-          user: user,
-          platform_account: platform_account,
-          code_verifier: verifier
-        )
+          state = OauthState.issue!(
+            platform: Settings::PLATFORM,
+            tenant: tenant,
+            user: user,
+            platform_account: platform_account,
+            code_verifier: verifier
+          )
 
-        {
-          authorization_url: client.authorization_url(
+          {
+            authorization_url: client.authorization_url(
+              state: state.state,
+              redirect_uri: Settings.redirect_uri,
+              code_challenge: challenge_for(verifier)
+            ),
             state: state.state,
-            redirect_uri: Settings.redirect_uri,
-            code_challenge: challenge_for(verifier)
-          ),
-          state: state.state,
-          expires_at: state.expires_at
-        }
+            expires_at: state.expires_at
+          }
+        end
       end
 
       private
@@ -62,7 +64,7 @@ module Marketplace
       end
 
       def pkce_enabled?
-        %w[true 1].include?(ENV["ML_USE_PKCE"].to_s.strip.downcase)
+        Integracoes::Config.bool("mercado_livre", :use_pkce, tenant: tenant)
       end
     end
   end

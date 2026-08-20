@@ -22,15 +22,17 @@ module Fiscal
       end
 
       def call(start_date:, end_date:)
-        notas = reader.notas_fiscais(start_date: start_date, end_date: end_date)
+        Current.with_tenant(tenant) do
+          notas = reader.notas_fiscais(start_date: start_date, end_date: end_date)
 
-        resumo[:lidas] = notas.size
+          resumo[:lidas] = notas.size
 
-        pedidos = mapear_pedidos(notas)
+          pedidos = mapear_pedidos(notas)
 
-        notas.each { |nota| processar(nota, pedidos) }
+          notas.each { |nota| processar(nota, pedidos) }
 
-        resumo
+          resumo
+        end
       end
 
       private

@@ -66,9 +66,10 @@ module Omie
       end
     end
 
-    def self.configured?
-      ENV["OMIE_APP_KEY"].present? &&
-        ENV["OMIE_APP_SECRET"].present?
+    PROVEDOR = "omie".freeze
+
+    def self.configured?(tenant: Current.tenant)
+      Integracoes::Config.configurado?(PROVEDOR, tenant: tenant)
     end
 
     # Allowlist estrita de propósito. O cast booleano do Rails trata "no", "nao"
@@ -84,13 +85,14 @@ module Omie
       READ_PREFIXES.any? { |prefix| call.to_s.start_with?(prefix) }
     end
 
-    def initialize(
-      app_key: ENV["OMIE_APP_KEY"],
-      app_secret: ENV["OMIE_APP_SECRET"]
-    )
-      @app_key = app_key
-      @app_secret = app_secret
+    def initialize(app_key: nil, app_secret: nil, tenant: nil)
+      @app_key_informada = app_key
+
+      @app_secret_informado = app_secret
+
+      @tenant = tenant
     end
+
 
     def request(endpoint, call, params = {})
       guard_write!(call)
@@ -113,8 +115,19 @@ module Omie
 
     private
 
-    attr_reader :app_key,
-                :app_secret
+    # Resolvidas a cada uso, e não na construção: o cliente costuma ser montado
+    # antes de o tenant do contexto estar definido.
+    def app_key
+      @app_key_informada || Integracoes::Config.get(PROVEDOR, :app_key, tenant: tenant_efetivo)
+    end
+
+    def app_secret
+      @app_secret_informado || Integracoes::Config.get(PROVEDOR, :app_secret, tenant: tenant_efetivo)
+    end
+
+    def tenant_efetivo
+      @tenant || Current.tenant
+    end
 
     def guard_write!(call)
       return if self.class.read_only_call?(call)

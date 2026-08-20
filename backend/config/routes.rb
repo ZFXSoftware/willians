@@ -28,6 +28,11 @@ Rails.application.routes.draw do
     post "amazon/autorizar", to: "amazon#autorizar"
     get  "amazon/callback",  to: "amazon#callback"
 
+    # Chaves de API por tenant, no lugar do .env.
+    get    "configuracoes", to: "configuracoes#index"
+    put    "configuracoes/:provedor", to: "configuracoes#update"
+    delete "configuracoes/:provedor/:chave", to: "configuracoes#destroy"
+
     # Vale para qualquer plataforma.
     delete "desconectar", to: "conexoes#destroy"
   end

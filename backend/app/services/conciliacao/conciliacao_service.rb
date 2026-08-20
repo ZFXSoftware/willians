@@ -28,22 +28,24 @@ module Conciliacao
     end
 
     def processar
-      contas = platform_accounts.to_a
+      Current.with_tenant(tenant) do
+        contas = platform_accounts.to_a
 
-      log "Conciliando #{contas.size} conta(s) de #{start_date} a #{end_date}"
+        log "Conciliando #{contas.size} conta(s) de #{start_date} a #{end_date}"
 
-      # Uma leitura só do Omie para todas as contas.
-      totais = carregar_totais_omie(contas)
+        # Uma leitura só do Omie para todas as contas.
+        totais = carregar_totais_omie(contas)
 
-      resultados = contas.map { |conta| processar_conta(conta, totais) }
+        resultados = contas.map { |conta| processar_conta(conta, totais) }
 
-      {
-        start_date: start_date,
-        end_date: end_date,
-        processed: resultados.count { |r| r[:status] == "completed" },
-        failed: resultados.count { |r| r[:status] == "failed" },
-        runs: resultados
-      }
+        {
+          start_date: start_date,
+          end_date: end_date,
+          processed: resultados.count { |r| r[:status] == "completed" },
+          failed: resultados.count { |r| r[:status] == "failed" },
+          runs: resultados
+        }
+      end
     end
 
     private

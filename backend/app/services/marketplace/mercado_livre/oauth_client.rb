@@ -39,17 +39,34 @@ module Marketplace
         end
       end
 
-      def self.configured?
-        ENV["ML_CLIENT_ID"].present? && ENV["ML_CLIENT_SECRET"].present?
+      PROVEDOR = "mercado_livre".freeze
+
+      def self.configured?(tenant: Current.tenant)
+        Integracoes::Config.configurado?(PROVEDOR, tenant: tenant)
       end
 
-      def initialize(
-        client_id: ENV["ML_CLIENT_ID"],
-        client_secret: ENV["ML_CLIENT_SECRET"]
-      )
-        @client_id = client_id
+      # As credenciais vêm da tela de configurações do tenant, com o ambiente
+      # como fallback. Ainda dá para injetar direto — os testes usam isso.
+      def initialize(client_id: nil, client_secret: nil, tenant: nil)
+        @client_id_informado = client_id
 
-        @client_secret = client_secret
+        @client_secret_informado = client_secret
+
+        @tenant = tenant
+      end
+
+      # Resolvidas a cada uso: o cliente é montado antes de o contexto do
+      # tenant existir em boa parte dos caminhos.
+      def client_id
+        @client_id_informado || Integracoes::Config.get(PROVEDOR, :client_id, tenant: tenant_efetivo)
+      end
+
+      def client_secret
+        @client_secret_informado || Integracoes::Config.get(PROVEDOR, :client_secret, tenant: tenant_efetivo)
+      end
+
+      def tenant_efetivo
+        @tenant || Current.tenant
       end
 
       def authorization_url(state:, redirect_uri:, code_challenge: nil)
@@ -103,15 +120,14 @@ module Marketplace
 
       private
 
-      attr_reader :client_id,
-                  :client_secret
 
       def ensure_configured!
         return if client_id.present? && client_secret.present?
 
         raise ConfigError,
-              "ML_CLIENT_ID/ML_CLIENT_SECRET não configurados. Registre o app no " \
-              "portal de desenvolvedores do Mercado Livre e preencha o .env."
+              "Credenciais do Mercado Livre não configuradas. Registre o app no portal " \
+              "de desenvolvedores e preencha Client ID e Client Secret em Integrações → " \
+              "Configurações."
       end
 
       def auth_host

@@ -34,21 +34,25 @@ module Marketplace
 
       class MissingConfig < StandardError; end
 
-      def self.configured?
-        ENV["SHOPEE_PARTNER_ID"].present? && ENV["SHOPEE_PARTNER_KEY"].present?
+      def self.configured?(tenant: Current.tenant)
+        Integracoes::Config.configurado?(PLATFORM, tenant: tenant)
       end
 
-      def self.partner_id
-        ENV["SHOPEE_PARTNER_ID"].presence
+      def self.partner_id(tenant: Current.tenant)
+        Integracoes::Config.get(PLATFORM, :partner_id, tenant: tenant)
       end
 
-      def self.partner_key
-        ENV["SHOPEE_PARTNER_KEY"].presence
+      def self.partner_key(tenant: Current.tenant)
+        Integracoes::Config.get(PLATFORM, :partner_key, tenant: tenant)
       end
 
-      def self.host
-        ENV["SHOPEE_HOST"].presence ||
-          HOSTS.fetch(ENV["SHOPEE_REGION"].presence || DEFAULT_REGION, HOSTS[DEFAULT_REGION])
+      def self.region(tenant: Current.tenant)
+        Integracoes::Config.get(PLATFORM, :region, tenant: tenant) || DEFAULT_REGION
+      end
+
+      # SHOPEE_HOST continua fora da tela: é escape para sandbox, não credencial.
+      def self.host(tenant: Current.tenant)
+        ENV["SHOPEE_HOST"].presence || HOSTS.fetch(region(tenant: tenant), HOSTS[DEFAULT_REGION])
       end
 
       def self.path(nome)

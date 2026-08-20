@@ -1,8 +1,9 @@
 import { useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import {
   Building2,
   CheckCircle2,
+  KeyRound,
   Plug,
   RefreshCw,
   ShoppingBag,
@@ -81,13 +82,23 @@ export default function Integrations() {
           <h1 className="text-3xl font-bold tracking-tight mt-1">Integrações</h1>
         </div>
 
-        <button
-          onClick={reload}
-          className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-600 px-4 py-3 rounded-xl text-sm transition"
-        >
-          <RefreshCw size={15} />
-          Atualizar
-        </button>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/configuracoes"
+            className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-600 px-4 py-3 rounded-xl text-sm transition"
+          >
+            <KeyRound size={15} />
+            Chaves de API
+          </Link>
+
+          <button
+            onClick={reload}
+            className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-600 px-4 py-3 rounded-xl text-sm transition"
+          >
+            <RefreshCw size={15} />
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {retornoStatus && (

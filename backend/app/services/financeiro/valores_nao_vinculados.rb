@@ -29,7 +29,7 @@ module Financeiro
 
       @end_date = end_date.to_date
 
-      @client = client || (Omie::Client.configured? ? Omie::Client.new : Omie::FakeOmieClient.new)
+      @client = client || (Omie::Client.configured?(tenant: tenant) ? Omie::Client.new(tenant: tenant) : Omie::FakeOmieClient.new)
 
       @dry_run = dry_run.nil? ? !Omie::Client.writes_enabled? : dry_run
 

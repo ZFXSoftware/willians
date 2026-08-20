@@ -3,6 +3,8 @@ module Authentication
 
   included do
     before_action :authenticate!
+
+    before_action :definir_contexto
   end
 
   class_methods do
@@ -86,6 +88,18 @@ module Authentication
       elsif !service_authenticated? && accessible_tenants.count == 1
         accessible_tenants.first
       end
+  end
+
+  # As credenciais de integração vivem por tenant, e os clientes de API são
+  # construídos fundo na pilha, longe de quem conhece o tenant da requisição.
+  def definir_contexto
+    Current.user = current_user
+
+    # Rotas públicas (cadastro, login, callback de OAuth) passam por aqui sem
+    # ninguém identificado — e aí não há tenant para resolver.
+    Current.tenant = current_tenant if current_user || service_authenticated?
+
+    true
   end
 
   def require_tenant!

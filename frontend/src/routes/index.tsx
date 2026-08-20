@@ -7,6 +7,7 @@ import Dashboard from "../pages/Dashboard"
 import ReconciliationDashboard from "../pages/Reconciliation/reconciliation-dashboard"
 import Divergences from "../pages/Divergences"
 import Integrations from "../pages/Integrations"
+import Settings from "../pages/Settings"
 
 import PrivateRoute from "./privateRoute"
 import MainLayout from "../layouts/MainLayout"
@@ -36,6 +37,7 @@ export default function AppRoutes() {
 
           <Route path="/divergencias" element={<Divergences />} />
           <Route path="/integracoes" element={<Integrations />} />
+          <Route path="/configuracoes" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>

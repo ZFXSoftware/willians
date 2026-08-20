@@ -22,12 +22,14 @@ module Fiscal
         raise MissingConfig, "TINY_API_VERSION inválida: #{v}. Use #{VERSIONS.join(' ou ')}."
       end
 
-      def self.token
-        ENV["TINY_TOKEN"].presence
+      PROVEDOR = "tiny".freeze
+
+      def self.token(tenant: Current.tenant)
+        Integracoes::Config.get(PROVEDOR, :token, tenant: tenant)
       end
 
-      def self.configured?
-        token.present?
+      def self.configured?(tenant: Current.tenant)
+        token(tenant: tenant).present?
       end
 
       def self.v2_base = ENV["TINY_V2_URL"].presence || V2_BASE
@@ -38,9 +40,9 @@ module Fiscal
         return if configured?
 
         raise MissingConfig,
-              "TINY_TOKEN não configurado. No Tiny: Início > Extensões da Olist > " \
+              "Token do Tiny não configurado. No Tiny: Início > Extensões da Olist > " \
               "instale 'Token API' (seção Vendas); depois Configurações > aba " \
-              "E-commerce > Token API. Preencha TINY_TOKEN no .env."
+              "E-commerce > Token API. Cole o token em Integrações → Configurações."
       end
     end
   end

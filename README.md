@@ -146,6 +146,30 @@ As três conexões usam a mesma fundação: token cifrado em `marketplace_creden
 | Shopee | HMAC-SHA256 por chamada | 4 horas | 30 dias |
 | Amazon | LWA (sem SigV4 desde 2023) | 1 hora | até o vendedor revogar |
 
+### Onde ficam as chaves de API
+
+Há dois níveis, e eles não se confundem:
+
+| | O que é | Onde vive |
+| --- | --- | --- |
+| Credencial de **aplicativo** | O app que você registrou no OMIE, no Mercado Livre, na Shopee, na Amazon e no Tiny | `integration_settings`, cifrado, **por empresa** — preenchido na tela de Configurações |
+| Credencial de **conta** | O token que cada lojista concede ao autorizar | `marketplace_credentials`, cifrado — resultado do OAuth |
+
+A tela de Configurações (`/configuracoes`) é a forma normal de preencher o
+primeiro nível: ela mostra o que falta, de onde veio cada valor e a URL de
+retorno que precisa ser cadastrada no portal da plataforma. Segredo gravado
+nunca volta pela API — a tela exibe só os últimos caracteres.
+
+As variáveis do `.env` continuam valendo como **padrão do servidor**: se
+ninguém preencheu na tela, é o que o sistema usa (aparece como "Vem do
+servidor"). Preencher na tela sobrescreve; apagar na tela devolve a vez ao
+`.env`. Isso mantém o deploy atual funcionando e abre caminho para o SaaS, onde
+cada empresa traz o próprio aplicativo.
+
+`OMIE_ALLOW_WRITES` **não** entra na tela de propósito: liberar gravação na
+contabilidade do cliente é decisão de quem opera o servidor, não de quem usa a
+interface.
+
 ### Conectando uma conta do Mercado Livre
 
 Os tokens ficam em `marketplace_credentials`, **cifrados** — preencha as chaves

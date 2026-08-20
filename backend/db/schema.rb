@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_07_120100) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_20_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -155,6 +155,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_07_120100) do
     t.index ["receivable_unit_id", "financial_entry_id", "allocation_type"], name: "idx_allocations_unique", unique: true
     t.index ["receivable_unit_id"], name: "index_financial_entry_allocations_on_receivable_unit_id"
     t.index ["tenant_id"], name: "index_financial_entry_allocations_on_tenant_id"
+  end
+
+  create_table "integration_settings", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "key", null: false
+    t.string "provider", null: false
+    t.bigint "tenant_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "updated_by_id"
+    t.text "value"
+    t.index ["tenant_id", "provider", "key"], name: "index_integration_settings_on_tenant_id_and_provider_and_key", unique: true
+    t.index ["tenant_id"], name: "index_integration_settings_on_tenant_id"
+    t.index ["updated_by_id"], name: "index_integration_settings_on_updated_by_id"
   end
 
   create_table "invoices", force: :cascade do |t|
@@ -412,6 +425,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_07_120100) do
   add_foreign_key "financial_entry_allocations", "payout_batches"
   add_foreign_key "financial_entry_allocations", "receivable_units"
   add_foreign_key "financial_entry_allocations", "tenants"
+  add_foreign_key "integration_settings", "tenants"
+  add_foreign_key "integration_settings", "users", column: "updated_by_id"
   add_foreign_key "invoices", "orders"
   add_foreign_key "invoices", "tenants"
   add_foreign_key "marketplace_credentials", "platform_accounts"
