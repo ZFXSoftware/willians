@@ -56,6 +56,11 @@ module Omie
 
     class WriteBlocked < Error; end
 
+    # Rede real a partir da suíte de testes. Nunca deveria acontecer: as
+    # credenciais do .env são as de PRODUÇÃO do cliente, e o processo de teste
+    # herda o ambiente.
+    class NetworkBlocked < Error; end
+
     class ApiError < Error
       attr_reader :fault_code
 
@@ -94,7 +99,21 @@ module Omie
     end
 
 
+    # A suíte roda com o mesmo ENV do desenvolvimento, então `configured?` é
+    # verdadeiro e um serviço que monte o cliente real sairia para a rede — no
+    # ERP do cliente. Ou o teste injeta um dublê, ou isto estoura.
+    def self.network_allowed_in_test?
+      %w[true 1].include?(ENV["OMIE_PERMITIR_REDE_EM_TESTE"].to_s.strip.downcase)
+    end
+
     def request(endpoint, call, params = {})
+      if Rails.env.test? && !self.class.network_allowed_in_test?
+        raise NetworkBlocked,
+              "Chamada real ao OMIE (#{call}) a partir de um teste. Injete um dublê no " \
+              "serviço, ou defina OMIE_PERMITIR_REDE_EM_TESTE=true para um teste de " \
+              "integração deliberado."
+      end
+
       guard_write!(call)
 
       body = {

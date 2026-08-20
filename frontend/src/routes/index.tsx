@@ -10,6 +10,7 @@ import Integrations from "../pages/Integrations"
 import Settings from "../pages/Settings"
 import Balances from "../pages/Balances"
 import Returns from "../pages/Returns"
+import Movements from "../pages/Movements"
 
 import PrivateRoute from "./privateRoute"
 import MainLayout from "../layouts/MainLayout"
@@ -41,6 +42,7 @@ export default function AppRoutes() {
           <Route path="/integracoes" element={<Integrations />} />
           <Route path="/saldos" element={<Balances />} />
           <Route path="/devolucoes" element={<Returns />} />
+          <Route path="/movimentacoes" element={<Movements />} />
           <Route path="/configuracoes" element={<Settings />} />
         </Route>
       </Routes>

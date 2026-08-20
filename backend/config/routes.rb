@@ -16,6 +16,10 @@ Rails.application.routes.draw do
 
   get "divergencias", to: "divergencias#index"
 
+  # Transferências entre contas e pagamentos na plataforma (briefing 2.7).
+  post "movimentacoes/transferir", to: "movimentacoes#transferir"
+  post "movimentacoes/pagar", to: "movimentacoes#pagar"
+
   # Devoluções e disputas rastreáveis (briefing 2.8).
   get  "devolucoes", to: "devolucoes#index"
   post "devolucoes/rastrear", to: "devolucoes#rastrear"
