@@ -61,10 +61,27 @@ module Marketplace
         # Tipos de registro que não sabemos tratar entram na contagem em vez de
         # sumir em silêncio — o mesmo critério usado na Amazon.
         @ignorados = Hash.new(0)
+
+        @saldos = {}
       end
 
       def call
         linhas.flat_map { |linha| eventos_de(linha) }.compact
+      end
+
+      # As linhas de resumo do relatório são o saldo que a PLATAFORMA declara.
+      # Não são movimentação — por isso ficam fora do razão —, mas são
+      # exatamente o espelho que o briefing 2.4 pede.
+      #
+      # Depende de `call` ter percorrido o arquivo.
+      def saldos
+        call if @saldos.empty?
+
+        {
+          inicial: @saldos["initial_available_balance"],
+          disponivel: @saldos["available_balance"],
+          total: @saldos["total"]
+        }.compact
       end
 
       private
@@ -82,7 +99,11 @@ module Marketplace
       def eventos_de(linha)
         tipo = linha["RECORD_TYPE"].to_s.strip.downcase
 
-        return [] if RESUMO.include?(tipo)
+        if RESUMO.include?(tipo)
+          registrar_saldo(tipo, linha)
+
+          return []
+        end
 
         return [saque(linha)] if SAQUE.include?(tipo)
 
@@ -95,6 +116,16 @@ module Marketplace
         end
 
         [venda(linha), *taxas(linha)].compact
+      end
+
+      # A linha de resumo traz o valor ora no crédito, ora no bruto, conforme o
+      # tipo. Vale o primeiro que não for zero.
+      def registrar_saldo(tipo, linha)
+        valor = [linha["NET_CREDIT_AMOUNT"], linha["GROSS_AMOUNT"], linha["NET_DEBIT_AMOUNT"]]
+                .map { |v| decimal(v) }
+                .find { |v| !v.zero? }
+
+        @saldos[tipo] = valor || BigDecimal("0")
       end
 
       def venda(linha)

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_20_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_20_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -69,7 +69,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_120000) do
     t.decimal "difference_amount", precision: 15, scale: 2
     t.string "divergence_type", null: false
     t.decimal "expected_amount", precision: 15, scale: 2
-    t.bigint "financial_entry_id", null: false
+    t.bigint "financial_entry_id"
     t.jsonb "metadata", default: {}, null: false
     t.decimal "received_amount", precision: 15, scale: 2
     t.text "resolution_notes"
@@ -77,6 +77,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_120000) do
     t.string "status", default: "open", null: false
     t.bigint "tenant_id", null: false
     t.datetime "updated_at", null: false
+    t.index "tenant_id, divergence_type, ((metadata ->> 'chave'::text))", name: "idx_divergence_reports_sem_lancamento", unique: true, where: "(financial_entry_id IS NULL)"
     t.index ["divergence_type"], name: "index_divergence_reports_on_divergence_type"
     t.index ["financial_entry_id", "divergence_type", "status"], name: "idx_divergence_reports_unique", unique: true
     t.index ["financial_entry_id"], name: "index_divergence_reports_on_financial_entry_id"
@@ -319,12 +320,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_120000) do
     t.decimal "available_balance", precision: 15, scale: 2
     t.decimal "blocked_balance", precision: 15, scale: 2
     t.datetime "created_at", null: false
+    t.decimal "difference_amount", precision: 15, scale: 2
     t.decimal "future_balance", precision: 15, scale: 2
     t.jsonb "metadata"
     t.bigint "platform_account_id", null: false
+    t.decimal "platform_available_balance", precision: 15, scale: 2
+    t.decimal "platform_future_balance", precision: 15, scale: 2
+    t.string "platform_source"
+    t.decimal "platform_total_balance", precision: 15, scale: 2
     t.date "snapshot_date"
     t.bigint "tenant_id", null: false
     t.datetime "updated_at", null: false
+    t.index ["platform_account_id", "snapshot_date"], name: "idx_balance_snapshots_conta_data", unique: true
     t.index ["platform_account_id"], name: "index_platform_balance_snapshots_on_platform_account_id"
     t.index ["tenant_id"], name: "index_platform_balance_snapshots_on_tenant_id"
   end

@@ -24,6 +24,27 @@ module Marketplace
           faturamento(start_date: start_date, end_date: end_date)
       end
 
+      # O saldo vem das linhas de resumo do MESMO relatório de liberações. O
+      # endpoint de saldo do Mercado Pago (/users/$ID/mercadopago_account/
+      # balance) existe, mas é liberado sob aprovação — "Public access not
+      # allowed" é a resposta comum. Usar o relatório evita essa dependência.
+      def account_balance(start_date:, end_date:)
+        csv = releases_client.csv_for(start_date: start_date, end_date: end_date)
+
+        saldos = MercadoLivre::ReleaseEvents.new(csv: csv).saldos
+
+        return if saldos.empty?
+
+        {
+          available: saldos[:disponivel],
+          future: nil,
+          total: saldos[:total] || saldos[:disponivel],
+          source: "relatorio_de_liberacoes"
+        }
+      rescue MercadoLivre::ReleasesClient::ReportPending
+        nil
+      end
+
       private
 
       def liberacoes(start_date:, end_date:)

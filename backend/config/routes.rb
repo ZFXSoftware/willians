@@ -16,6 +16,10 @@ Rails.application.routes.draw do
 
   get "divergencias", to: "divergencias#index"
 
+  # Espelho da conta virtual das plataformas (briefing 2.4).
+  get  "saldos", to: "saldos#index"
+  post "saldos/conferir", to: "saldos#conferir"
+
   get "conciliacoes/registros", to: "conciliacoes/registros#index"
 
   namespace :integracoes do

@@ -3,6 +3,7 @@ import {
   ArrowLeftRight,
   AlertTriangle,
   Plug,
+  Scale,
   KeyRound,
   LogOut,
 } from "lucide-react"
@@ -43,6 +44,11 @@ export default function Sidebar() {
       label: "Conciliação",
       icon: ArrowLeftRight,
       path: "/conciliation",
+    },
+    {
+      label: "Conta virtual",
+      icon: Scale,
+      path: "/saldos",
     },
     {
       label: "Divergências",
