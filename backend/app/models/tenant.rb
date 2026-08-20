@@ -17,6 +17,7 @@ class Tenant < ApplicationRecord
   has_many :marketplace_credentials, dependent: :destroy
   has_many :conciliacao_registros, dependent: :destroy
   has_many :oauth_states, dependent: :destroy
+  has_many :integration_settings, dependent: :destroy
 
   enum :status, {
     active: "active",
