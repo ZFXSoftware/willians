@@ -18,11 +18,11 @@ module Marketplace
 
       def financial_events(start_date:, end_date:)
         raise NotImplemented,
-              "Leitura financeira da Shopee não implementada. A conexão da loja funciona, " \
-              "mas os endpoints de payment (#{Shopee::Settings.path(:escrow_list)}, " \
-              "#{Shopee::Settings.path(:payout_detail)}) e o formato da resposta ainda " \
-              "precisam ser confirmados no Shopee Open Platform. " \
-              "Use MARKETPLACE_SIMULATION=true em desenvolvimento."
+              "Leitura financeira da Shopee não implementada. A conexão da loja funciona e " \
+              "os endpoints existem (#{Shopee::Settings.path(:escrow_detail)}, " \
+              "#{Shopee::Settings.path(:payout_detail)}), mas o formato de requisição e " \
+              "resposta ainda não foi confirmado — implementar às cegas produziria valores " \
+              "errados na contabilidade. Use MARKETPLACE_SIMULATION=true em desenvolvimento."
       end
 
       private

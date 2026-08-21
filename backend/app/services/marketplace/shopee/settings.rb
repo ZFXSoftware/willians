@@ -13,19 +13,42 @@ module Marketplace
 
       DEFAULT_REGION = "br".freeze
 
-      # ATENÇÃO: os caminhos abaixo NÃO foram confirmados na documentação
-      # oficial — as páginas da Shopee exigem login de parceiro. A mecânica de
-      # assinatura e transporte está verificada; estes caminhos são o que
-      # precisa ser conferido no portal antes de ligar em produção, e cada um
-      # pode ser corrigido por variável de ambiente.
+      # Os NOMES destes endpoints foram conferidos contra o índice da API v2 da
+      # Shopee (referência lida em 2026-08-21): todos existem, nas categorias
+      # Public, Payment, Order e Returns.
+      #
+      # O que continua NÃO confirmado é o formato de requisição e resposta de
+      # cada um — o índice lista os nomes, não os parâmetros. É por isso que
+      # `ShopeeProvider#financial_events` ainda levanta NotImplemented em vez de
+      # inventar campos.
+      #
+      # Cada caminho é sobrescrevível por SHOPEE_PATH_<NOME>, para corrigir sem
+      # deploy caso o prefixo difira.
       PATHS = {
         authorize: "/api/v2/shop/auth_partner",
         token: "/api/v2/auth/token/get",
         refresh: "/api/v2/auth/access_token/get",
+
+        # --- dinheiro -------------------------------------------------------
+        # get_escrow_detail é o que traz a quebra por pedido (bruto, taxas,
+        # líquido); get_payout_detail é o saque para o banco.
         escrow_list: "/api/v2/payment/get_escrow_list",
         escrow_detail: "/api/v2/payment/get_escrow_detail",
+        escrow_detail_batch: "/api/v2/payment/get_escrow_detail_batch",
         payout_detail: "/api/v2/payment/get_payout_detail",
-        wallet_transactions: "/api/v2/payment/get_wallet_transaction_list"
+        payout_info: "/api/v2/payment/get_payout_info",
+        billing_transaction_info: "/api/v2/payment/get_billing_transaction_info",
+        wallet_transactions: "/api/v2/payment/get_wallet_transaction_list",
+
+        # Relatório de rendimentos: geração assíncrona, como o do Mercado Pago.
+        gerar_extrato: "/api/v2/payment/generate_income_statement",
+        extrato: "/api/v2/payment/get_income_statement",
+
+        # --- pedidos e devoluções (briefing 2.8) ----------------------------
+        order_list: "/api/v2/order/get_order_list",
+        order_detail: "/api/v2/order/get_order_detail",
+        return_list: "/api/v2/returns/get_return_list",
+        return_detail: "/api/v2/returns/get_return_detail"
       }.freeze
 
       CALLBACK_PATH = "/api/integracoes/shopee/callback".freeze
