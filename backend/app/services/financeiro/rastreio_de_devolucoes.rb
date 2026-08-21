@@ -32,6 +32,8 @@ module Financeiro
 
         resumo[:total] = resumo.values.sum
 
+        resumo[:enriquecidas] = enriquecer_com_marketplace
+
         { resumo: resumo.to_h }
       end
     end
@@ -103,6 +105,110 @@ module Financeiro
         .where(operation_type: [nil, "sale"])
         .order(:issued_at)
         .first
+    end
+
+    # O marketplace mantém o próprio registro da devolução, com motivo, estado
+    # da negociação e prazo — informação que não dá para deduzir do dinheiro.
+    # Quando o provider expõe (hoje só a Shopee), ela completa o caso.
+    def enriquecer_com_marketplace
+      contas.sum { |conta| enriquecer(conta) }
+    end
+
+    def contas
+      tenant.platform_accounts.where(status: :active)
+    end
+
+    def enriquecer(conta)
+      registros = devolucoes_da_plataforma(conta)
+
+      return 0 if registros.blank?
+
+      pedidos = Order.where(tenant_id: tenant.id, external_id: registros.map { |r| r[:order_sn] }.compact)
+                     .pluck(:external_id, :id).to_h
+
+      registros.count { |registro| aplicar(conta, registro, pedidos[registro[:order_sn]]) }
+    end
+
+    def devolucoes_da_plataforma(conta)
+      nome = Marketplace::Ingestors::MarketplaceIngestor::PROVIDERS[conta.platform.to_s]
+
+      return if nome.blank?
+
+      classe = nome.constantize
+
+      return unless classe.configured?(conta)
+
+      classe.new(account: conta).returns(start_date: start_date, end_date: end_date)
+    rescue NotImplementedError
+      nil
+    rescue StandardError => e
+      Rails.logger.warn "[Devoluções] #{conta.platform} ##{conta.id}: #{e.class} #{e.message}"
+
+      nil
+    end
+
+    # O registro do marketplace tem identidade própria (return_sn): ele NÃO
+    # substitui a devolução deduzida do dinheiro, complementa. Por isso a chave
+    # é o return_sn, e o vínculo com o pedido é refeito aqui.
+    def aplicar(conta, registro, order_id)
+      return false if registro[:return_sn].blank?
+
+      devolucao = Devolucao.find_or_initialize_by(
+        tenant_id: tenant.id, external_id: "#{conta.platform.upcase}-RET-#{registro[:return_sn]}"
+      )
+
+      nota_de_venda = order_id ? nota_de_venda_por_pedido(order_id) : nil
+
+      devolucao.assign_attributes(
+        platform_account_id: conta.id,
+        platform: conta.platform,
+        order_id: order_id,
+        invoice_id: nota_de_venda&.id,
+        return_invoice_id: order_id ? nota_de_devolucao_por_pedido(order_id)&.id : nil,
+        kind: registro[:disputa].present? ? :disputa : :devolucao,
+        amount: registro[:valor],
+        opened_at: devolucao.opened_at || registro[:aberta_em],
+        status: situacao_do_registro(registro, order_id, nota_de_venda, devolucao),
+        metadata: devolucao.metadata.merge(
+          "origem" => "marketplace",
+          "return_sn" => registro[:return_sn],
+          "status_plataforma" => registro[:status],
+          "motivo" => registro[:motivo],
+          "motivo_livre" => registro[:motivo_livre],
+          "negociacao" => registro[:negociacao],
+          "devolve_mercadoria" => registro[:devolve_mercadoria],
+          "prazo_do_vendedor" => registro[:prazo_do_vendedor],
+          "atualizado_em" => Time.current
+        ).compact
+      )
+
+      devolucao.resolved_at ||= Time.current if devolucao.status == "concluida"
+
+      devolucao.save!
+
+      true
+    end
+
+    # O ciclo só fecha quando a NOSSA parte fecha: a plataforma ter encerrado
+    # não basta se a nota fiscal de devolução ainda não existe.
+    def situacao_do_registro(registro, order_id, nota_de_venda, devolucao)
+      return :sem_origem if order_id.blank?
+
+      return :aberta if nota_de_venda.blank?
+
+      return :concluida if devolucao.return_invoice_id.present?
+
+      :aguardando_nota
+    end
+
+    def nota_de_venda_por_pedido(order_id)
+      Invoice.where(tenant_id: tenant.id, order_id: order_id)
+             .where(operation_type: [nil, "sale"]).order(:issued_at).first
+    end
+
+    def nota_de_devolucao_por_pedido(order_id)
+      Invoice.where(tenant_id: tenant.id, order_id: order_id, operation_type: "refund")
+             .order(:issued_at).first
     end
 
     # A NF de devolução é a nota de ENTRADA do mesmo pedido.

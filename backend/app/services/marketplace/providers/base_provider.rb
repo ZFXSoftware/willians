@@ -10,6 +10,12 @@ module Marketplace
         raise NotImplementedError, "#{self.class} precisa implementar #financial_events"
       end
 
+      # Devoluções e disputas registradas na plataforma (briefing 2.8). Nem
+      # toda plataforma expõe; o padrão é dizer que não sabe.
+      def returns(start_date:, end_date:)
+        raise NotImplementedError, "#{self.class} não informa devoluções"
+      end
+
       # Saldo que a PLATAFORMA declara ter, para o espelho do briefing 2.4.
       # Nem toda plataforma expõe isso, então o padrão é dizer que não sabe em
       # vez de devolver zero — zero seria lido como "conferido e bate".

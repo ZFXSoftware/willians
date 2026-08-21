@@ -42,6 +42,12 @@ module Marketplace
         escrow.eventos + carteira.eventos
       end
 
+      # Briefing 2.8: as devoluções como a Shopee as registra, com motivo,
+      # estado da negociação e o pedido de origem.
+      def returns(start_date:, end_date:)
+        Shopee::ReturnReader.new(client: client).call(start_date: start_date, end_date: end_date)
+      end
+
       # Briefing 2.4: o saldo que a Shopee declara, para o espelho.
       def account_balance(start_date:, end_date:)
         carteira = wallet.call(start_date: start_date, end_date: end_date)

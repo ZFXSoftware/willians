@@ -128,6 +128,83 @@ module Financeiro
       assert_equal abertura, Devolucao.find_by!(tenant_id: @tenant.id).opened_at
     end
 
+    # ------------------------------- registro do próprio marketplace (2.8)
+
+    test "a devolução registrada no marketplace vira caso, com motivo e negociação" do
+      conta = criar_conta(tenant: @tenant, plataforma: "shopee")
+      pedido = criar_pedido(tenant: @tenant, conta: conta, external_id: "200203C6W0AR27")
+      nota = criar_nota(tenant: @tenant, pedido: pedido, numero: "000900500")
+
+      registro = {
+        return_sn: "200203171852695", order_sn: "200203C6W0AR27",
+        valor: BigDecimal("1409.0"), status: "REQUESTED", encerrado: false,
+        motivo: "PHYSICAL_DMG", motivo_livre: "chegou quebrado",
+        disputa: nil, negociacao: "PENDING_RESPOND",
+        aberta_em: 3.days.ago, devolve_mercadoria: true
+      }
+
+      com_metodo(Marketplace::Providers::ShopeeProvider, :returns,
+                 ->(start_date:, end_date:) { [registro] }) do
+        com_metodo(Marketplace::Providers::ShopeeProvider.singleton_class, :configured?, ->(_c) { true }) do
+          resumo = rodar[:resumo]
+
+          assert_equal 1, resumo[:enriquecidas]
+        end
+      end
+
+      devolucao = Devolucao.find_by!(external_id: "SHOPEE-RET-200203171852695")
+
+      assert_equal pedido.id, devolucao.order_id, "o elo com a venda"
+      assert_equal nota.id, devolucao.invoice_id
+      assert devolucao.aguardando_nota?, "falta a NF de devolução"
+      assert_equal BigDecimal("1409.0"), devolucao.amount
+      assert_equal "PHYSICAL_DMG", devolucao.metadata["motivo"]
+      assert_equal "PENDING_RESPOND", devolucao.metadata["negociacao"]
+      assert_equal "REQUESTED", devolucao.metadata["status_plataforma"]
+    end
+
+    test "devolução do marketplace sem pedido conhecido fica visível" do
+      conta = criar_conta(tenant: @tenant, plataforma: "shopee")
+
+      registro = { return_sn: "R-1", order_sn: "PEDIDO-QUE-NAO-TEMOS",
+                   valor: BigDecimal("10.0"), status: "REQUESTED", encerrado: false,
+                   aberta_em: 1.day.ago }
+
+      com_metodo(Marketplace::Providers::ShopeeProvider, :returns,
+                 ->(start_date:, end_date:) { [registro] }) do
+        com_metodo(Marketplace::Providers::ShopeeProvider.singleton_class, :configured?, ->(_c) { true }) do
+          rodar
+        end
+      end
+
+      assert Devolucao.find_by!(external_id: "SHOPEE-RET-R-1").sem_origem?
+    end
+
+    test "disputa é distinguida de devolução simples" do
+      conta = criar_conta(tenant: @tenant, plataforma: "shopee")
+
+      registro = { return_sn: "R-2", order_sn: nil, valor: BigDecimal("5.0"),
+                   status: "JUDGING", encerrado: false, disputa: %w[NOT_RECEIVED],
+                   aberta_em: 1.day.ago }
+
+      com_metodo(Marketplace::Providers::ShopeeProvider, :returns,
+                 ->(start_date:, end_date:) { [registro] }) do
+        com_metodo(Marketplace::Providers::ShopeeProvider.singleton_class, :configured?, ->(_c) { true }) do
+          rodar
+        end
+      end
+
+      assert Devolucao.find_by!(external_id: "SHOPEE-RET-R-2").tipo_disputa?
+    end
+
+    test "plataforma que não expõe devoluções não quebra o rastro" do
+      criar_conta(tenant: @tenant, plataforma: "amazon")
+      estorno
+
+      # AmazonProvider não implementa `returns`: o rastro segue pelo razão.
+      assert_equal 1, rodar[:resumo][:sem_origem]
+    end
+
     test "venda comum não vira devolução" do
       criar_lancamento(tenant: @tenant, conta: @conta, tipo: :sale, direcao: :credit,
                        valor: 100, ocorrido_em: 2.days.ago)

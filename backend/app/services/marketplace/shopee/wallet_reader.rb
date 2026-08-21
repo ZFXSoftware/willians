@@ -14,8 +14,6 @@ module Marketplace
     class WalletReader
       PAGE_SIZE = 100
 
-      JANELA_MAXIMA = 15.days
-
       MAX_PAGINAS = 200
 
       Resultado = Struct.new(:eventos, :transacoes, :ignorados, :pendentes, :saldo,
@@ -43,24 +41,8 @@ module Marketplace
         )
       end
 
-      # A API recusa período maior que 15 dias.
-      def janelas(start_date, end_date)
-        inicio = start_date.to_date
-
-        fim = end_date.to_date
-
-        pedacos = []
-
-        while inicio <= fim
-          ultimo = [inicio + JANELA_MAXIMA - 1.day, fim].min
-
-          pedacos << [inicio, ultimo]
-
-          inicio = ultimo + 1.day
-        end
-
-        pedacos
-      end
+      # A API recusa período maior que 15 dias — ver Shopee::Janelas.
+      def janelas(start_date, end_date) = Janelas.quebrar(start_date, end_date)
 
       private
 
