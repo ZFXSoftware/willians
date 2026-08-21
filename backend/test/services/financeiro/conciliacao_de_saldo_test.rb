@@ -122,6 +122,58 @@ module Financeiro
       assert_includes divergencia.resolution_notes, "voltou a conferir"
     end
 
+    # -------------------- plataforma que não tem "disponível" (Amazon)
+
+    test "quando a plataforma só informa o futuro, é o futuro que é comparado" do
+      pedido = criar_pedido(tenant: @tenant, conta: @conta)
+      # Só o recebível em aberto: entra no nosso futuro, não no disponível.
+      # (Um lançamento de venda geraria OUTRO recebível pelo after_commit do
+      # FinancialEntry, e o futuro deixaria de ser 800.)
+      criar_recebivel(tenant: @tenant, conta: @conta, pedido: pedido,
+                      bruto: 800, liquido: 800, previsto_para: Date.current + 10)
+
+      so_futuro = { available: nil, future: BigDecimal("800"),
+                    total: BigDecimal("800"), source: "ciclo_aberto_amazon" }
+
+      detalhe = rodar(so_futuro)[:detalhes].first
+
+      assert_equal :confere, detalhe[:situacao],
+                   "comparar o futuro da Amazon contra o nosso disponível inventaria divergência"
+      assert_equal :future, detalhe[:base_da_comparacao]
+      assert_equal BigDecimal("800"), detalhe[:saldo_interno]
+    end
+
+    test "diferença no futuro é divergência de verdade" do
+      pedido = criar_pedido(tenant: @tenant, conta: @conta)
+      criar_recebivel(tenant: @tenant, conta: @conta, pedido: pedido,
+                      bruto: 800, liquido: 800, previsto_para: Date.current + 10)
+
+      so_futuro = { available: nil, future: BigDecimal("700"),
+                    total: BigDecimal("700"), source: "ciclo_aberto_amazon" }
+
+      resultado = rodar(so_futuro)
+
+      assert_equal 1, resultado[:resumo][:divergente]
+
+      divergencia = DivergenceReport.find_by!(tenant_id: @tenant.id,
+                                              divergence_type: ConciliacaoDeSaldo::TIPO_DIVERGENCIA)
+
+      # O par registrado é o comparado, não sempre o disponível.
+      assert_equal BigDecimal("700"), divergencia.expected_amount
+      assert_equal BigDecimal("800"), divergencia.received_amount
+      assert_equal "future", divergencia.metadata["base_da_comparacao"]
+    end
+
+    test "plataforma que responde sem número comparável não vira divergência" do
+      com_saldo_interno(500)
+
+      detalhe = rodar({ available: nil, future: nil, total: nil, source: "x" })[:detalhes].first
+
+      assert_equal :sem_espelho, detalhe[:situacao]
+      assert_equal :sem_valor_comparavel, detalhe[:motivo]
+      assert_equal 0, DivergenceReport.where(tenant: @tenant).count
+    end
+
     test "erro na leitura do saldo não derruba a conferência" do
       com_saldo_interno(500)
 

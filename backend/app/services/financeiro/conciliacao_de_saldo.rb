@@ -60,24 +60,52 @@ module Financeiro
       # como se estivesse conferido seria pior do que não registrar.
       return sem_espelho(conta, nosso) if plataforma.blank?
 
-      diferenca = (plataforma[:available].to_d - nosso[:available_balance].to_d).round(2)
+      base = base_de_comparacao(plataforma)
 
-      snapshot = gravar!(conta, nosso, plataforma, diferenca)
+      # Nem toda plataforma tem "saldo disponível". A Amazon, por exemplo, não
+      # tem carteira: o que ela informa é o quanto vai pagar no ciclo em curso.
+      # Comparar isso contra o nosso disponível inventaria divergência todo dia.
+      return sem_espelho(conta, nosso, motivo: :sem_valor_comparavel) if base.blank?
+
+      da_plataforma = plataforma[base].to_d
+
+      nosso_lado = base == :available ? nosso[:available_balance] : nosso[:future_balance]
+
+      diferenca = (da_plataforma - nosso_lado.to_d).round(2)
+
+      snapshot = gravar!(conta, nosso, plataforma, diferenca, base)
 
       divergente = diferenca.abs > tolerancia
 
-      divergente ? abrir_divergencia!(conta, snapshot, plataforma, nosso, diferenca) : fechar_divergencia!(conta)
+      if divergente
+        abrir_divergencia!(conta, snapshot, plataforma,
+                           esperado: da_plataforma, recebido: nosso_lado,
+                           diferenca: diferenca, base: base)
+      else
+        fechar_divergencia!(conta)
+      end
 
       {
         platform_account_id: conta.id,
         platform: conta.platform,
         situacao: divergente ? :divergente : :confere,
-        saldo_plataforma: plataforma[:available],
-        saldo_interno: nosso[:available_balance],
+        base_da_comparacao: base,
+        saldo_plataforma: da_plataforma,
+        saldo_interno: nosso_lado,
         diferenca: diferenca,
         origem: plataforma[:source],
         snapshot_id: snapshot.id
       }
+    end
+
+    # Compara pelo que a plataforma REALMENTE informa. Preferir o disponível
+    # quando existe, e cair no futuro quando é o único número que ela dá.
+    def base_de_comparacao(plataforma)
+      return :available if plataforma[:available].present?
+
+      return :future if plataforma[:future].present?
+
+      nil
     end
 
     def saldo_da_plataforma(conta)
@@ -103,18 +131,26 @@ module Financeiro
       classe.new(account: conta)
     end
 
-    def sem_espelho(conta, nosso)
+    def sem_espelho(conta, nosso, motivo: :nao_informou)
+      mensagem =
+        if motivo == :sem_valor_comparavel
+          "#{conta.platform} respondeu, mas sem um valor comparável ao nosso saldo."
+        else
+          "#{conta.platform} não informou saldo: integração não conectada, " \
+            "sem suporte a leitura de saldo, ou relatório ainda sendo gerado."
+        end
+
       {
         platform_account_id: conta.id,
         platform: conta.platform,
         situacao: :sem_espelho,
+        motivo: motivo,
         saldo_interno: nosso[:available_balance],
-        mensagem: "#{conta.platform} não informou saldo: integração não conectada, " \
-                  "sem suporte a leitura de saldo, ou relatório ainda sendo gerado."
+        mensagem: mensagem
       }
     end
 
-    def gravar!(conta, nosso, plataforma, diferenca)
+    def gravar!(conta, nosso, plataforma, diferenca, base = :available)
       snapshot = PlatformBalanceSnapshot.find_or_initialize_by(
         platform_account_id: conta.id, snapshot_date: Date.current
       )
@@ -129,7 +165,8 @@ module Financeiro
         platform_total_balance: plataforma[:total],
         difference_amount: diferenca,
         platform_source: plataforma[:source],
-        metadata: { "conferido_em" => Time.current, "periodo" => "#{start_date}..#{end_date}" }
+        metadata: { "conferido_em" => Time.current, "periodo" => "#{start_date}..#{end_date}",
+                    "base_da_comparacao" => base }
       )
 
       snapshot
@@ -137,7 +174,7 @@ module Financeiro
 
     # Sem lançamento associado: a diferença é da conta, não de um título. A
     # chave mantém uma divergência aberta por conta, atualizada a cada dia.
-    def abrir_divergencia!(conta, snapshot, plataforma, nosso, diferenca)
+    def abrir_divergencia!(conta, snapshot, plataforma, esperado:, recebido:, diferenca:, base:)
       # Busca pela chave DENTRO do metadata, e não pelo metadata inteiro: o
       # registro gravado tem mais campos, e a comparação de hash nunca casaria
       # — criaria uma segunda divergência a cada execução.
@@ -148,8 +185,10 @@ module Financeiro
 
       divergencia.assign_attributes(
         status: :open,
-        expected_amount: plataforma[:available],
-        received_amount: nosso[:available_balance],
+        # O par comparado, e não sempre o disponível: quando a plataforma só
+        # informa o futuro, é o futuro que está em divergência.
+        expected_amount: esperado,
+        received_amount: recebido,
         difference_amount: diferenca,
         metadata: {
           "chave" => chave(conta),
@@ -158,7 +197,8 @@ module Financeiro
           "platform" => conta.platform,
           "snapshot_id" => snapshot.id,
           "periodo" => "#{start_date}..#{end_date}",
-          "fonte_do_saldo" => plataforma[:source]
+          "fonte_do_saldo" => plataforma[:source],
+          "base_da_comparacao" => base
         }
       )
 
