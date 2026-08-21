@@ -12,10 +12,14 @@ RUN npm ci
 
 COPY frontend/ ./
 
-# Vazias de propósito: em produção o front fala por caminho relativo, mesma
-# origem, sem CORS.
-ENV VITE_API_URL=""
-ENV VITE_GATEWAY_URL=""
+# Caminhos RELATIVOS: em produção tudo sai da mesma origem, e o nginx deste
+# mesmo container encaminha /api ao Rails e /gateway ao gateway.
+#
+# Não deixe vazio. O client.ts faz `import.meta.env.VITE_API_URL || "http://
+# localhost:3053"`, e string vazia é falsy em JavaScript — o build embutiria
+# localhost:3053 na SPA, que é o que o navegador do usuário tentaria chamar.
+ENV VITE_API_URL="/api"
+ENV VITE_GATEWAY_URL="/gateway"
 
 RUN npm run build
 

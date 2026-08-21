@@ -2,10 +2,19 @@ import axios from "axios"
 import type { AxiosInstance } from "axios"
 import { useAuth } from "../store/useAuth"
 
-// Rails (autenticação, dados) e gateway (disparo da conciliação) ficam em
-// portas diferentes — ver docker-compose.
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3053"
-const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || "http://localhost:3051"
+// Em desenvolvimento, Rails e gateway ficam em portas diferentes (ver
+// docker-compose). Em produção tudo sai da MESMA origem, e o nginx encaminha
+// /api e /gateway — por isso o padrão muda com o tipo de build.
+//
+// O padrão de produção precisa ser relativo, e não localhost: um build com a
+// variável vazia embutiria localhost na SPA, e o navegador do usuário tentaria
+// chamar a máquina dele. Foi o que aconteceu no primeiro deploy — string vazia
+// é falsy, então `|| "http://localhost:3053"` venceu.
+const API_URL =
+  import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "/api" : "http://localhost:3053")
+
+const GATEWAY_URL =
+  import.meta.env.VITE_GATEWAY_URL || (import.meta.env.PROD ? "/gateway" : "http://localhost:3051")
 
 function withAuth(instance: AxiosInstance): AxiosInstance {
   instance.interceptors.request.use((config) => {
