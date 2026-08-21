@@ -5,6 +5,10 @@ class User < ApplicationRecord
 
   has_many :tenant_users, dependent: :destroy
 
+  # Convites que esta pessoa gerou: o vínculo é só para auditoria, então
+  # apagar quem convidou não pode apagar o convite.
+  has_many :convites_enviados, class_name: "Convite", foreign_key: :convidado_por_id, dependent: :nullify, inverse_of: :convidado_por
+
   has_many :tenants, through: :tenant_users
 
   enum :status, {

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_20_160000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_21_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -62,6 +62,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_160000) do
     t.index ["platform_account_id"], name: "index_conciliation_runs_on_platform_account_id"
     t.index ["status"], name: "index_conciliation_runs_on_status"
     t.index ["tenant_id"], name: "index_conciliation_runs_on_tenant_id"
+  end
+
+  create_table "convites", force: :cascade do |t|
+    t.datetime "accepted_at"
+    t.bigint "convidado_por_id"
+    t.datetime "created_at", null: false
+    t.string "email", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "revoked_at"
+    t.string "role", default: "member", null: false
+    t.bigint "tenant_id", null: false
+    t.string "token_digest", null: false
+    t.datetime "updated_at", null: false
+    t.index ["convidado_por_id"], name: "index_convites_on_convidado_por_id"
+    t.index ["tenant_id", "email"], name: "index_convites_on_tenant_id_and_email"
+    t.index ["tenant_id"], name: "index_convites_on_tenant_id"
+    t.index ["token_digest"], name: "index_convites_on_token_digest", unique: true
   end
 
   create_table "devolucoes", force: :cascade do |t|
@@ -443,6 +460,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_20_160000) do
   add_foreign_key "conciliacao_registros", "tenants"
   add_foreign_key "conciliation_runs", "platform_accounts"
   add_foreign_key "conciliation_runs", "tenants"
+  add_foreign_key "convites", "tenants"
+  add_foreign_key "convites", "users", column: "convidado_por_id"
   add_foreign_key "devolucoes", "invoices"
   add_foreign_key "devolucoes", "invoices", column: "return_invoice_id"
   add_foreign_key "devolucoes", "orders"

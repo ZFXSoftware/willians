@@ -11,6 +11,8 @@ import Settings from "../pages/Settings"
 import Balances from "../pages/Balances"
 import Returns from "../pages/Returns"
 import Movements from "../pages/Movements"
+import Team from "../pages/Team"
+import Invite from "../pages/Invite"
 
 import PrivateRoute from "./privateRoute"
 import MainLayout from "../layouts/MainLayout"
@@ -22,6 +24,7 @@ export default function AppRoutes() {
         {/* públicas */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/convite/:token" element={<Invite />} />
 
         {/* privadas */}
         <Route
@@ -43,6 +46,7 @@ export default function AppRoutes() {
           <Route path="/saldos" element={<Balances />} />
           <Route path="/devolucoes" element={<Returns />} />
           <Route path="/movimentacoes" element={<Movements />} />
+          <Route path="/equipe" element={<Team />} />
           <Route path="/configuracoes" element={<Settings />} />
         </Route>
       </Routes>

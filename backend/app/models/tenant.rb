@@ -19,6 +19,7 @@ class Tenant < ApplicationRecord
   has_many :oauth_states, dependent: :destroy
   has_many :integration_settings, dependent: :destroy
   has_many :devolucoes, dependent: :destroy
+  has_many :convites, dependent: :destroy
 
   enum :status, {
     active: "active",

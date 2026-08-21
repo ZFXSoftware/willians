@@ -12,6 +12,17 @@ Rails.application.routes.draw do
 
   get "painel", to: "painel#show"
 
+  # Quem tem acesso à empresa.
+  get    "equipe", to: "equipe#index"
+  post   "equipe/convidar", to: "equipe#convidar"
+  delete "equipe/convites/:id", to: "equipe#revogar"
+  patch  "equipe/membros/:id", to: "equipe#alterar_papel"
+  delete "equipe/membros/:id", to: "equipe#remover"
+
+  # Recebimento do convite — público: quem abre ainda não tem conta.
+  get  "convites/:token", to: "convites#show"
+  post "convites/:token/aceitar", to: "convites#aceitar"
+
   get "integracoes", to: "integracoes#index"
 
   get "divergencias", to: "divergencias#index"

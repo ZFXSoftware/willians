@@ -7,6 +7,7 @@ import {
   Undo2,
   ArrowRightLeft,
   KeyRound,
+  Users,
   LogOut,
 } from "lucide-react"
 
@@ -71,6 +72,11 @@ export default function Sidebar() {
       label: "Integrações",
       icon: Plug,
       path: "/integracoes",
+    },
+    {
+      label: "Equipe",
+      icon: Users,
+      path: "/equipe",
     },
     {
       label: "Configurações",
