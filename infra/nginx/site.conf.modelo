@@ -23,10 +23,7 @@ server {
 
 {{BLOCO_TLS_INICIO}}
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-
-    http2 on;
+{{LISTEN_TLS}}
 
     server_name {{DOMINIO}};
 

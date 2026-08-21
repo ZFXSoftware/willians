@@ -358,6 +358,25 @@ sites_que_atendem() {
       done
 }
 
+# Bloco `listen` do servidor TLS, na sintaxe que ESTA versão do nginx entende.
+#
+# A diretiva `http2 on;` só existe a partir do 1.25.1. Nas anteriores o HTTP/2
+# é ligado no próprio listen, e usar a forma nova derruba o `nginx -t` inteiro
+# com "unknown directive".
+listen_tls() {
+  local versao
+  versao="$(nginx -v 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+
+  local menor
+  menor="$(printf '%s\n%s\n' "${versao:-0.0.0}" "1.25.1" | sort -V | head -1)"
+
+  if [[ "$menor" == "1.25.1" ]]; then
+    printf '    listen 443 ssl;\n    listen [::]:443 ssl;\n\n    http2 on;'
+  else
+    printf '    listen 443 ssl http2;\n    listen [::]:443 ssl http2;'
+  fi
+}
+
 # Certificado que cobre o domínio. O certbot guarda em /live/<primeiro nome>/,
 # então o diretório pode ter o nome de OUTRO domínio do mesmo certificado —
 # é o caso da VPS, onde api.* usa o certificado emitido para dev.*.
@@ -424,6 +443,12 @@ cmd_publicar() {
       opcoes_ssl="${opcoes_ssl}
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;"
 
+    local listen
+    listen="$(listen_tls)"
+
+    passo "sintaxe de HTTP/2: $(printf '%s' "$listen" | tail -1 | sed 's/^ *//')"
+
+    conteudo="${conteudo//\{\{LISTEN_TLS\}\}/$listen}"
     conteudo="${conteudo//\{\{OPCOES_SSL\}\}/$opcoes_ssl}"
     conteudo="${conteudo//\{\{REDIRECT_HTTPS\}\}/    return 301 https://\$host\$request_uri;}"
     conteudo="${conteudo//\{\{BLOCO_TLS_INICIO\}\}/}"
