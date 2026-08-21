@@ -152,6 +152,13 @@ AVISO
 # -------------------------------------------------------------------- preparar
 
 cmd_preparar() {
+  local dominio="${1:-}"
+
+  # Aceita colado do navegador: tira protocolo, barra final e caminho.
+  dominio="${dominio#http://}"
+  dominio="${dominio#https://}"
+  dominio="${dominio%%/*}"
+
   titulo "Preparando $ENV_FILE"
 
   if [[ -f "$ENV_FILE" ]]; then
@@ -196,12 +203,44 @@ cmd_preparar() {
     passo "porta local: $porta (livre)"
   fi
 
+  # As três variáveis do domínio precisam ser coerentes entre si. Preenchê-las
+  # à mão é onde nasce o erro clássico: barra sobrando no APP_PUBLIC_URL, que
+  # faz a redirect_uri deixar de bater com a cadastrada no portal do
+  # marketplace — e o OAuth falha com uma mensagem que não ajuda.
+  if [[ -n "$dominio" ]]; then
+    titulo "Domínio"
+
+    sed -i "s|^PUBLIC_HOST=.*|PUBLIC_HOST=${dominio}|" "$ENV_FILE"
+    sed -i "s|^APP_PUBLIC_URL=.*|APP_PUBLIC_URL=https://${dominio}|" "$ENV_FILE"
+    sed -i "s|^FRONTEND_ORIGINS=.*|FRONTEND_ORIGINS=https://${dominio}|" "$ENV_FILE"
+
+    passo "PUBLIC_HOST      = $dominio"
+    passo "APP_PUBLIC_URL   = https://$dominio"
+    passo "FRONTEND_ORIGINS = https://$dominio"
+
+    titulo "URLs de retorno para cadastrar nos portais"
+    cat <<URLS
+   Precisam bater CARACTERE POR CARACTERE com o que estiver cadastrado:
+
+     https://${dominio}/api/integracoes/mercado-livre/callback
+     https://${dominio}/api/integracoes/shopee/callback
+     https://${dominio}/api/integracoes/amazon/callback
+URLS
+  fi
+
   titulo "Falta você preencher"
-  cat <<'FALTA'
+
+  [[ -z "$dominio" ]] && cat <<'FALTA'
    PUBLIC_HOST         domínio, sem protocolo
    APP_PUBLIC_URL      https://SEU-DOMINIO
    FRONTEND_ORIGINS    https://SEU-DOMINIO
+FALTA
+
+  cat <<'FALTA'
    OMIE_APP_KEY/SECRET chaves do aplicativo OMIE
+
+   Elas já existem no .env do sistema antigo, nesta mesma máquina — copie de
+   lá em vez de gerar de novo, para o cliente continuar sendo o mesmo no OMIE.
 
    As chaves de ML, Shopee, Amazon e Tiny podem ficar em branco: a tela de
    Configurações grava cifrado no banco, por empresa.
@@ -515,6 +554,58 @@ AVISO
   verde "   $dominio agora é a stack nova"
   passo "confira: curl -I https://$dominio"
   passo "para desfazer: ./deploy/deploy.sh reverter"
+
+  avisar_sites_orfaos "$porta"
+}
+
+# Sites que continuam ativos apontando para a stack ANTIGA.
+#
+# Com origem única, o domínio separado da API perde a função — mas o site dele
+# segue no ar mirando a porta antiga. No dia em que a stack antiga for parada,
+# ele passa a devolver 502 sem explicação.
+avisar_sites_orfaos() {
+  local porta_nova="$1"
+  local dir=/etc/nginx/sites-enabled
+
+  [[ -d "$dir" ]] || return 0
+
+  local achou=0
+  local arquivo alvo
+
+  for arquivo in "$dir"/*; do
+    [[ -f "$arquivo" || -L "$arquivo" ]] || continue
+    [[ "$(basename "$arquivo")" == "$SITE_NOVO"* ]] && continue
+
+    # Só interessam os que miram a máquina local numa porta diferente da nossa.
+    alvo="$(grep -oE "proxy_pass +http://127\.0\.0\.1:[0-9]+" "$arquivo" 2>/dev/null | grep -oE "[0-9]+$" | head -1)"
+
+    [[ -n "$alvo" && "$alvo" != "$porta_nova" ]] || continue
+
+    # E que pertençam ao Willians: não é da nossa conta apontar o dedo para os
+    # outros sistemas da máquina.
+    grep -qiE "willians|conciliation" "$arquivo" 2>/dev/null || continue
+
+    if [[ $achou -eq 0 ]]; then
+      titulo "Sites que ainda apontam para a stack antiga"
+      achou=1
+    fi
+
+    passo "$(basename "$arquivo") -> 127.0.0.1:$alvo"
+  done
+
+  [[ $achou -eq 1 ]] && cat <<'AVISO'
+
+   Com origem única esses domínios ficaram sem função: a interface, /api e
+   /gateway saem todos do domínio principal.
+
+   Enquanto a stack antiga roda, eles continuam funcionando. Quando você rodar
+   `parar-antigo`, passam a devolver 502. Decida antes:
+
+     - desativar:  sudo rm /etc/nginx/sites-enabled/NOME && sudo systemctl reload nginx
+     - ou apontar para a stack nova, editando o proxy_pass do arquivo
+AVISO
+
+  return 0
 }
 
 # -------------------------------------------------------------------- reverter
@@ -604,7 +695,7 @@ cmd_status() {
 
 case "${1:-inspecionar}" in
   inspecionar)   cmd_inspecionar ;;
-  preparar)      cmd_preparar ;;
+  preparar)      cmd_preparar "${2:-}" ;;
   subir)         cmd_subir ;;
   migrar)        cmd_migrar ;;
   publicar)      cmd_publicar "${2:-}" ;;

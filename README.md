@@ -252,12 +252,12 @@ A VPS tem outros sistemas. Todo o desenho do deploy parte disso:
 git clone git@github.com:ZFXSoftware/willians.git
 cd willians
 
-./deploy/deploy.sh inspecionar        # o que já existe (não muda nada)
-./deploy/deploy.sh preparar           # cria .env.production e gera os segredos
-nano .env.production                  # domínio e chaves do OMIE
-./deploy/deploy.sh subir              # constrói e sobe, ainda sem publicar
-./deploy/deploy.sh migrar             # backup + migrações + primeiro usuário
-./deploy/deploy.sh status             # conferência local
+./deploy/deploy.sh inspecionar             # o que já existe (não muda nada)
+./deploy/deploy.sh preparar SEU-DOMINIO    # .env.production, segredos e domínio
+nano .env.production                       # só as chaves do OMIE
+./deploy/deploy.sh subir                   # constrói e sobe, ainda sem publicar
+./deploy/deploy.sh migrar                  # backup + migrações + primeiro usuário
+./deploy/deploy.sh status                  # conferência local
 ```
 
 Até aqui **nada mudou para quem usa o sistema antigo**: a stack nova responde
