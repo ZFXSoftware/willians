@@ -153,6 +153,9 @@ module Marketplace
 
         uri = requisicao.uri
 
+        RedeExterna.bloquear!("o relatório de liberações do Mercado Pago")
+
+
         http = Net::HTTP.new(uri.host, uri.port)
 
         http.use_ssl = uri.scheme == "https"

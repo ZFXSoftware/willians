@@ -1,31 +1,57 @@
 module Marketplace
   module Providers
-    # A autenticação da Shopee está pronta e verificada (assinatura HMAC,
-    # autorização de loja, renovação de token). A LEITURA FINANCEIRA não está.
+    # Leitura financeira da Shopee pelo escrow: cada pedido liquidado no
+    # período vira uma venda pelo bruto e uma dedução para cada taxa.
     #
-    # Os caminhos de payment (escrow, payout, wallet) não puderam ser conferidos
-    # na documentação oficial — o portal da Shopee exige login de parceiro. Em
-    # vez de inventar nomes de campo e produzir lançamentos errados no razão,
-    # esta chamada falha dizendo exatamente o que falta.
+    # Endpoints e campos conferidos na referência da API v2 (2026-08-21):
+    # get_escrow_list para descobrir o que foi liberado, get_escrow_detail para
+    # a quebra. Ver Shopee::EscrowReader e Shopee::EscrowEvents.
     #
-    # Para implementar, o que precisa ser confirmado no portal:
-    #   - caminho e parâmetros de get_escrow_list / get_payout_detail
-    #   - formato da resposta: nomes dos campos de valor, taxa, pedido e data
-    #   - se o repasse traz o número da nota fiscal (é a nossa chave de
-    #     conciliação, ver Omie::Readers::ReceivableTotals)
+    # AINDA FALTA o saque para o banco (o repasse propriamente dito). O
+    # get_payout_detail existe, mas a própria documentação diz que é "applicable
+    # for Cross Border (CB) sellers only" — o cliente é vendedor local
+    # brasileiro, então aquele endpoint recusaria. A fonte para vendedor local
+    # deve ser get_wallet_transaction_list ou get_payout_info, ainda não
+    # confirmadas.
     class ShopeeProvider < BaseProvider
       class NotImplemented < StandardError; end
 
+      # Pedidos cuja decomposição não fechou com o escrow_amount informado pela
+      # Shopee. Ficam de fora do razão de propósito — ver EscrowReader.
+      attr_reader :divergentes,
+                  :falhas
+
       def financial_events(start_date:, end_date:)
-        raise NotImplemented,
-              "Leitura financeira da Shopee não implementada. A conexão da loja funciona e " \
-              "os endpoints existem (#{Shopee::Settings.path(:escrow_detail)}, " \
-              "#{Shopee::Settings.path(:payout_detail)}), mas o formato de requisição e " \
-              "resposta ainda não foi confirmado — implementar às cegas produziria valores " \
-              "errados na contabilidade. Use MARKETPLACE_SIMULATION=true em desenvolvimento."
+        resultado = leitor.call(start_date: start_date, end_date: end_date)
+
+        @divergentes = resultado.divergentes
+
+        @falhas = resultado.falhas
+
+        avisar(resultado)
+
+        resultado.eventos
       end
 
       private
+
+      def avisar(resultado)
+        if resultado.divergentes.any?
+          Rails.logger.warn(
+            "[Shopee] #{resultado.divergentes.size} de #{resultado.pedidos} pedido(s) não " \
+            "fecharam com o escrow_amount e foram DESCARTADOS: " \
+            "#{resultado.divergentes.first(5).map { |d| "#{d[:order_sn]} (#{d[:diferenca]})" }.join(', ')}"
+          )
+        end
+
+        return if resultado.falhas.empty?
+
+        Rails.logger.warn "[Shopee] #{resultado.falhas.size} pedido(s) falharam na leitura do detalhe"
+      end
+
+      def leitor
+        @leitor ||= Shopee::EscrowReader.new(client: client)
+      end
 
       def client
         @client ||= Shopee::Client.new(

@@ -147,6 +147,8 @@ module Marketplace
       end
 
       def perform(uri, body)
+        RedeExterna.bloquear!("o OAuth do Mercado Livre")
+
         http = Net::HTTP.new(uri.host, uri.port)
 
         http.use_ssl = uri.scheme == "https"

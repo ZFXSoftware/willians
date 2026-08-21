@@ -107,6 +107,8 @@ module Fiscal
       end
 
       def executar(uri, corpo)
+        RedeExterna.bloquear!("o Tiny")
+
         http = Net::HTTP.new(uri.host, uri.port)
 
         http.use_ssl = true

@@ -141,6 +141,9 @@ module Marketplace
 
         uri.query = URI.encode_www_form(query)
 
+        RedeExterna.bloquear!("a Shopee")
+
+
         http = Net::HTTP.new(uri.host, uri.port)
 
         http.use_ssl = uri.scheme == "https"

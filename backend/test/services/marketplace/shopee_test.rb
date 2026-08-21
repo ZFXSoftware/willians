@@ -164,7 +164,7 @@ module Marketplace
 
     # -------------------------------------------------------------------- provider
 
-    test "provider está registrado e admite que a leitura financeira falta" do
+    test "provider está registrado e não sai para a rede em teste" do
       tenant = criar_tenant
       falso = OauthFalso.new(expires_in: 14_400, prefixo: "S")
       resultado = S::Authorization.new(tenant: tenant, user: criar_usuario(tenant: tenant)).call
@@ -174,12 +174,12 @@ module Marketplace
       assert Ingestors::MarketplaceIngestor::PROVIDERS.key?("shopee")
       assert Providers::ShopeeProvider.configured?(conta)
 
-      erro = assert_raises(Providers::ShopeeProvider::NotImplemented) do
+      # A leitura financeira passou a existir (ver shopee_escrow_test). O que
+      # este teste garante é que ela NÃO sai para a rede a partir da suíte.
+      assert_raises(RedeExterna::Bloqueada) do
         Providers::ShopeeProvider.new(account: conta)
                                  .financial_events(start_date: Date.current - 1, end_date: Date.current)
       end
-
-      assert_includes erro.message, "payment"
     end
   end
 end

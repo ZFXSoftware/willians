@@ -99,6 +99,9 @@ module Marketplace
       def post_token(body)
         uri = URI.parse(Settings.token_url)
 
+        RedeExterna.bloquear!("a Amazon (LWA)")
+
+
         http = Net::HTTP.new(uri.host, uri.port)
 
         http.use_ssl = true

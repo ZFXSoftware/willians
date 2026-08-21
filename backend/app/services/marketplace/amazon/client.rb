@@ -86,6 +86,9 @@ module Marketplace
 
         uri.query = URI.encode_www_form(params.compact) if params.compact.any?
 
+        RedeExterna.bloquear!("a Amazon (SP-API)")
+
+
         http = Net::HTTP.new(uri.host, uri.port)
 
         http.use_ssl = true

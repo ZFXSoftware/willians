@@ -107,12 +107,8 @@ module Omie
     end
 
     def request(endpoint, call, params = {})
-      if Rails.env.test? && !self.class.network_allowed_in_test?
-        raise NetworkBlocked,
-              "Chamada real ao OMIE (#{call}) a partir de um teste. Injete um dublê no " \
-              "serviço, ou defina OMIE_PERMITIR_REDE_EM_TESTE=true para um teste de " \
-              "integração deliberado."
-      end
+      # Trava compartilhada com os demais clientes — ver RedeExterna.
+      RedeExterna.bloquear!("o OMIE", call) unless self.class.network_allowed_in_test?
 
       guard_write!(call)
 
