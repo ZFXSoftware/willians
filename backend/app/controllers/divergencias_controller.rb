@@ -1,6 +1,10 @@
 class DivergenciasController < ApplicationController
   before_action :require_tenant!
 
+  before_action :authorize_write!, only: %i[contestar resolver]
+
+  before_action :carregar, only: %i[contestacao contestar resolver]
+
   def index
     resultado = paginated(escopo) { |divergencia| serialize(divergencia) }
 
@@ -9,12 +13,54 @@ class DivergenciasController < ApplicationController
     render json: { error: e.message }, status: :bad_request
   end
 
+  # Briefing 2.5: os dados prontos para levar à central da plataforma.
+  def contestacao
+    render json: Divergencias::Contestacao.new(@divergencia).call
+  end
+
+  # Registra que a contestação foi aberta, com o protocolo devolvido pela
+  # plataforma — é por ele que se acompanha o caso depois.
+  def contestar
+    @divergencia.update!(
+      status: :analyzing,
+      metadata: @divergencia.metadata.merge(
+        "contestacao" => {
+          "protocolo" => params[:protocolo].presence,
+          "observacao" => params[:observacao].presence,
+          "aberta_em" => Time.current,
+          "por" => current_user&.email
+        }.compact
+      )
+    )
+
+    render json: serialize(@divergencia.reload)
+  end
+
+  # Fecha o caso depois do ajuste. O briefing pede que o ajuste financeiro se
+  # reflita no OMIE; quando ele chega como lançamento, a conciliação o trata
+  # como qualquer outro valor — aqui fica o registro de que o caso terminou.
+  def resolver
+    @divergencia.update!(
+      status: :resolved,
+      resolved_at: Time.current,
+      resolution_notes: params[:observacao].presence || "Resolvida manualmente."
+    )
+
+    render json: serialize(@divergencia.reload)
+  end
+
   private
+
+  def carregar
+    @divergencia = DivergenceReport.find_by(id: params[:id], tenant_id: current_tenant.id)
+
+    render json: { error: "Divergência não encontrada" }, status: :not_found if @divergencia.blank?
+  end
 
   def escopo
     scope = DivergenceReport
               .where(tenant_id: current_tenant.id)
-              .includes(financial_entry: :platform_account)
+              .includes(financial_entry: %i[platform_account order invoice])
               .order(created_at: :desc)
 
     scope = scope.where(status: params[:status]) if params[:status].present?
@@ -47,6 +93,9 @@ class DivergenciasController < ApplicationController
       observacoes: divergencia.resolution_notes,
       referencia: entry&.external_id,
       plataforma: entry&.platform_account&.platform,
+      pedido: entry&.order&.external_id,
+      nota_fiscal: entry&.invoice&.number,
+      contestacao: divergencia.metadata["contestacao"],
       metadata: divergencia.metadata
     }
   end

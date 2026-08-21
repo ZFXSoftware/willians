@@ -16,6 +16,11 @@ Rails.application.routes.draw do
 
   get "divergencias", to: "divergencias#index"
 
+  # Contestação junto à plataforma (briefing 2.5).
+  get  "divergencias/:id/contestacao", to: "divergencias#contestacao"
+  post "divergencias/:id/contestar", to: "divergencias#contestar"
+  post "divergencias/:id/resolver", to: "divergencias#resolver"
+
   # Transferências entre contas e pagamentos na plataforma (briefing 2.7).
   post "movimentacoes/transferir", to: "movimentacoes#transferir"
   post "movimentacoes/pagar", to: "movimentacoes#pagar"

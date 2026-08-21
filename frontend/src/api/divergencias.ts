@@ -13,7 +13,30 @@ export interface Divergencia {
   observacoes: string | null
   referencia: string | null
   plataforma: string | null
+  pedido: string | null
+  nota_fiscal: string | null
+  contestacao: {
+    protocolo?: string
+    observacao?: string
+    aberta_em?: string
+    por?: string
+  } | null
   metadata: Record<string, unknown>
+}
+
+export interface CampoContestacao {
+  rotulo: string
+  valor: string
+}
+
+export interface Contestacao {
+  url: string
+  /** O caminho da central muda e não é documentado: o link é sugerido, não garantido. */
+  url_confirmada: boolean
+  plataforma: string | null
+  assunto: string
+  texto: string
+  campos: CampoContestacao[]
 }
 
 export interface ResumoDivergencias {
@@ -42,6 +65,30 @@ export async function fetchDivergencias(
   const { data } = await api.get<DivergenciasResponse>("/divergencias", {
     params: filtros,
   })
+
+  return data
+}
+
+export async function fetchContestacao(id: number): Promise<Contestacao> {
+  const { data } = await api.get<Contestacao>(`/divergencias/${id}/contestacao`)
+
+  return data
+}
+
+export async function contestar(
+  id: number,
+  dados: { protocolo?: string; observacao?: string },
+): Promise<Divergencia> {
+  const { data } = await api.post<Divergencia>(`/divergencias/${id}/contestar`, dados)
+
+  return data
+}
+
+export async function resolverDivergencia(
+  id: number,
+  observacao?: string,
+): Promise<Divergencia> {
+  const { data } = await api.post<Divergencia>(`/divergencias/${id}/resolver`, { observacao })
 
   return data
 }

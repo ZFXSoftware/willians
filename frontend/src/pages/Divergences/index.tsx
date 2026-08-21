@@ -1,7 +1,12 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock } from "lucide-react"
 
-import { fetchDivergencias, type FiltrosDivergencias } from "../../api/divergencias"
+import {
+  fetchDivergencias,
+  type Divergencia,
+  type FiltrosDivergencias,
+} from "../../api/divergencias"
+import PainelContestacao from "../../components/PainelContestacao"
 import { useResource } from "../../hooks/useResource"
 import { brl, dataBR, rotulo } from "../../lib/format"
 import { Carregando, ErroAoCarregar, Selo, Vazio } from "../../components/Estados"
@@ -17,6 +22,12 @@ const ICONES: Record<string, typeof AlertTriangle> = {
 
 export default function Divergences() {
   const [filtros, setFiltros] = useState<FiltrosDivergencias>({ page: 1 })
+
+  const [contestando, setContestando] = useState<number | null>(null)
+
+  // O painel devolve a divergência já atualizada; guardar aqui evita recarregar
+  // a lista inteira a cada protocolo registrado.
+  const [alteradas, setAlteradas] = useState<Record<number, Divergencia>>({})
 
   const { data, loading, error, reload } = useResource(
     () => fetchDivergencias(filtros),
@@ -123,17 +134,20 @@ export default function Divergences() {
                   <th className="text-right font-medium px-6 py-4">Recebido</th>
                   <th className="text-right font-medium px-6 py-4">Diferença</th>
                   <th className="text-left font-medium px-6 py-4">Data</th>
+                  <th className="text-right font-medium px-6 py-4">Contestação</th>
                 </tr>
               </thead>
 
               <tbody>
-                {data?.items.map((row) => {
+                {data?.items.map((original) => {
+                  const row = alteradas[original.id] ?? original
                   const Icone = ICONES[row.status] ?? AlertTriangle
                   const dif = Number(row.diferenca ?? 0)
+                  const aberta = contestando === row.id
 
                   return (
+                    <Fragment key={row.id}>
                     <tr
-                      key={row.id}
                       className="border-t border-zinc-800 hover:bg-zinc-800/30 transition"
                     >
                       <td className="px-6 py-5 text-zinc-400">DIV-{row.id}</td>
@@ -164,7 +178,34 @@ export default function Divergences() {
                         {brl(row.diferenca)}
                       </td>
                       <td className="px-6 py-5 text-zinc-400">{dataBR(row.data)}</td>
+                      <td className="px-6 py-5 text-right">
+                        <button
+                          onClick={() => setContestando(aberta ? null : row.id)}
+                          className="text-sm text-zinc-400 hover:text-white transition whitespace-nowrap"
+                        >
+                          {row.contestacao?.protocolo
+                            ? row.contestacao.protocolo
+                            : aberta
+                              ? "fechar"
+                              : "Contestar"}
+                        </button>
+                      </td>
                     </tr>
+
+                    {aberta && (
+                      <tr className="border-t border-zinc-800 bg-zinc-950/40">
+                        <td colSpan={10} className="px-6 pb-6">
+                          <PainelContestacao
+                            divergencia={row}
+                            onFechar={() => setContestando(null)}
+                            onAtualizar={(d) =>
+                              setAlteradas((atual) => ({ ...atual, [d.id]: d }))
+                            }
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   )
                 })}
               </tbody>

@@ -49,7 +49,12 @@ module Integracoes
           campo(:client_secret, env: "ML_CLIENT_SECRET", rotulo: "Client Secret",
                 secreto: true, obrigatorio: true),
           campo(:use_pkce, env: "ML_USE_PKCE", rotulo: "Usar PKCE", tipo: :booleano,
-                ajuda: "Ligue apenas se a aplicação estiver marcada como pública no portal.")
+                ajuda: "Ligue apenas se a aplicação estiver marcada como pública no portal."),
+          campo(:url_contestacao, env: "ML_URL_CONTESTACAO", rotulo: "Link de contestação",
+                tipo: :texto, padrao: "https://www.mercadolivre.com.br/vendas/{pedido}/detalhe",
+                ajuda: "Para onde o botão Contestar leva. Use {pedido} e {nf} como " \
+                       "marcadores. CONFIRA na sua conta: o caminho da central muda com o " \
+                       "tempo e não é documentado publicamente.")
         ]
       ),
 
@@ -66,7 +71,12 @@ module Integracoes
           campo(:region, env: "SHOPEE_REGION", rotulo: "Região", tipo: :opcao, padrao: "br",
                 opcoes: [{ valor: "br", rotulo: "Brasil" },
                          { valor: "global", rotulo: "Global" },
-                         { valor: "cn", rotulo: "China" }])
+                         { valor: "cn", rotulo: "China" }]),
+          campo(:url_contestacao, env: "SHOPEE_URL_CONTESTACAO", rotulo: "Link de contestação",
+                tipo: :texto, padrao: "https://seller.shopee.com.br/portal/sale/order",
+                ajuda: "Para onde o botão Contestar leva. Use {pedido} e {nf} como " \
+                       "marcadores. CONFIRA na sua conta: o caminho da central muda com o " \
+                       "tempo e não é documentado publicamente.")
         ]
       ),
 
@@ -89,7 +99,12 @@ module Integracoes
           campo(:app_draft, env: "AMAZON_APP_DRAFT", rotulo: "Aplicativo em rascunho",
                 tipo: :booleano,
                 ajuda: "Enquanto o app não é publicado, a autorização exige version=beta. " \
-                       "Desligue depois de publicar.")
+                       "Desligue depois de publicar."),
+          campo(:url_contestacao, env: "AMAZON_URL_CONTESTACAO", rotulo: "Link de contestação",
+                tipo: :texto, padrao: "https://sellercentral.amazon.com.br/orders-v3/order/{pedido}",
+                ajuda: "Para onde o botão Contestar leva. Use {pedido} e {nf} como " \
+                       "marcadores. CONFIRA na sua conta: o caminho da central muda com o " \
+                       "tempo e não é documentado publicamente.")
         ]
       ),
 
