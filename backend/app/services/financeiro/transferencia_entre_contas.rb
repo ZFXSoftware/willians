@@ -27,13 +27,13 @@ module Financeiro
     def initialize(tenant:, client: nil, start_date: nil, end_date: nil, dry_run: nil, limite: nil)
       @tenant = tenant
 
-      @client = client || (Omie::Client.configured?(tenant: tenant) ? Omie::Client.new(tenant: tenant) : Omie::FakeOmieClient.new)
+      @client, @dry_run, @motivo_da_simulacao =
+        EscritaNoOmie.preparar(tenant: tenant, client: client, dry_run: dry_run)
 
       @end_date = (end_date || Date.current).to_date
 
       @start_date = (start_date || @end_date - 30).to_date
 
-      @dry_run = dry_run.nil? ? !Omie::Client.writes_enabled? : dry_run
 
       @limite = limite
 
@@ -45,6 +45,8 @@ module Financeiro
     def call
       Current.with_tenant(tenant) do
         resumo[:simulacao] = dry_run
+
+        EscritaNoOmie.anotar!(resumo, @motivo_da_simulacao)
 
         transferencias.each do |lancamento|
           break if limite && resumo[:lancadas] >= limite

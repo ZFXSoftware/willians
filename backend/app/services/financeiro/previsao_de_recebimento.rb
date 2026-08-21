@@ -23,11 +23,11 @@ module Financeiro
     def initialize(tenant:, client: nil, titulos: nil, dry_run: nil, limite: nil)
       @tenant = tenant
 
-      @client = client || (Omie::Client.configured?(tenant: tenant) ? Omie::Client.new(tenant: tenant) : Omie::FakeOmieClient.new)
+      @client, @dry_run, @motivo_da_simulacao =
+        EscritaNoOmie.preparar(tenant: tenant, client: client, dry_run: dry_run)
 
       @titulos = titulos
 
-      @dry_run = dry_run.nil? ? !Omie::Client.writes_enabled? : dry_run
 
       # Trava de segurança: por ser alteração, dá para rodar em poucos títulos
       # primeiro e conferir no OMIE antes de soltar no lote inteiro.
@@ -40,6 +40,8 @@ module Financeiro
 
     def call
       resumo[:simulacao] = dry_run
+
+      EscritaNoOmie.anotar!(resumo, @motivo_da_simulacao)
 
       alterados = 0
 

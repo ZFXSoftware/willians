@@ -22,7 +22,8 @@ module Financeiro
                    dry_run: nil, limite: nil)
       @tenant = tenant
 
-      @client = client || (Omie::Client.configured?(tenant: tenant) ? Omie::Client.new(tenant: tenant) : Omie::FakeOmieClient.new)
+      @client, @dry_run, @motivo_da_simulacao =
+        EscritaNoOmie.preparar(tenant: tenant, client: client, dry_run: dry_run)
 
       @titulos = titulos
 
@@ -30,7 +31,6 @@ module Financeiro
 
       @start_date = (start_date || @end_date - 90).to_date
 
-      @dry_run = dry_run.nil? ? !Omie::Client.writes_enabled? : dry_run
 
       @limite = limite
 
@@ -42,6 +42,8 @@ module Financeiro
     def call
       Current.with_tenant(tenant) do
         resumo[:simulacao] = dry_run
+
+        EscritaNoOmie.anotar!(resumo, @motivo_da_simulacao)
 
         pagamentos.each do |pagamento|
           break if limite && resumo[:baixados] >= limite

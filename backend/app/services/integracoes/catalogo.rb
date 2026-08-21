@@ -33,7 +33,31 @@ module Integracoes
           campo(:app_key, env: "OMIE_APP_KEY", rotulo: "App Key", obrigatorio: true,
                 ajuda: "Aparece na tela do aplicativo, em Desenvolvedor → Meus aplicativos."),
           campo(:app_secret, env: "OMIE_APP_SECRET", rotulo: "App Secret", secreto: true,
-                obrigatorio: true, ajuda: "Só é exibido uma vez, na criação do aplicativo.")
+                obrigatorio: true, ajuda: "Só é exibido uma vez, na criação do aplicativo."),
+
+          # Códigos do plano de contas e cadastros DESTA empresa no OMIE. Não
+          # são obrigatórios para ler; são obrigatórios para gravar, e cada um
+          # é exigido pelo serviço que precisa dele, com a mensagem explicando
+          # onde encontrá-lo.
+          campo(:cliente_fornecedor_id, env: "OMIE_CLIENTE_FORNECEDOR_ID",
+                rotulo: "Código do cliente/fornecedor",
+                ajuda: "Quem aparece como cliente nos títulos que criamos. Normalmente é o " \
+                       "próprio marketplace. Obtenha em ListarClientes."),
+          campo(:conta_corrente_id, env: "OMIE_CONTA_CORRENTE_ID",
+                rotulo: "Conta corrente",
+                ajuda: "Onde as baixas caem. Obtenha em ListarContasCorrentes."),
+          campo(:conta_corrente_destino_id, env: "OMIE_CONTA_CORRENTE_DESTINO_ID",
+                rotulo: "Conta corrente de destino",
+                ajuda: "Conta bancária para onde o marketplace deposita o saque. É o destino " \
+                       "das transferências."),
+          campo(:categoria_transitoria_receita, env: "OMIE_CATEGORIA_TRANSITORIA_RECEITA",
+                rotulo: "Categoria transitória de receita",
+                ajuda: "Onde entram os créditos sem vínculo com pedido ou nota fiscal. " \
+                       "Uma categoria 1.x do seu plano de contas."),
+          campo(:categoria_transitoria_despesa, env: "OMIE_CATEGORIA_TRANSITORIA_DESPESA",
+                rotulo: "Categoria transitória de despesa",
+                ajuda: "Onde entram os débitos sem vínculo com pedido ou nota fiscal. " \
+                       "Uma categoria 2.x do seu plano de contas.")
         ]
       ),
 

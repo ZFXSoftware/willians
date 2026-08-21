@@ -29,9 +29,9 @@ module Financeiro
 
       @end_date = end_date.to_date
 
-      @client = client || (Omie::Client.configured?(tenant: tenant) ? Omie::Client.new(tenant: tenant) : Omie::FakeOmieClient.new)
+      @client, @dry_run, @motivo_da_simulacao =
+        EscritaNoOmie.preparar(tenant: tenant, client: client, dry_run: dry_run)
 
-      @dry_run = dry_run.nil? ? !Omie::Client.writes_enabled? : dry_run
 
       @resumo = Hash.new(0)
 
@@ -40,6 +40,8 @@ module Financeiro
 
     def call
       resumo[:simulacao] = dry_run
+
+      EscritaNoOmie.anotar!(resumo, @motivo_da_simulacao)
 
       lancamentos.find_each { |entrada| processar(entrada) }
 

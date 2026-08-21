@@ -22,13 +22,11 @@ module Financeiro
 
       tenant = payout_batch.tenant
 
-      @client = client || (Omie::Client.configured?(tenant: tenant) ? Omie::Client.new(tenant: tenant) : Omie::FakeOmieClient.new)
+      @client, @dry_run, @motivo_da_simulacao =
+        EscritaNoOmie.preparar(tenant: tenant, client: client, dry_run: dry_run)
 
       @titulos = titulos
 
-      # Sem escrita liberada, roda como simulação — assim dá para prever o que
-      # aconteceria sem tocar no ERP.
-      @dry_run = dry_run.nil? ? !Omie::Client.writes_enabled? : dry_run
 
       @resumo = Hash.new(0)
 
@@ -37,6 +35,8 @@ module Financeiro
 
     def call
       resumo[:simulacao] = dry_run
+
+      EscritaNoOmie.anotar!(resumo, @motivo_da_simulacao)
 
       recebiveis.each { |recebivel| processar(recebivel) }
 

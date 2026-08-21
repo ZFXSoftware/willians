@@ -96,10 +96,25 @@ module Omie
     attr_reader :tenant,
                 :platform_account
 
+    # Do mais específico para o mais genérico.
+    #
+    # A tela de Configurações entra entre a conta e o metadata do tenant: ela é
+    # a forma normal de configurar (por empresa), enquanto o metadata continua
+    # servindo para ajuste por conta de marketplace e o ENV como padrão do
+    # servidor. Sem este passo, preencher a tela não teria efeito nenhum sobre
+    # os códigos do OMIE — que é como estava.
     def lookup(key)
       from_platform_account(key) ||
+        from_configuracoes(key) ||
         from_tenant(key) ||
         from_env(key)
+    end
+
+    # A tela guarda a chave sem o prefixo `omie_`, que só existe no metadata.
+    def from_configuracoes(key)
+      return if tenant.blank?
+
+      Integracoes::Config.do_banco("omie", key.to_s.delete_prefix("omie_"), tenant: tenant).presence
     end
 
     def from_platform_account(key)
@@ -116,6 +131,8 @@ module Omie
 
     def source_of(key)
       return "platform_account" if from_platform_account(key)
+
+      return "configuracao" if from_configuracoes(key)
 
       return "tenant" if from_tenant(key)
 
