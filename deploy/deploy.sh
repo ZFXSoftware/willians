@@ -18,8 +18,8 @@
 #   ./deploy/deploy.sh preparar             cria .env.production e gera segredos
 #   ./deploy/deploy.sh subir                constrói e sobe a stack nova
 #   ./deploy/deploy.sh migrar               backup + migrações do banco
-#   ./deploy/deploy.sh publicar DOMINIO     nginx do host + certificado
-#   ./deploy/deploy.sh trocar               aponta o domínio para a stack nova
+#   ./deploy/deploy.sh publicar DOMINIO     escreve o site (ainda desativado)
+#   ./deploy/deploy.sh trocar DOMINIO       desativa o antigo e ativa o novo
 #   ./deploy/deploy.sh reverter             desfaz a troca
 #   ./deploy/deploy.sh status               saúde da stack nova
 #   ./deploy/deploy.sh parar-antigo NOME    para (sem apagar) a stack antiga
@@ -288,6 +288,61 @@ cmd_migrar() {
   fi
 }
 
+# ------------------------------------------------------------- nginx: auxiliares
+
+SITE_NOVO="willians-prod"
+
+DISABLED="$RAIZ/deploy/sites-desativados"
+
+caminho_do_site() {
+  if [[ -d /etc/nginx/sites-available ]]; then
+    echo "/etc/nginx/sites-available/$1"
+  else
+    echo "/etc/nginx/conf.d/$1.conf"
+  fi
+}
+
+# Sites ATIVOS que respondem por este domínio, exceto o nosso.
+#
+# Procurar pelo server_name, e não por nome de arquivo, porque a instalação
+# antiga pode ter qualquer nome — na VPS do cliente são dois arquivos
+# (willians-api e willians-frontend) para dois domínios.
+sites_que_atendem() {
+  local dominio="$1"
+  local dir=/etc/nginx/sites-enabled
+
+  [[ -d "$dir" ]] || dir=/etc/nginx/conf.d
+
+  grep -lE "server_name[^;]*\b${dominio//./\\.}\b" "$dir"/* 2>/dev/null \
+    | while read -r arquivo; do
+        [[ "$(basename "$arquivo")" == "$SITE_NOVO"* ]] || basename "$arquivo"
+      done
+}
+
+# Certificado que cobre o domínio. O certbot guarda em /live/<primeiro nome>/,
+# então o diretório pode ter o nome de OUTRO domínio do mesmo certificado —
+# é o caso da VPS, onde api.* usa o certificado emitido para dev.*.
+certificado_para() {
+  local dominio="$1"
+
+  local direto="/etc/letsencrypt/live/$dominio/fullchain.pem"
+
+  [[ -f "$direto" ]] && { echo "/etc/letsencrypt/live/$dominio"; return 0; }
+
+  local dir
+  for dir in /etc/letsencrypt/live/*/; do
+    [[ -f "$dir/fullchain.pem" ]] || continue
+
+    if sudo openssl x509 -in "$dir/fullchain.pem" -noout -text 2>/dev/null \
+         | grep -qE "DNS:${dominio//./\\.}(,|$| )"; then
+      echo "${dir%/}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 # -------------------------------------------------------------------- publicar
 
 cmd_publicar() {
@@ -301,13 +356,58 @@ cmd_publicar() {
   porta="$(porta_configurada)"
 
   local destino
-  if [[ -d /etc/nginx/sites-available ]]; then
-    destino="/etc/nginx/sites-available/willians"
+  destino="$(caminho_do_site "$SITE_NOVO")"
+
+  titulo "Preparando o site $destino"
+
+  local cert_dir=""
+
+  if cert_dir="$(certificado_para "$dominio")"; then
+    passo "certificado encontrado: $cert_dir"
   else
-    destino="/etc/nginx/conf.d/willians.conf"
+    cert_dir=""
+    amarelo "   sem certificado para $dominio"
   fi
 
-  titulo "Site do nginx: $destino"
+  local conteudo
+  conteudo="$(cat infra/nginx/site.conf.modelo)"
+
+  if [[ -n "$cert_dir" ]]; then
+    # Estes dois arquivos só existem se o certbot os tiver criado. Referenciar
+    # um que não existe faz o `nginx -t` falhar — e derrubaria o reload de
+    # TODOS os sites da máquina, não só o nosso.
+    local opcoes_ssl=""
+
+    [[ -f /etc/letsencrypt/options-ssl-nginx.conf ]] &&
+      opcoes_ssl="    include /etc/letsencrypt/options-ssl-nginx.conf;"
+
+    [[ -f /etc/letsencrypt/ssl-dhparams.pem ]] &&
+      opcoes_ssl="${opcoes_ssl}
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;"
+
+    conteudo="${conteudo//\{\{OPCOES_SSL\}\}/$opcoes_ssl}"
+    conteudo="${conteudo//\{\{REDIRECT_HTTPS\}\}/    return 301 https://\$host\$request_uri;}"
+    conteudo="${conteudo//\{\{BLOCO_TLS_INICIO\}\}/}"
+    conteudo="${conteudo//\{\{BLOCO_TLS_FIM\}\}/}"
+    conteudo="${conteudo//\{\{CERT_FULLCHAIN\}\}/$cert_dir/fullchain.pem}"
+    conteudo="${conteudo//\{\{CERT_KEY\}\}/$cert_dir/privkey.pem}"
+  else
+    # Sem certificado: serve em HTTP e o bloco TLS sai do arquivo. O certbot
+    # roda depois, quando o domínio já apontar para cá.
+    conteudo="${conteudo//\{\{REDIRECT_HTTPS\}\}/    location \/ \{
+        proxy_pass http:\/\/127.0.0.1:$porta;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_read_timeout 300s;
+    \}}"
+    conteudo="$(printf '%s' "$conteudo" | sed '/{{BLOCO_TLS_INICIO}}/,/{{BLOCO_TLS_FIM}}/d')"
+  fi
+
+  conteudo="${conteudo//\{\{DOMINIO\}\}/$dominio}"
+  conteudo="${conteudo//\{\{PORTA\}\}/$porta}"
 
   if [[ -f "$destino" ]]; then
     local copia="${destino}.bak-$(date +%Y%m%d-%H%M%S)"
@@ -315,96 +415,132 @@ cmd_publicar() {
     passo "cópia de segurança: $copia"
   fi
 
-  sed -e "s|{{DOMINIO}}|$dominio|g" -e "s|{{PORTA}}|$porta|g" \
-    infra/nginx/site.conf.modelo | sudo tee "$destino" >/dev/null
+  printf '%s\n' "$conteudo" | sudo tee "$destino" >/dev/null
 
-  if [[ -d /etc/nginx/sites-enabled ]]; then
-    sudo ln -sf "$destino" /etc/nginx/sites-enabled/willians
-  fi
+  # Escrito, mas NÃO ativado: dois sites com o mesmo server_name fariam o nginx
+  # ignorar um deles em silêncio. A ativação acontece no `trocar`, junto com a
+  # desativação do antigo.
+  verde "   site escrito (ainda DESATIVADO)"
 
-  titulo "Conferindo a configuração do nginx"
-  # `nginx -t` valida TODOS os sites: se algo de outro sistema quebrar aqui, é
-  # melhor descobrir antes de recarregar.
-  sudo nginx -t || erro "configuração inválida. Nada foi recarregado; o site anterior segue valendo."
+  titulo "Sites que hoje atendem $dominio"
+  local antigos
+  antigos="$(sites_que_atendem "$dominio")"
 
-  sudo systemctl reload nginx
-  verde "   nginx recarregado"
-
-  if command -v certbot >/dev/null 2>&1; then
-    if confirmar "Emitir certificado para $dominio com o certbot?"; then
-      sudo certbot --nginx -d "$dominio" --redirect
-    fi
+  if [[ -n "$antigos" ]]; then
+    echo "$antigos" | sed 's/^/   /'
+    passo ""
+    passo "O comando trocar desativa esses e ativa o novo, numa operação só."
   else
-    amarelo "   certbot ausente: o site está em HTTP. O OAuth dos marketplaces EXIGE HTTPS."
+    amarelo "   nenhum — o domínio pode não estar apontando para esta máquina"
   fi
 
-  passo "confira: curl -I https://$dominio"
+  [[ -z "$cert_dir" ]] && amarelo "
+   Sem HTTPS o OAuth dos marketplaces NÃO funciona. Depois de trocar, rode:
+     sudo certbot --nginx -d $dominio"
+
+  passo "próximo: ./deploy/deploy.sh trocar $dominio"
 }
 
 # ---------------------------------------------------------------------- trocar
 
 cmd_trocar() {
+  local dominio="${1:-}"
+  [[ -n "$dominio" ]] || erro "informe o domínio: ./deploy/deploy.sh trocar app.exemplo.com.br"
+
   exigir_env
 
   local porta
   porta="$(porta_configurada)"
 
+  local destino
+  destino="$(caminho_do_site "$SITE_NOVO")"
+
+  [[ -f "$destino" ]] || erro "site não preparado. Rode: ./deploy/deploy.sh publicar $dominio"
+
+  local antigos
+  antigos="$(sites_que_atendem "$dominio")"
+
   titulo "Trocar o sistema antigo pelo novo"
+
   cat <<AVISO
-   O domínio passa a apontar para a stack nova (127.0.0.1:$porta).
-   O sistema antigo NAO e apagado: continua parado, e o comando reverter
-   traz a configuracao anterior de volta.
+   $dominio passa a ser servido pela stack nova (127.0.0.1:$porta),
+   que entrega a interface, /api e /gateway na MESMA origem.
+AVISO
+
+  if [[ -n "$antigos" ]]; then
+    passo ""
+    passo "Serão DESATIVADOS (arquivo preservado, só sai de sites-enabled):"
+    echo "$antigos" | sed 's/^/     /'
+  fi
+
+  cat <<'AVISO'
+
+   Nada e apagado: os arquivos continuam em sites-available, os containers
+   antigos seguem rodando, e o comando reverter desfaz tudo.
 AVISO
 
   confirmar "Confirma a troca?" || { passo "cancelado"; return 0; }
 
-  local destino
-  if [[ -f /etc/nginx/sites-available/willians ]]; then
-    destino="/etc/nginx/sites-available/willians"
-  else
-    destino="/etc/nginx/conf.d/willians.conf"
+  mkdir -p "$DISABLED"
+
+  # Guarda quais foram desativados, para o reverter saber o que religar.
+  local registro="$DISABLED/ultima-troca.txt"
+  : | sudo tee "$registro" >/dev/null 2>&1 || true
+  echo "$antigos" > "$registro"
+
+  local nome
+  while read -r nome; do
+    [[ -n "$nome" ]] || continue
+    sudo rm -f "/etc/nginx/sites-enabled/$nome"
+    passo "desativado: $nome"
+  done <<< "$antigos"
+
+  if [[ -d /etc/nginx/sites-enabled ]]; then
+    sudo ln -sf "$destino" "/etc/nginx/sites-enabled/$SITE_NOVO"
+    passo "ativado: $SITE_NOVO"
   fi
 
-  [[ -f "$destino" ]] || erro "site não encontrado. Rode: ./deploy/deploy.sh publicar DOMINIO"
-
-  local copia="${destino}.bak-$(date +%Y%m%d-%H%M%S)"
-  sudo cp "$destino" "$copia"
-  passo "cópia de segurança: $copia"
-
-  # Troca só a porta do proxy_pass, preservando TLS e o resto que o certbot
-  # tenha acrescentado.
-  sudo sed -i -E "s|proxy_pass http://127\.0\.0\.1:[0-9]+|proxy_pass http://127.0.0.1:$porta|g" "$destino"
-
-  sudo nginx -t || {
-    sudo cp "$copia" "$destino"
-    erro "configuração inválida; restaurei a anterior."
-  }
+  if ! sudo nginx -t; then
+    # Desfaz na hora: o domínio não pode ficar sem site nenhum.
+    sudo rm -f "/etc/nginx/sites-enabled/$SITE_NOVO"
+    while read -r nome; do
+      [[ -n "$nome" ]] || continue
+      sudo ln -sf "$(caminho_do_site "$nome")" "/etc/nginx/sites-enabled/$nome"
+    done <<< "$antigos"
+    erro "configuração inválida; restaurei os sites anteriores. Nada foi recarregado."
+  fi
 
   sudo systemctl reload nginx
-  verde "   domínio apontando para a stack nova"
+
+  verde "   $dominio agora é a stack nova"
+  passo "confira: curl -I https://$dominio"
   passo "para desfazer: ./deploy/deploy.sh reverter"
 }
 
 # -------------------------------------------------------------------- reverter
 
 cmd_reverter() {
-  local destino
-  if [[ -f /etc/nginx/sites-available/willians ]]; then
-    destino="/etc/nginx/sites-available/willians"
-  else
-    destino="/etc/nginx/conf.d/willians.conf"
-  fi
+  local registro="$DISABLED/ultima-troca.txt"
 
-  local ultima
-  ultima="$(ls -1t "${destino}".bak-* 2>/dev/null | head -1 || true)"
+  [[ -f "$registro" ]] || erro "não há troca registrada para desfazer."
 
-  [[ -n "$ultima" ]] || erro "não há cópia de segurança para restaurar."
+  titulo "Desfazendo a última troca"
 
-  titulo "Restaurando $ultima"
+  passo "Serão reativados:"
+  sed 's/^/     /' "$registro"
+
   confirmar "Confirma?" || { passo "cancelado"; return 0; }
 
-  sudo cp "$ultima" "$destino"
-  sudo nginx -t || erro "a cópia restaurada não valida. Confira $destino à mão."
+  local nome
+  while read -r nome; do
+    [[ -n "$nome" ]] || continue
+    sudo ln -sf "$(caminho_do_site "$nome")" "/etc/nginx/sites-enabled/$nome"
+    passo "reativado: $nome"
+  done < "$registro"
+
+  sudo rm -f "/etc/nginx/sites-enabled/$SITE_NOVO"
+
+  sudo nginx -t || erro "a configuração restaurada não valida. Confira à mão antes de recarregar."
   sudo systemctl reload nginx
 
   verde "   configuração anterior restaurada"
@@ -472,12 +608,12 @@ case "${1:-inspecionar}" in
   subir)         cmd_subir ;;
   migrar)        cmd_migrar ;;
   publicar)      cmd_publicar "${2:-}" ;;
-  trocar)        cmd_trocar ;;
+  trocar)        cmd_trocar "${2:-}" ;;
   reverter)      cmd_reverter ;;
   parar-antigo)  cmd_parar_antigo "${2:-}" ;;
   status)        cmd_status ;;
   *)
     erro "comando desconhecido: $1
-   use: inspecionar | preparar | subir | migrar | publicar DOMINIO | trocar | reverter | parar-antigo NOME | status"
+   use: inspecionar | preparar | subir | migrar | publicar DOMINIO | trocar DOMINIO | reverter | parar-antigo NOME | status"
     ;;
 esac

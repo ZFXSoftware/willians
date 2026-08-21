@@ -270,10 +270,16 @@ ssh -L 8090:127.0.0.1:8090 usuario@vps     # e abra http://localhost:8090
 Convencido, publique e vire:
 
 ```bash
-./deploy/deploy.sh publicar app.exemplo.com.br   # nginx + certbot
-./deploy/deploy.sh trocar                        # domínio -> stack nova
+./deploy/deploy.sh publicar app.exemplo.com.br   # escreve o site, DESATIVADO
+./deploy/deploy.sh trocar   app.exemplo.com.br   # desativa o antigo, ativa o novo
 ./deploy/deploy.sh parar-antigo willians         # para o antigo (não apaga)
 ```
+
+`publicar` escreve o site mas **não o ativa**: dois sites com o mesmo
+`server_name` fariam o nginx ignorar um deles em silêncio. Quem ativa é o
+`trocar`, na mesma operação em que desativa o antigo — e ele descobre quais
+desativar procurando pelo `server_name`, não por nome de arquivo, porque a
+instalação anterior pode ter qualquer nome.
 
 Se algo der errado:
 

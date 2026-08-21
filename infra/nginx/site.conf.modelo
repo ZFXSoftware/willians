@@ -1,7 +1,11 @@
-# Site do nginx do HOST. O deploy.sh preenche {{DOMINIO}} e {{PORTA}}.
+# Site do nginx do HOST. O deploy.sh preenche {{DOMINIO}}, {{PORTA}} e o bloco
+# de TLS, que é montado a partir do certificado já existente para o domínio.
 #
 # Só este arquivo fala com a internet; os containers escutam em 127.0.0.1.
-# O certbot acrescenta as diretivas de TLS ao rodar com --nginx.
+#
+# A arquitetura nova é de ORIGEM ÚNICA: a SPA, /api e /gateway saem todos do
+# mesmo domínio, servidos pelo container `web`. Por isso um site substitui os
+# dois anteriores (front e API em domínios separados).
 
 server {
     listen 80;
@@ -13,6 +17,25 @@ server {
     location /.well-known/acme-challenge/ {
         root /var/www/html;
     }
+
+{{REDIRECT_HTTPS}}
+}
+
+{{BLOCO_TLS_INICIO}}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+
+    http2 on;
+
+    server_name {{DOMINIO}};
+
+    ssl_certificate {{CERT_FULLCHAIN}};
+    ssl_certificate_key {{CERT_KEY}};
+
+{{OPCOES_SSL}}
+
+    client_max_body_size 25m;
 
     location / {
         proxy_pass http://127.0.0.1:{{PORTA}};
@@ -28,6 +51,5 @@ server {
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
     }
-
-    client_max_body_size 25m;
 }
+{{BLOCO_TLS_FIM}}
