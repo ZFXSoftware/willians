@@ -1,0 +1,160 @@
+# Produção. Diferenças que importam em relação ao docker-compose.yml (que é de
+# desenvolvimento):
+#
+#   - UMA porta publicada, e só em 127.0.0.1. O nginx do host é quem fala com a
+#     internet. Nada de 0.0.0.0: a VPS tem outros sistemas.
+#   - Sem bind mount do código: o que roda é a imagem construída.
+#   - Frontend compilado e servido como arquivo estático, sem vite dev server.
+#   - Gateway compilado para JS, sem ts-node-dev.
+#   - Supervisor do Solid Queue, que faltava — sem ele a renovação de token dos
+#     marketplaces nunca roda.
+#   - restart: unless-stopped em tudo.
+#
+# Suba sempre com um nome de projeto próprio, para não encostar no que já
+# existe na máquina:
+#
+#   docker compose -p willians-prod -f docker-compose.prod.yml --env-file .env.production up -d
+
+name: willians-prod
+
+services:
+  # Origem única: SPA estática + /api + /gateway. É o único container com porta.
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.prod
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT:-8090}:80"
+    depends_on:
+      - backend
+      - gateway
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    # Nomeada para que jobs reuse a MESMA imagem em vez de reconstruí-la.
+    image: willians-prod-backend
+    restart: unless-stopped
+    command: bash -c "rm -f tmp/pids/server.pid && bundle exec puma -C config/puma.rb"
+    environment: &backend_env
+      RAILS_ENV: production
+      RAILS_LOG_TO_STDOUT: "1"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      BACKEND_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      # Atrás do nginx do host, que termina o TLS.
+      RAILS_ASSUME_SSL: "1"
+      ALLOWED_HOSTS: ${PUBLIC_HOST:-}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-}
+      SERVICE_API_TOKEN: ${SERVICE_API_TOKEN:-}
+      MARKETPLACE_SIMULATION: ${MARKETPLACE_SIMULATION:-}
+      AR_ENCRYPTION_PRIMARY_KEY: ${AR_ENCRYPTION_PRIMARY_KEY}
+      AR_ENCRYPTION_DETERMINISTIC_KEY: ${AR_ENCRYPTION_DETERMINISTIC_KEY}
+      AR_ENCRYPTION_KEY_DERIVATION_SALT: ${AR_ENCRYPTION_KEY_DERIVATION_SALT}
+      # A escrita no ERP do cliente continua sendo decisão de quem opera o
+      # servidor, e não da interface.
+      OMIE_ALLOW_WRITES: ${OMIE_ALLOW_WRITES:-}
+      OMIE_APP_KEY: ${OMIE_APP_KEY:-}
+      OMIE_APP_SECRET: ${OMIE_APP_SECRET:-}
+      OMIE_CLIENTE_FORNECEDOR_ID: ${OMIE_CLIENTE_FORNECEDOR_ID:-}
+      OMIE_CONTA_CORRENTE_ID: ${OMIE_CONTA_CORRENTE_ID:-}
+      OMIE_CONTA_CORRENTE_DESTINO_ID: ${OMIE_CONTA_CORRENTE_DESTINO_ID:-}
+      OMIE_CATEGORIA_TRANSITORIA_RECEITA: ${OMIE_CATEGORIA_TRANSITORIA_RECEITA:-}
+      OMIE_CATEGORIA_TRANSITORIA_DESPESA: ${OMIE_CATEGORIA_TRANSITORIA_DESPESA:-}
+      ML_CLIENT_ID: ${ML_CLIENT_ID:-}
+      ML_CLIENT_SECRET: ${ML_CLIENT_SECRET:-}
+      ML_INGERIR_FATURAMENTO: ${ML_INGERIR_FATURAMENTO:-}
+      SHOPEE_PARTNER_ID: ${SHOPEE_PARTNER_ID:-}
+      SHOPEE_PARTNER_KEY: ${SHOPEE_PARTNER_KEY:-}
+      SHOPEE_REGION: ${SHOPEE_REGION:-}
+      AMAZON_CLIENT_ID: ${AMAZON_CLIENT_ID:-}
+      AMAZON_CLIENT_SECRET: ${AMAZON_CLIENT_SECRET:-}
+      AMAZON_APP_ID: ${AMAZON_APP_ID:-}
+      AMAZON_REGION: ${AMAZON_REGION:-}
+      AMAZON_APP_DRAFT: ${AMAZON_APP_DRAFT:-}
+      TINY_TOKEN: ${TINY_TOKEN:-}
+      TINY_API_VERSION: ${TINY_API_VERSION:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Supervisor de jobs: renovação de credenciais de marketplace, entre outros.
+  # Mesma imagem do backend, outro comando. Sem `build` aqui: construir duas
+  # vezes o mesmo Dockerfile dobraria o tempo de deploy na VPS.
+  jobs:
+    image: willians-prod-backend
+    restart: unless-stopped
+    command: bundle exec rake solid_queue:start
+    environment: *backend_env
+    depends_on:
+      backend:
+        condition: service_started
+      db:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile.prod
+    image: willians-prod-gateway
+    restart: unless-stopped
+    environment: &gateway_env
+      NODE_ENV: production
+      MODE: api
+      RAILS_URL: http://backend:3000
+      SERVICE_API_TOKEN: ${SERVICE_API_TOKEN:-}
+      REDIS_HOST: redis
+    depends_on:
+      - backend
+      - redis
+
+  # Mesma imagem do gateway, outro MODE.
+  worker:
+    image: willians-prod-gateway
+    restart: unless-stopped
+    environment:
+      <<: *gateway_env
+      MODE: worker
+    depends_on:
+      - gateway
+      - redis
+
+  # Mesma imagem do gateway, outro MODE.
+  scheduler:
+    image: willians-prod-gateway
+    restart: unless-stopped
+    environment:
+      <<: *gateway_env
+      MODE: scheduler
+    depends_on:
+      - gateway
+      - redis
+
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: backend
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: backend_production
+    volumes:
+      - db_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U backend"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_prod:/data
+
+# Nomes próprios: os volumes do ambiente antigo continuam intocados.
+volumes:
+  db_prod:
+  redis_prod:

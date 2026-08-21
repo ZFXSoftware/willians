@@ -1,0 +1,26 @@
+# O contexto do build do container `web` é a RAIZ do repositório (a
+# configuração do nginx vive em infra/). Sem esta lista, o Docker transfere
+# ~200MB a cada build: node_modules, o backend inteiro e o histórico do git.
+
+.git
+.github
+
+**/node_modules
+**/dist
+**/tmp
+**/log
+**/.cache
+
+# Segredos NUNCA entram numa imagem.
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# O backend tem a própria imagem; não faz parte do contexto do front.
+backend
+
+deploy/backups
+
+**/.DS_Store
+*.log

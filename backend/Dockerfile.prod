@@ -1,0 +1,48 @@
+# Imagem de produção do backend.
+#
+# Existe separada porque o Dockerfile de desenvolvimento TOLERA falha no
+# `bundle install` de propósito: lá as gems ficam num volume, e um build sem
+# rede não pode deixar o ambiente quebrado. Em produção não há volume — uma
+# falha silenciosa geraria uma imagem sem gems, que só quebraria no boot.
+# Aqui a falha derruba o build, que é onde ela deve aparecer.
+FROM ruby:3.2-slim
+
+WORKDIR /app
+
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
+  build-essential \
+  libpq-dev \
+  libyaml-dev \
+  curl \
+  git \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV RAILS_ENV=production \
+    BUNDLE_DEPLOYMENT=1 \
+    BUNDLE_WITHOUT="development:test" \
+    BUNDLE_PATH=/usr/local/bundle \
+    # Oscilação de rede no build é comum e não deve derrubar um deploy: tenta
+    # de novo antes de desistir. O que não pode é FALHAR EM SILÊNCIO, e isso
+    # continua garantido — sem retentativa suficiente, o build para.
+    BUNDLE_RETRY=5 \
+    BUNDLE_JOBS=4
+
+COPY Gemfile Gemfile.lock ./
+
+# Instala o bundler EXATAMENTE na versão do lockfile.
+#
+# Sem isto, o bundler da imagem percebe a diferença de versão e tenta se
+# auto-instalar na versão certa — e esse caminho baixa o ÍNDICE COMPLETO do
+# RubyGems (6 MB e a resolução inteira) em vez do índice compacto. Na prática
+# o build fica dez minutos parado e morre em timeout.
+RUN gem install bundler -v "$(awk '/BUNDLED WITH/{getline; gsub(/ /,""); print}' Gemfile.lock)" --no-document
+
+# Sem `|| true`: se as gems não instalarem, o build para aqui.
+RUN bundle install && \
+    rm -rf /usr/local/bundle/cache/*.gem
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["bundle", "exec", "puma", "-C", "config/puma.rb"]

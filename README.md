@@ -225,6 +225,91 @@ docker compose exec backend bin/rails omie:settings
 
 ---
 
+## Colocando em produção
+
+A VPS tem outros sistemas. Todo o desenho do deploy parte disso:
+
+- a stack sobe com nome de projeto próprio (`willians-prod`) e volumes próprios,
+  então não encosta em containers nem dados de mais ninguém;
+- publica **uma** porta, e só em `127.0.0.1`. Quem fala com a internet é o nginx
+  do host;
+- a porta é verificada antes de usar; ocupada, o script para em vez de brigar;
+- nenhum arquivo do nginx é sobrescrito sem cópia de segurança;
+- o sistema antigo é **parado, nunca apagado** — voltar é um comando.
+
+### Por que não é só `git pull` e subir de novo
+
+| | |
+| --- | --- |
+| **Esquema mudou** | Autenticação própria substituiu o Supabase, e entraram `integration_settings`, `devolucoes` e colunas novas. Sem migrar, o app não sobe |
+| **Variáveis novas obrigatórias** | `SECRET_KEY_BASE`, `AR_ENCRYPTION_*` (sem elas os tokens de marketplace não decifram), `POSTGRES_PASSWORD`, `SERVICE_API_TOKEN` |
+| **O compose de desenvolvimento não serve** | Ele roda vite dev server e `ts-node-dev`, monta o código do host e publica seis portas em `0.0.0.0` |
+| **Login mudou** | Usuários antigos eram do Supabase e não entram. É preciso criar o primeiro administrador |
+
+### Passo a passo
+
+```bash
+git clone git@github.com:ZFXSoftware/willians.git
+cd willians
+
+./deploy/deploy.sh inspecionar        # o que já existe (não muda nada)
+./deploy/deploy.sh preparar           # cria .env.production e gera os segredos
+nano .env.production                  # domínio e chaves do OMIE
+./deploy/deploy.sh subir              # constrói e sobe, ainda sem publicar
+./deploy/deploy.sh migrar             # backup + migrações + primeiro usuário
+./deploy/deploy.sh status             # conferência local
+```
+
+Até aqui **nada mudou para quem usa o sistema antigo**: a stack nova responde
+só em `127.0.0.1`. Confira por um túnel SSH antes de publicar:
+
+```bash
+ssh -L 8090:127.0.0.1:8090 usuario@vps     # e abra http://localhost:8090
+```
+
+Convencido, publique e vire:
+
+```bash
+./deploy/deploy.sh publicar app.exemplo.com.br   # nginx + certbot
+./deploy/deploy.sh trocar                        # domínio -> stack nova
+./deploy/deploy.sh parar-antigo willians         # para o antigo (não apaga)
+```
+
+Se algo der errado:
+
+```bash
+./deploy/deploy.sh reverter            # restaura a configuração anterior do nginx
+docker compose -p willians start       # religa o sistema antigo
+```
+
+### O que foi verificado
+
+A stack de produção foi construída e subida por inteiro antes deste texto
+existir: oito containers, migrações aplicadas, cadastro criado passando por
+nginx -> Rails -> Postgres, `/gateway/health` respondendo, e o Solid Queue
+subindo com `refresh_marketplace_credentials` no agendamento — o job que antes
+não rodava por falta de supervisor.
+
+Só uma porta aparece publicada, e em `127.0.0.1`:
+
+```
+willians-prod-web-1   ...   127.0.0.1:8090->80/tcp
+```
+
+### Depois de publicar
+
+O OAuth dos marketplaces exige HTTPS e uma `redirect_uri` fixa. Cadastre no
+portal de cada plataforma exatamente:
+
+```
+https://SEU-DOMINIO/api/integracoes/mercado-livre/callback
+https://SEU-DOMINIO/api/integracoes/shopee/callback
+https://SEU-DOMINIO/api/integracoes/amazon/callback
+```
+
+E deixe `OMIE_ALLOW_WRITES` **vazio** até rodar em simulação e conferir o que o
+sistema faria. Com `true`, ele passa a gravar na contabilidade do cliente.
+
 ## Limitações conhecidas
 
 ### Distância entre o construído e o briefing
