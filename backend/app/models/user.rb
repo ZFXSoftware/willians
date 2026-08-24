@@ -11,6 +11,17 @@ class User < ApplicationRecord
 
   has_many :tenants, through: :tenant_users
 
+  # States de OAuth são efêmeros e pessoais: morrem com o usuário.
+  has_many :oauth_states, dependent: :destroy
+
+  # A configuração é da EMPRESA; quem editou por último é só autoria. Se a
+  # pessoa sai, a chave de API continua valendo — nullify, nunca destroy.
+  has_many :configuracoes_atualizadas,
+           class_name: "IntegrationSetting",
+           foreign_key: :updated_by_id,
+           dependent: :nullify,
+           inverse_of: :updated_by
+
   enum :status, {
     active: "active",
     suspended: "suspended"

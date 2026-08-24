@@ -16,6 +16,12 @@ class ReceivableUnit < ApplicationRecord
   has_many :financial_entries,
            through: :financial_entry_allocations
 
+  # Mesma razão do ConciliacaoRegistro: o registro de conciliação sobrevive ao
+  # título, sem o vínculo. Sem esta linha o destroy da unidade batia na FK.
+  has_many :conciliacao_registros,
+           dependent: :nullify,
+           inverse_of: :receivable_unit
+
   enum :status, {
     pending: "pending",
     scheduled: "scheduled",

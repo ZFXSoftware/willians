@@ -25,6 +25,22 @@ class ContasDeMarketplaceTest < ActionDispatch::IntegrationTest
     assert_nil PlatformAccount.find_by(id: @conta.id)
   end
 
+  # O caso REAL, que o teste acima não pegava por criar a conta na mão: quem
+  # passou pelo OAuth deixa um oauth_state apontando para a conta. A FK existe
+  # no banco e o modelo não declarava a associação, então o destroy levantava
+  # violação de chave estrangeira e a conta ficava lá.
+  test "conta que passou pelo OAuth também pode ser removida" do
+    OauthState.issue!(
+      platform: @conta.platform, tenant: @tenant, user: @dono, platform_account: @conta
+    )
+
+    delete "/integracoes/contas/#{@conta.id}", headers: @cabecalhos
+
+    assert_response :no_content
+    assert_nil PlatformAccount.find_by(id: @conta.id)
+    assert_equal 0, OauthState.where(platform_account_id: @conta.id).count
+  end
+
   test "conta com lançamento NÃO é apagada" do
     criar_lancamento(tenant: @tenant, conta: @conta, valor: 250)
 

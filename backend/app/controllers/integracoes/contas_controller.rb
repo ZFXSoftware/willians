@@ -14,6 +14,18 @@ module Integracoes
       render json: { error: "Conta não encontrada" }, status: :not_found
     end
 
+    # Se sobrar algum vínculo que o modelo não conhece, o usuário merece saber
+    # o que fazer em vez de receber um 500 mudo. O teste de chaves
+    # estrangeiras existe para que isto nunca dispare.
+    rescue_from ActiveRecord::InvalidForeignKey do |e|
+      Rails.logger.error "[Contas] vínculo não previsto ao apagar: #{e.message}"
+
+      render json: {
+        error: "Esta conta ainda tem registros ligados a ela e não pôde ser apagada.",
+        hint: "Arquive-a: sai da operação sem destruir nada."
+      }, status: :unprocessable_entity
+    end
+
     # Apagar leva junto pedidos, lançamentos, conciliações e snapshots
     # (dependent: :destroy). Numa conta que já importou dado isso é destruição
     # silenciosa de histórico financeiro — então só apaga o que está vazio, e

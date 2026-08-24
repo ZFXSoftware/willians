@@ -11,6 +11,11 @@ class PlatformAccount < ApplicationRecord
   has_many :platform_balance_snapshots, dependent: :destroy
   has_many :devolucoes, dependent: :nullify
 
+  # A FK existe no banco desde sempre; faltava a associação. Sem ela o Rails
+  # não limpava os states ao apagar a conta, e o destroy morria com violação de
+  # chave estrangeira — a conta conectada por engano não saía da tela.
+  has_many :oauth_states, dependent: :destroy
+
   has_one :marketplace_credential, dependent: :destroy
 
   enum :status, {
