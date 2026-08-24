@@ -46,7 +46,7 @@ router.post("/conciliacoes/processar", async (req, res) => {
     })
   }
 
-  const { tenant_id, platform_account_id, start_date, end_date } =
+  const { tenant_id, platform_account_id, start_date, end_date, sincronizar, forcar } =
     (req.body ?? {}) as ConciliacaoJobData
 
   const tenantId = tenant_id ?? (tenants.length === 1 ? tenants[0].id : undefined)
@@ -74,7 +74,7 @@ router.post("/conciliacoes/processar", async (req, res) => {
   try {
     const job = await conciliacaoQueue.add(
       "processar",
-      { tenant_id: tenantId, platform_account_id, start_date, end_date },
+      { tenant_id: tenantId, platform_account_id, start_date, end_date, sincronizar, forcar },
       {
         attempts: 5,
         backoff: { type: "exponential", delay: 2000 },

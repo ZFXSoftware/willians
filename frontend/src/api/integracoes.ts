@@ -1,4 +1,4 @@
-import { api } from "./client"
+import { api, gatewayApi } from "./client"
 
 export interface Credencial {
   status: string
@@ -17,6 +17,8 @@ export interface Integracao {
   conectada: boolean
   credencial: Credencial | null
   ultima_sincronizacao: string | null
+  ultimo_lancamento: string | null
+  erro_de_sincronizacao: string | null
   lancamentos: number
   precisa_atencao: boolean
 }
@@ -58,6 +60,22 @@ export async function conectar(
 
   const { data } = await api.post(`/integracoes/${rota}/autorizar`, {
     platform_account_id: platformAccountId,
+  })
+
+  return data
+}
+
+// Busca do marketplace e concilia em seguida.
+//
+// Vai pelo GATEWAY, e não direto no Rails, por causa do tempo: na primeira
+// execução de uma conta do Mercado Livre o relatório de liberações ainda está
+// sendo gerado do lado deles, e a espera passa de um minuto — muito além do
+// que o proxy aguenta. O gateway enfileira e responde na hora; quem acompanha
+// o resultado é a própria tela, recarregando.
+export async function sincronizar(platformAccountId: number): Promise<{ job_id: string }> {
+  const { data } = await gatewayApi.post("/conciliacoes/processar", {
+    platform_account_id: platformAccountId,
+    forcar: true,
   })
 
   return data

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom"
 import {
   Building2,
   CheckCircle2,
+  DownloadCloud,
   KeyRound,
   Plug,
   RefreshCw,
@@ -14,6 +15,7 @@ import {
   conectar,
   desconectar,
   fetchIntegracoes,
+  sincronizar,
   type Integracao,
 } from "../../api/integracoes"
 import { errorMessage } from "../../api/client"
@@ -29,10 +31,24 @@ const ICONES: Record<string, typeof ShoppingBag> = {
   omie: Building2,
 }
 
+// A importação roda em fila, fora da requisição. Acompanhamos pelo carimbo de
+// `ultima_sincronizacao`, que muda quando ela termina — mesmo sem trazer nada.
+const ESPERA_MS = 5000
+
+const ESPERA_MAXIMA = 48 // 4 minutos: o relatório do Mercado Pago pode demorar
+
+const dorme = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+interface Nota {
+  tipo: "ok" | "erro"
+  texto: string
+}
+
 export default function Integrations() {
   const [params, setParams] = useSearchParams()
   const [acao, setAcao] = useState<number | null>(null)
-  const [aviso, setAviso] = useState<string | null>(null)
+  const [importando, setImportando] = useState<number | null>(null)
+  const [nota, setNota] = useState<Nota | null>(null)
 
   const { data, loading, error, reload } = useResource(fetchIntegracoes)
 
@@ -49,29 +65,86 @@ export default function Integrations() {
 
   async function iniciarConexao(conta: Integracao) {
     setAcao(conta.id)
-    setAviso(null)
+    setNota(null)
 
     try {
       const { authorization_url } = await conectar(conta.plataforma, conta.id)
       window.location.href = authorization_url
     } catch (e) {
-      setAviso(errorMessage(e, "Não foi possível iniciar a conexão"))
+      setNota({ tipo: "erro", texto: errorMessage(e, "Não foi possível iniciar a conexão") })
       setAcao(null)
     }
   }
 
   async function remover(conta: Integracao) {
     setAcao(conta.id)
-    setAviso(null)
+    setNota(null)
 
     try {
       await desconectar(conta.id)
       reload()
     } catch (e) {
-      setAviso(errorMessage(e, "Não foi possível desconectar"))
+      setNota({ tipo: "erro", texto: errorMessage(e, "Não foi possível desconectar") })
     } finally {
       setAcao(null)
     }
+  }
+
+  async function importar(conta: Integracao) {
+    setNota(null)
+    setAcao(conta.id)
+
+    const marco = conta.ultima_sincronizacao
+
+    try {
+      await sincronizar(conta.id)
+    } catch (e) {
+      setNota({ tipo: "erro", texto: errorMessage(e, "Não foi possível enfileirar a importação") })
+      setAcao(null)
+      return
+    }
+
+    setAcao(null)
+    setImportando(conta.id)
+
+    for (let tentativa = 0; tentativa < ESPERA_MAXIMA; tentativa++) {
+      await dorme(ESPERA_MS)
+
+      let atual: Integracao | undefined
+
+      try {
+        const { items } = await fetchIntegracoes()
+        atual = items.find((i) => i.id === conta.id)
+      } catch {
+        continue // hipo da rede não cancela a espera
+      }
+
+      if (!atual || atual.ultima_sincronizacao === marco) continue
+
+      setImportando(null)
+      reload()
+
+      setNota(
+        atual.erro_de_sincronizacao
+          ? { tipo: "erro", texto: `${conta.nome}: ${atual.erro_de_sincronizacao}` }
+          : {
+              tipo: "ok",
+              texto: `${conta.nome}: importação concluída — ${atual.lancamentos} lançamento(s) no total.`,
+            },
+      )
+
+      return
+    }
+
+    setImportando(null)
+    reload()
+
+    setNota({
+      tipo: "ok",
+      texto:
+        "A importação continua rodando em segundo plano. No Mercado Livre a primeira execução " +
+        "espera o relatório ser gerado do outro lado. Atualize daqui a pouco.",
+    })
   }
 
   return (
@@ -116,9 +189,18 @@ export default function Integrations() {
         </div>
       )}
 
-      {aviso && (
-        <div className="bg-red-500/10 border border-red-500/20 rounded-2xl px-5 py-4 text-sm text-red-300">
-          {aviso}
+      {nota && (
+        <div
+          className={`rounded-2xl px-5 py-4 text-sm flex items-center justify-between gap-4 border ${
+            nota.tipo === "ok"
+              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+              : "bg-red-500/10 border-red-500/20 text-red-300"
+          }`}
+        >
+          <span>{nota.texto}</span>
+          <button onClick={() => setNota(null)} className="text-zinc-400 hover:text-white shrink-0">
+            fechar
+          </button>
         </div>
       )}
 
@@ -163,6 +245,7 @@ export default function Integrations() {
               {data?.items.map((conta) => {
                 const Icone = ICONES[conta.plataforma] ?? ShoppingBag
                 const ocupado = acao === conta.id
+                const ocupadoImportando = importando === conta.id
 
                 return (
                   <div
@@ -220,7 +303,14 @@ export default function Integrations() {
                       <div className="flex items-center justify-between gap-4">
                         <span className="text-zinc-400">Última importação</span>
                         <span className="font-medium">
-                          {desde(conta.ultima_sincronizacao)}
+                          {ocupadoImportando ? "agora" : desde(conta.ultima_sincronizacao)}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-zinc-400">Último lançamento</span>
+                        <span className="font-medium">
+                          {desde(conta.ultimo_lancamento)}
                         </span>
                       </div>
 
@@ -240,6 +330,12 @@ export default function Integrations() {
                       </p>
                     )}
 
+                    {conta.erro_de_sincronizacao && (
+                      <p className="mt-4 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+                        Última importação falhou: {conta.erro_de_sincronizacao}
+                      </p>
+                    )}
+
                     <div className="mt-6 flex gap-2">
                       {!conta.integracao_disponivel ? (
                         <p className="text-sm text-zinc-500">
@@ -247,13 +343,27 @@ export default function Integrations() {
                           implementada.
                         </p>
                       ) : conta.conectada ? (
-                        <button
-                          onClick={() => remover(conta)}
-                          disabled={ocupado}
-                          className="flex-1 bg-zinc-800 hover:bg-zinc-700 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
-                        >
-                          {ocupado ? "Desconectando..." : "Desconectar"}
-                        </button>
+                        <>
+                          <button
+                            onClick={() => importar(conta)}
+                            disabled={ocupado || ocupadoImportando}
+                            className="flex-1 flex items-center justify-center gap-2 bg-white text-black hover:opacity-90 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
+                          >
+                            <DownloadCloud
+                              size={15}
+                              className={ocupadoImportando ? "animate-pulse" : undefined}
+                            />
+                            {ocupadoImportando ? "Importando..." : "Sincronizar agora"}
+                          </button>
+
+                          <button
+                            onClick={() => remover(conta)}
+                            disabled={ocupado || ocupadoImportando}
+                            className="bg-zinc-800 hover:bg-zinc-700 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
+                          >
+                            {ocupado ? "Desconectando..." : "Desconectar"}
+                          </button>
+                        </>
                       ) : (
                         <button
                           onClick={() => iniciarConexao(conta)}

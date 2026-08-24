@@ -41,7 +41,12 @@ class IntegracoesController < ApplicationController
         renovada_em: credencial.last_refreshed_at,
         erro: credencial.refresh_error
       },
-      ultima_sincronizacao: sincronizado_em,
+      # Quando a ingestão RODOU. Diferente do último lançamento que entrou: uma
+      # conta sem venda nova sincroniza e não cria nada, e antes disso parecia
+      # nunca ter sincronizado.
+      ultima_sincronizacao: conta.last_synced_at,
+      ultimo_lancamento: sincronizado_em,
+      erro_de_sincronizacao: conta.last_sync_error,
       lancamentos: total_lancamentos,
       precisa_atencao: precisa_atencao?(conta)
     }
@@ -49,6 +54,8 @@ class IntegracoesController < ApplicationController
 
   def precisa_atencao?(conta)
     return true unless conta.active?
+
+    return true if conta.last_sync_error.present?
 
     credencial = conta.marketplace_credential
 

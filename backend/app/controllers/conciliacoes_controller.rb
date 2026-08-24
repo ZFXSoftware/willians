@@ -29,8 +29,20 @@ class ConciliacoesController < ApplicationController
       tenant: current_tenant,
       platform_account: platform_account,
       start_date: parse_date(params[:start_date]),
-      end_date: parse_date(params[:end_date])
+      end_date: parse_date(params[:end_date]),
+      sincronizar: flag(:sincronizar, padrao: true),
+      forcar: flag(:forcar, padrao: false)
     }.compact
+  end
+
+  # `false` precisa sobreviver ao `.compact` acima como valor, e o parâmetro
+  # chega como string ("false" é truthy em Ruby).
+  def flag(nome, padrao:)
+    valor = params[nome]
+
+    return padrao if valor.nil?
+
+    ActiveModel::Type::Boolean.new.cast(valor) || false
   end
 
   # Busca escopada nos tenants acessíveis: pedir a conta de outro cliente

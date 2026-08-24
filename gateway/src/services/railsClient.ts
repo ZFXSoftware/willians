@@ -3,7 +3,13 @@ import axios from "axios"
 // Uma conciliação varre todos os repasses da janela e chama o OMIE — 10s
 // estouravam antes do Rails responder e o job era marcado como falho mesmo
 // quando o processamento seguia até o fim.
-const TIMEOUT_MS = Number(process.env.RAILS_TIMEOUT_MS || 120_000)
+//
+// Agora a mesma chamada também BUSCA do marketplace antes de conciliar, e o
+// relatório de liberações do Mercado Pago é assíncrono: o cliente espera até
+// 180s por ele. Com 120s aqui, o job seria marcado como falho justamente na
+// primeira execução de uma conta nova — a única em que a espera acontece — e o
+// BullMQ ainda tentaria de novo por cima do processamento em curso.
+const TIMEOUT_MS = Number(process.env.RAILS_TIMEOUT_MS || 300_000)
 
 const SERVICE_TOKEN = process.env.SERVICE_API_TOKEN || ""
 

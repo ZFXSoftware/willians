@@ -13,7 +13,9 @@ module Conciliacao
       tenant: nil,
       platform_account: nil,
       start_date: nil,
-      end_date: nil
+      end_date: nil,
+      sincronizar: true,
+      forcar: false
     )
       @omie_client = omie_client
 
@@ -25,9 +27,18 @@ module Conciliacao
 
       @start_date =
         (start_date || @end_date - DEFAULT_WINDOW_DAYS).to_date
+
+      @sincronizar = sincronizar
+
+      @forcar = forcar
     end
 
     def processar
+      # Buscar ANTES de conciliar. Conciliar é comparar o razão com o OMIE; se
+      # ninguém trouxe os eventos do marketplace para o razão, a comparação é
+      # entre o OMIE e o vazio — e sai como sucesso com zero lançamentos.
+      sincronizacao = sincronizar!
+
       # Agrupado por empresa porque as credenciais do OMIE são dela: o
       # disparo agendado vem sem tenant e varre todo mundo de uma vez.
       grupos = platform_accounts.includes(:tenant).group_by(&:tenant)
@@ -55,6 +66,7 @@ module Conciliacao
         failed: resultados.count { |r| r[:status] == "failed" },
         simulacao: simulacoes.any?,
         empresas_em_simulacao: simulacoes,
+        sincronizacao: sincronizacao,
         runs: resultados
       }
     end
@@ -65,7 +77,27 @@ module Conciliacao
                 :tenant,
                 :platform_account,
                 :start_date,
-                :end_date
+                :end_date,
+                :sincronizar,
+                :forcar
+
+    # A ingestão nunca derruba a conciliação: se o marketplace estiver fora do
+    # ar, o que já está no razão continua valendo a pena conferir.
+    def sincronizar!
+      return unless sincronizar
+
+      Marketplace::SincronizacaoService.new(
+        tenant: tenant,
+        platform_account: platform_account,
+        start_date: start_date,
+        end_date: end_date,
+        forcar: forcar
+      ).call
+    rescue StandardError => e
+      Rails.logger.error "#{LOG_PREFIX} ingestão falhou por inteiro: #{e.class} #{e.message}"
+
+      { erro: e.message }
+    end
 
     def platform_accounts
       return PlatformAccount.where(id: platform_account.id) if platform_account

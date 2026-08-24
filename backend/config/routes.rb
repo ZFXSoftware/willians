@@ -57,6 +57,8 @@ Rails.application.routes.draw do
     get  "amazon/callback",  to: "amazon#callback"
 
     # Chaves de API por tenant, no lugar do .env.
+    post "sincronizar", to: "sincronizacoes#create"
+
     get    "configuracoes", to: "configuracoes#index"
     put    "configuracoes/:provedor", to: "configuracoes#update"
     delete "configuracoes/:provedor/:chave", to: "configuracoes#destroy"

@@ -1,4 +1,17 @@
 ENV["RAILS_ENV"] ||= "test"
+
+# Chaves de criptografia PRÓPRIAS do teste, definidas antes de o Rails subir.
+#
+# Sem isso, qualquer teste que grave um token de marketplace morre com
+# "Missing Active Record encryption credential" na máquina de quem não tem as
+# variáveis exportadas — e passa na de quem tem. São chaves fixas e públicas de
+# propósito: só cifram dados que nascem e morrem dentro da suíte.
+{
+  "AR_ENCRYPTION_PRIMARY_KEY" => "teste-chave-primaria-nao-use-em-producao",
+  "AR_ENCRYPTION_DETERMINISTIC_KEY" => "teste-chave-deterministica-nao-use-em-producao",
+  "AR_ENCRYPTION_KEY_DERIVATION_SALT" => "teste-sal-de-derivacao-nao-use-em-producao"
+}.each { |chave, valor| ENV[chave] ||= valor }
+
 require_relative "../config/environment"
 require "rails/test_help"
 
