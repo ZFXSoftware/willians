@@ -24,6 +24,7 @@ export default function Sidebar() {
   const user = useAuth((state) => state.user)
   const tenants = useAuth((state) => state.tenants)
   const currentTenantId = useAuth((state) => state.currentTenantId)
+  const setTenant = useAuth((state) => state.setTenant)
 
   const [signingOut, setSigningOut] = useState(false)
 
@@ -152,17 +153,34 @@ export default function Sidebar() {
             Organização
           </p>
 
-          <div className="flex items-center justify-between mt-3 gap-3">
-            <div className="min-w-0">
-              <h3 className="text-white font-medium truncate">
-                {currentTenant?.name ?? "—"}
-              </h3>
+          {/* Com mais de uma empresa isto precisa ser TROCÁVEL. Cada empresa
+              tem as próprias chaves de API, contas e lançamentos; sem seletor,
+              quem pertence a duas fica preso na primeira e lê a tela vazia da
+              outra como se os dados tivessem sumido. */}
+          {tenants.length > 1 ? (
+            <select
+              value={currentTenantId ?? ""}
+              onChange={(e) => setTenant(Number(e.target.value))}
+              className="w-full mt-3 bg-zinc-900 border border-zinc-700 hover:border-zinc-500 rounded-2xl px-3 py-2.5 text-sm text-white transition cursor-pointer"
+              aria-label="Trocar de organização"
+            >
+              {tenants.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <h3 className="text-white font-medium truncate mt-3">
+              {currentTenant?.name ?? "—"}
+            </h3>
+          )}
 
-              <p className="text-sm text-zinc-400 mt-1 truncate">
-                {user?.email ?? ""}
-                {currentTenant ? ` · ${currentTenant.role}` : ""}
-              </p>
-            </div>
+          <div className="flex items-center justify-between mt-2 gap-3">
+            <p className="text-sm text-zinc-400 truncate min-w-0">
+              {user?.email ?? ""}
+              {currentTenant ? ` · ${currentTenant.role}` : ""}
+            </p>
 
             <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse shrink-0" />
           </div>

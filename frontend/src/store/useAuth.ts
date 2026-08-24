@@ -52,7 +52,14 @@ export const useAuth = create<AuthState>((set) => ({
   setSession: ({ token, user, tenants }) => {
     localStorage.setItem(TOKEN_KEY, token)
 
-    const tenantId = tenants.length > 0 ? tenants[0].id : null
+    // Respeita a empresa escolhida da última vez, quando ela ainda vale.
+    // Antes o login sempre caía em tenants[0], então quem pertence a mais de
+    // uma empresa voltava para a primeira a cada entrada — e via a tela vazia
+    // achando que os dados tinham sumido.
+    const guardado = readStoredTenant()
+
+    const tenantId =
+      tenants.find((t) => t.id === guardado)?.id ?? (tenants.length > 0 ? tenants[0].id : null)
 
     if (tenantId) localStorage.setItem(TENANT_KEY, String(tenantId))
 
