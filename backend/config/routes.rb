@@ -59,6 +59,10 @@ Rails.application.routes.draw do
     # Chaves de API por tenant, no lugar do .env.
     post "sincronizar", to: "sincronizacoes#create"
 
+    delete "contas/:id", to: "contas#destroy"
+
+    post   "contas/:id/arquivar", to: "contas#arquivar"
+
     get    "configuracoes", to: "configuracoes#index"
     put    "configuracoes/:provedor", to: "configuracoes#update"
     delete "configuracoes/:provedor/:chave", to: "configuracoes#destroy"

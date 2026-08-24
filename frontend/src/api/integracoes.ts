@@ -81,6 +81,18 @@ export async function sincronizar(platformAccountId: number): Promise<{ job_id: 
   return data
 }
 
+// Some com a conta de vez. O backend recusa se já houver histórico importado —
+// apagar levaria junto pedidos e lançamentos em cascata.
+export async function removerConta(platformAccountId: number): Promise<void> {
+  await api.delete(`/integracoes/contas/${platformAccountId}`)
+}
+
+// Tira da operação sem destruir nada: sai da conciliação e da sincronização,
+// e o que já entrou no razão continua lá.
+export async function arquivarConta(platformAccountId: number): Promise<void> {
+  await api.post(`/integracoes/contas/${platformAccountId}/arquivar`)
+}
+
 export async function desconectar(platformAccountId: number): Promise<void> {
   await api.delete("/integracoes/desconectar", {
     params: { platform_account_id: platformAccountId },

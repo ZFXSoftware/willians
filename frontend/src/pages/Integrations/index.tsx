@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import {
+  Archive,
   Building2,
   CheckCircle2,
   DownloadCloud,
@@ -8,13 +9,16 @@ import {
   Plug,
   RefreshCw,
   ShoppingBag,
+  Trash2,
   XCircle,
 } from "lucide-react"
 
 import {
+  arquivarConta,
   conectar,
   desconectar,
   fetchIntegracoes,
+  removerConta,
   sincronizar,
   type Integracao,
 } from "../../api/integracoes"
@@ -98,6 +102,41 @@ export default function Integrations() {
       reload()
     } catch (e) {
       setNota({ tipo: "erro", texto: errorMessage(e, "Não foi possível desconectar") })
+    } finally {
+      setAcao(null)
+    }
+  }
+
+  // Conta conectada por engano. Se nada foi importado, some de vez; se já
+  // houver histórico, o backend recusa e a saída é arquivar.
+  async function remover_de_vez(conta: Integracao) {
+    setAcao(String(conta.id))
+    setNota(null)
+
+    try {
+      await removerConta(conta.id)
+      reload()
+      setNota({ tipo: "ok", texto: `${conta.nome} foi removida.` })
+    } catch (e) {
+      setNota({ tipo: "erro", texto: errorMessage(e, "Não foi possível remover") })
+    } finally {
+      setAcao(null)
+    }
+  }
+
+  async function arquivar(conta: Integracao) {
+    setAcao(String(conta.id))
+    setNota(null)
+
+    try {
+      await arquivarConta(conta.id)
+      reload()
+      setNota({
+        tipo: "ok",
+        texto: `${conta.nome} foi arquivada. O histórico dela continua no razão.`,
+      })
+    } catch (e) {
+      setNota({ tipo: "erro", texto: errorMessage(e, "Não foi possível arquivar") })
     } finally {
       setAcao(null)
     }
@@ -426,14 +465,42 @@ export default function Integrations() {
                           </button>
                         </>
                       ) : (
-                        <button
-                          onClick={() => iniciarConexao(conta.plataforma, conta)}
-                          disabled={ocupado}
-                          className="flex-1 flex items-center justify-center gap-2 bg-white text-black hover:opacity-90 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
-                        >
-                          <Plug size={15} />
-                          {ocupado ? "Redirecionando..." : "Conectar"}
-                        </button>
+                        <>
+                          <button
+                            onClick={() => iniciarConexao(conta.plataforma, conta)}
+                            disabled={ocupado}
+                            className="flex-1 flex items-center justify-center gap-2 bg-white text-black hover:opacity-90 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
+                          >
+                            <Plug size={15} />
+                            {ocupado ? "Redirecionando..." : "Conectar"}
+                          </button>
+
+                          {/* Conta desconectada e sem nada importado é quase
+                              sempre engano de OAuth: pode sumir. Com histórico,
+                              apagar levaria pedidos e lançamentos junto — aí a
+                              saída é arquivar. */}
+                          {conta.lancamentos === 0 ? (
+                            <button
+                              onClick={() => remover_de_vez(conta)}
+                              disabled={ocupado}
+                              title="Remover esta conta da empresa"
+                              className="flex items-center justify-center gap-2 bg-zinc-800 hover:bg-red-500/20 hover:text-red-300 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
+                            >
+                              <Trash2 size={15} />
+                              Remover
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => arquivar(conta)}
+                              disabled={ocupado}
+                              title="Tira da operação; o histórico continua no razão"
+                              className="flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
+                            >
+                              <Archive size={15} />
+                              Arquivar
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
