@@ -67,6 +67,33 @@ module Marketplace
       assert_equal "mercado_livre", credencial.platform_account.platform
     end
 
+    # A tela de Integrações oferece "Conectar" para plataforma que ainda não tem
+    # conta nenhuma, e é assim que a PRIMEIRA conta nasce. Cadastrar à mão antes
+    # criaria um registro sem identificador do vendedor, que o callback
+    # duplicaria.
+    test "a primeira conta nasce do próprio callback" do
+      assert_equal 0, @tenant.platform_accounts.count
+
+      credencial = conectar
+
+      contas = @tenant.platform_accounts.reload
+
+      assert_equal 1, contas.count
+      assert_equal credencial.platform_account_id, contas.first.id
+      assert contas.first.active?
+    end
+
+    test "reconectar a mesma loja reaproveita a conta, não cria outra" do
+      primeira = conectar
+
+      segunda = ML::Callback.new(
+        code: "CODE-XYZ", state: autorizar[:state], client: @falso
+      ).call
+
+      assert_equal 1, @tenant.platform_accounts.reload.count
+      assert_equal primeira.platform_account_id, segunda.platform_account_id
+    end
+
     test "token não fica em claro na coluna" do
       credencial = conectar
 

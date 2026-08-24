@@ -46,11 +46,20 @@ interface Nota {
 
 export default function Integrations() {
   const [params, setParams] = useSearchParams()
-  const [acao, setAcao] = useState<number | null>(null)
+  // Chave em texto porque a ação tanto pode ser sobre uma conta (o id) quanto
+  // sobre uma plataforma que ainda não tem conta nenhuma (o nome dela).
+  const [acao, setAcao] = useState<string | null>(null)
   const [importando, setImportando] = useState<number | null>(null)
   const [nota, setNota] = useState<Nota | null>(null)
 
   const { data, loading, error, reload } = useResource(fetchIntegracoes)
+
+  // Plataformas que o sistema já sabe integrar e para as quais ainda não existe
+  // nenhuma conta. Sem isto a tela ficava sem saída: "Conectar" só aparecia
+  // dentro do card de uma conta, e a primeira conta só nasce ao conectar.
+  const jaTemConta = new Set(data?.items.map((i) => i.plataforma) ?? [])
+
+  const disponiveis = (data?.plataformas_implementadas ?? []).filter((p) => !jaTemConta.has(p))
 
   // Retorno do OAuth: o backend devolve o navegador para cá com o resultado.
   const retornoStatus = params.get("status")
@@ -63,12 +72,16 @@ export default function Integrations() {
     setParams(params, { replace: true })
   }
 
-  async function iniciarConexao(conta: Integracao) {
-    setAcao(conta.id)
+  // `conta` ausente é o caso normal da PRIMEIRA conexão: quem cria a conta é o
+  // callback do OAuth, com o id real do vendedor na plataforma. Cadastrar uma
+  // conta à mão antes disso só produziria um registro sem identificador, que o
+  // callback depois duplicaria.
+  async function iniciarConexao(plataforma: string, conta?: Integracao) {
+    setAcao(conta ? String(conta.id) : plataforma)
     setNota(null)
 
     try {
-      const { authorization_url } = await conectar(conta.plataforma, conta.id)
+      const { authorization_url } = await conectar(plataforma, conta?.id)
       window.location.href = authorization_url
     } catch (e) {
       setNota({ tipo: "erro", texto: errorMessage(e, "Não foi possível iniciar a conexão") })
@@ -77,7 +90,7 @@ export default function Integrations() {
   }
 
   async function remover(conta: Integracao) {
-    setAcao(conta.id)
+    setAcao(String(conta.id))
     setNota(null)
 
     try {
@@ -92,7 +105,7 @@ export default function Integrations() {
 
   async function importar(conta: Integracao) {
     setNota(null)
-    setAcao(conta.id)
+    setAcao(String(conta.id))
 
     const marco = conta.ultima_sincronizacao
 
@@ -233,18 +246,66 @@ export default function Integrations() {
             </div>
           </div>
 
+          {disponiveis.length > 0 && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold">Disponíveis para conectar</h2>
+                <p className="text-sm text-zinc-400 mt-1">
+                  A conta é criada na hora da autorização, com o identificador do vendedor
+                  na própria plataforma. Não há nada para cadastrar antes.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {disponiveis.map((plataforma) => {
+                  const Icone = ICONES[plataforma] ?? ShoppingBag
+                  const ocupado = acao === plataforma
+
+                  return (
+                    <div
+                      key={plataforma}
+                      className="bg-zinc-900 border border-dashed border-zinc-700 rounded-3xl p-6 flex items-center justify-between gap-4"
+                    >
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 shrink-0">
+                          <Icone size={20} />
+                        </div>
+
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-lg truncate">
+                            {rotulo(plataforma)}
+                          </h3>
+                          <p className="text-sm text-zinc-500 mt-0.5">Nenhuma conta conectada</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => iniciarConexao(plataforma)}
+                        disabled={ocupado}
+                        className="flex items-center justify-center gap-2 bg-white text-black hover:opacity-90 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50 shrink-0"
+                      >
+                        <Plug size={15} />
+                        {ocupado ? "Redirecionando..." : "Conectar"}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {data && data.items.length === 0 ? (
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl">
               <Vazio
-                titulo="Nenhuma conta cadastrada"
-                descricao="Cadastre uma conta de marketplace para começar a importar vendas e repasses."
+                titulo="Nenhuma conta conectada ainda"
+                descricao="Conecte um marketplace acima. Se as chaves de API dele ainda não estiverem preenchidas, comece por Chaves de API."
               />
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {data?.items.map((conta) => {
                 const Icone = ICONES[conta.plataforma] ?? ShoppingBag
-                const ocupado = acao === conta.id
+                const ocupado = acao === String(conta.id)
                 const ocupadoImportando = importando === conta.id
 
                 return (
@@ -366,7 +427,7 @@ export default function Integrations() {
                         </>
                       ) : (
                         <button
-                          onClick={() => iniciarConexao(conta)}
+                          onClick={() => iniciarConexao(conta.plataforma, conta)}
                           disabled={ocupado}
                           className="flex-1 flex items-center justify-center gap-2 bg-white text-black hover:opacity-90 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
                         >
