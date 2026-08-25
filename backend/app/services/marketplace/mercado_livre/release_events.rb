@@ -24,6 +24,12 @@ module Marketplace
     class ReleaseEvents
       PLATFORM = "mercado_livre".freeze
 
+      # Vírgula primeiro só para desempate: o real usa ponto e vírgula.
+      SEPARADORES = [ ",", ";" ].freeze
+
+      # O arquivo não traz a coluna que diz o que cada linha É.
+      class LayoutDesconhecido < StandardError; end
+
       # Linhas de resumo do relatório: saldo anterior, total, saldo após saque.
       # Não são movimentação, são cabeçalho de conferência.
       RESUMO = %w[initial_available_balance available_balance total].freeze
@@ -80,6 +86,8 @@ module Marketplace
 
         @colunas = tabela.headers.compact if tabela.respond_to?(:headers)
 
+        exigir_classificacao!(tabela)
+
         eventos = tabela.flat_map { |linha| eventos_de(linha) }.compact
 
         relatar(eventos)
@@ -116,6 +124,41 @@ module Marketplace
       private
 
       attr_reader :csv
+
+      # Sem RECORD_TYPE, TODA linha cairia no ramo de venda: um saque viraria
+      # receita, e o razão passaria a mentir sobre quanto a loja faturou. Dado
+      # financeiro errado é pior do que dado nenhum — importar na dúvida seria
+      # o mesmo erro dos lançamentos de simulação entrando como reais.
+      #
+      # Então recusa, e deixa no log o que existe para classificar com. A
+      # correção depois é uma tabela de-para, não uma investigação.
+      def exigir_classificacao!(tabela)
+        return if @lidas.zero?
+        return if @colunas.include?("RECORD_TYPE")
+
+        Rails.logger.error(
+          "[ReleaseEvents] relatório sem RECORD_TYPE. Combinações encontradas " \
+          "(unidade | sub-unidade | descrição -> linhas): #{combinacoes(tabela)}"
+        )
+
+        raise LayoutDesconhecido,
+              "O relatório de liberações veio sem a coluna RECORD_TYPE, que é a que diz o que " \
+              "cada linha é (venda, tarifa, saque). Sem ela, importar significaria adivinhar o " \
+              "tipo de cada movimento — e lançamento com tipo errado corrompe a conciliação. " \
+              "As combinações disponíveis para classificar ficaram no log."
+      end
+
+      # Só os campos que classificam, com a descrição encurtada: o objetivo é
+      # montar o de-para, não copiar o extrato para dentro do log.
+      def combinacoes(tabela)
+        tabela
+          .map { |linha| [ linha["BUSINESS_UNIT"], linha["SUB_UNIT"], linha["DESCRIPTION"].to_s[0, 40] ] }
+          .tally
+          .sort_by { |_, quantas| -quantas }
+          .first(15)
+          .map { |(unidade, sub, descricao), quantas| "#{unidade} | #{sub} | #{descricao} -> #{quantas}" }
+          .join(" ;; ")
+      end
 
       # Toda leitura deixa registrado o que o relatório tinha DENTRO.
       #
@@ -154,9 +197,25 @@ module Marketplace
       def linhas
         return [] if csv.strip.empty?
 
-        CSV.parse(csv, headers: true, header_converters: ->(h) { h.to_s.strip.upcase })
+        CSV.parse(csv,
+                  col_sep: separador,
+                  headers: true,
+                  header_converters: ->(h) { h.to_s.strip.upcase })
       rescue CSV::MalformedCSVError => e
         raise ArgumentError, "Relatório de liberações ilegível: #{e.message}"
+      end
+
+      # O relatório real do Mercado Pago vem separado por PONTO E VÍRGULA. Com
+      # vírgula, o cabeçalho inteiro virava UMA coluna chamada
+      # "DATE;SOURCE_ID;DESCRIPTION;..." — nenhuma coluna era encontrada, todo
+      # valor dava nil, e as 41 linhas produziram zero lançamentos em silêncio.
+      #
+      # Decidido pelo cabeçalho e não por configuração: é ele que prova qual é,
+      # e o formato pode mudar sem avisar.
+      def separador
+        cabecalho = csv.lines.first.to_s
+
+        SEPARADORES.max_by { |candidato| cabecalho.count(candidato) }
       end
 
       def eventos_de(linha)

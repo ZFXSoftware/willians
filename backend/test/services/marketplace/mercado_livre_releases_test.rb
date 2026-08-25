@@ -124,13 +124,47 @@ module Marketplace
                    "o que não sabemos tratar precisa aparecer, não sumir")
     end
 
+    # O relatório REAL do Mercado Pago, com o cabeçalho copiado do log da
+    # produção: separado por ponto e vírgula. Com vírgula, o cabeçalho inteiro
+    # virava uma coluna só e as 41 linhas produziam zero lançamentos.
+    CSV_REAL = <<~CSV
+      DATE;SOURCE_ID;DESCRIPTION;NET_CREDIT_AMOUNT;NET_DEBIT_AMOUNT;GROSS_AMOUNT;MP_FEE_AMOUNT;TAXES_AMOUNT;PAYMENT_METHOD;TRANSACTION_APPROVAL_DATE;BUSINESS_UNIT;SUB_UNIT;BALANCE_AMOUNT;PAYMENT_METHOD_TYPE;PURCHASE_ID
+      2026-08-24T10:00:00Z;PAY-111;Venda;124,25;0;150,00;-15,50;-2,25;credit_card;2026-08-24T09:00:00Z;mercadolibre;sales;1000,00;credit_card;2000000111
+    CSV
+
+    test "reconhece o relatório separado por ponto e vírgula" do
+      leitor = ML::ReleaseEvents.new(csv: CSV_REAL)
+
+      leitor.call
+    rescue ML::ReleaseEvents::LayoutDesconhecido
+      # A recusa é assunto do teste seguinte; aqui só interessa que as colunas
+      # foram separadas de verdade, e não lidas como um nome gigante.
+      assert_includes leitor.diagnostico[:colunas], "GROSS_AMOUNT"
+      assert_includes leitor.diagnostico[:colunas], "PURCHASE_ID"
+      assert_equal 1, leitor.diagnostico[:linhas]
+    end
+
+    # Sem RECORD_TYPE toda linha cairia no ramo de venda: um saque viraria
+    # receita. Dado financeiro errado é pior do que dado nenhum.
+    test "relatório sem RECORD_TYPE recusa importar em vez de adivinhar" do
+      leitor = ML::ReleaseEvents.new(csv: CSV_REAL)
+
+      registro = capturando_log do
+        erro = assert_raises(ML::ReleaseEvents::LayoutDesconhecido) { leitor.call }
+
+        assert_includes erro.message, "RECORD_TYPE"
+      end
+
+      # O que sobra para montar o de-para depois.
+      assert_includes registro, "mercadolibre | sales | Venda -> 1"
+    end
+
     # O pior zero possível: o relatório veio cheio e o leitor não reconheceu
     # nada. Sem aviso, isso chega na tela como "0 lançamento(s)" — igualzinho
-    # a uma conta que não vendeu. Se o Mercado Livre mudar os cabeçalhos, é
-    # assim que a gente descobre.
+    # a uma conta que não vendeu.
     test "linhas sem nenhum lançamento produzido avisam quais colunas vieram" do
       estranho = <<~CSV
-        DATA,ID_ORIGEM,PEDIDO,TIPO,VALOR_BRUTO
+        DATA,ID_ORIGEM,PEDIDO,RECORD_TYPE,VALOR_BRUTO
         2026-08-02T10:00:00Z,PAY-111,2000000111,release,150.00
       CSV
 
@@ -139,7 +173,7 @@ module Marketplace
       registro = capturando_log { assert_empty leitor.call }
 
       assert_includes registro, "NENHUM lançamento produzido", "silêncio aqui esconde o problema"
-      assert_includes registro, "DATA, ID_ORIGEM, PEDIDO, TIPO, VALOR_BRUTO"
+      assert_includes registro, "DATA, ID_ORIGEM, PEDIDO, RECORD_TYPE, VALOR_BRUTO"
     end
 
     test "relatório legítimo e completo não gera aviso de leitura muda" do
