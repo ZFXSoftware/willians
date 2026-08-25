@@ -87,7 +87,7 @@ module Financeiro
       detalhe = resultado[:detalhes].first
 
       assert_equal :sem_espelho, detalhe[:situacao]
-      assert_includes detalhe[:mensagem], "não informou saldo"
+      assert_equal :sem_dados, detalhe[:motivo]
       # O ponto: nada de snapshot "conferido" nem divergência inventada.
       assert_equal 0, PlatformBalanceSnapshot.where(platform_account_id: @conta.id).count
       assert_equal 0, DivergenceReport.where(tenant: @tenant).count
@@ -186,6 +186,7 @@ module Financeiro
       end
 
       assert_equal :sem_espelho, resultado[:detalhes].first[:situacao]
+      assert_equal :erro, resultado[:detalhes].first[:motivo]
     end
 
     test "conta não conectada é reportada, não silenciada" do
@@ -194,6 +195,48 @@ module Financeiro
       resultado = ConciliacaoDeSaldo.new(tenant: @tenant).call
 
       assert_equal 1, resultado[:resumo][:sem_espelho]
+    end
+
+    # As quatro razões para não haver espelho pedem providências diferentes:
+    # autorizar o OAuth, esperar, ou não fazer nada. A mensagem única que
+    # oferecia as três de uma vez ("integração não conectada, sem suporte a
+    # leitura de saldo, ou relatório ainda sendo gerado") não deixava ninguém
+    # saber qual era sem abrir o log.
+    test "conta sem OAuth diz que falta autorizar" do
+      com_saldo_interno(500)
+
+      detalhe = ConciliacaoDeSaldo.new(tenant: @tenant).call[:detalhes].first
+
+      assert_equal :nao_conectada, detalhe[:motivo]
+      assert_includes detalhe[:mensagem], "OAuth"
+    end
+
+    test "relatório ainda em geração não é reportado como erro" do
+      com_saldo_interno(500)
+
+      pendente = lambda do |start_date:, end_date:|
+        raise Marketplace::MercadoLivre::ReleasesClient::ReportPending, "relatório em fila"
+      end
+
+      resultado = com_metodo(Marketplace::Providers::MercadoLivreProvider, :account_balance, pendente) do
+        com_metodo(Marketplace::Providers::MercadoLivreProvider.singleton_class, :configured?, ->(_c) { true }) do
+          ConciliacaoDeSaldo.new(tenant: @tenant).call
+        end
+      end
+
+      detalhe = resultado[:detalhes].first
+
+      assert_equal :relatorio_em_geracao, detalhe[:motivo]
+      assert_includes detalhe[:mensagem], "Não é erro"
+    end
+
+    test "plataforma sem integração de saldo não vira pendência do usuário" do
+      conta = criar_conta(tenant: @tenant, plataforma: "magalu")
+
+      detalhe = ConciliacaoDeSaldo.new(tenant: @tenant, platform_account: conta).call[:detalhes].first
+
+      assert_equal :sem_integracao, detalhe[:motivo]
+      assert_includes detalhe[:mensagem], "Nada a fazer"
     end
   end
 end

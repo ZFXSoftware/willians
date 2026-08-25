@@ -31,15 +31,32 @@ export interface SaldosResponse {
   }
 }
 
+// Por que uma conta ficou sem espelho. Cada motivo pede uma providência
+// diferente — de "autorize o OAuth" a "não faça nada" —, então a tela precisa
+// deles separados, e não de uma frase que oferece todas as hipóteses de uma
+// vez. O backend manda `motivo`, nunca o texto cru do erro da plataforma.
+export type MotivoSemEspelho =
+  | "sem_integracao"
+  | "nao_conectada"
+  | "relatorio_em_geracao"
+  | "sem_suporte"
+  | "sem_dados"
+  | "erro"
+  | "sem_valor_comparavel"
+
+export interface DetalheConferencia {
+  platform_account_id: number
+  // O serviço devolve `platform`; só o GET /saldos usa `plataforma`.
+  platform: string
+  situacao: string
+  motivo?: MotivoSemEspelho
+  mensagem?: string
+  diferenca?: string
+}
+
 export interface ConferenciaResponse {
   resumo: Record<string, number>
-  detalhes: Array<{
-    platform_account_id: number
-    plataforma: string
-    situacao: string
-    mensagem?: string
-    diferenca?: string
-  }>
+  detalhes: DetalheConferencia[]
 }
 
 export async function fetchSaldos(): Promise<SaldosResponse> {

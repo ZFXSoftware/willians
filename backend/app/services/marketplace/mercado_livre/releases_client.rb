@@ -37,7 +37,9 @@ module Marketplace
 
       # O relatório não ficou pronto dentro da janela de espera. Não é falha:
       # a próxima execução encontra o arquivo pronto.
-      class ReportPending < Error; end
+      class ReportPending < Error
+        include Marketplace::Providers::AindaNaoPronto
+      end
 
       def initialize(access_token:, timeout: DEFAULT_TIMEOUT, sleeper: nil)
         @access_token = access_token

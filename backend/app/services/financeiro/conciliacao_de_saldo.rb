@@ -54,11 +54,13 @@ module Financeiro
     def conferir(conta)
       nosso = BalanceEngine.new(tenant: tenant, platform_account: conta).call
 
-      plataforma = saldo_da_plataforma(conta)
+      leitura = saldo_da_plataforma(conta)
+
+      plataforma = leitura[:saldo]
 
       # Sem o lado da plataforma não há conferência. Registrar o nosso lado
       # como se estivesse conferido seria pior do que não registrar.
-      return sem_espelho(conta, nosso) if plataforma.blank?
+      return sem_espelho(conta, nosso, motivo: leitura[:motivo], detalhe: leitura[:detalhe]) if plataforma.blank?
 
       base = base_de_comparacao(plataforma)
 
@@ -108,38 +110,82 @@ module Financeiro
       nil
     end
 
+    # Devolve SEMPRE o motivo junto do saldo.
+    #
+    # Antes isto devolvia só o valor, e a tela dizia "não informou saldo:
+    # integração não conectada, sem suporte a leitura de saldo, ou relatório
+    # ainda sendo gerado" — três causas com três providências completamente
+    # diferentes, e nenhuma forma de saber qual era sem abrir o log. Uma delas
+    # ("ainda sendo gerado") nem é problema: passa sozinha.
     def saldo_da_plataforma(conta)
-      provider_para(conta)&.account_balance(start_date: start_date, end_date: end_date)
+      provider = provider_para(conta)
+
+      return provider unless provider.is_a?(Marketplace::Providers::BaseProvider)
+
+      saldo = provider.account_balance(start_date: start_date, end_date: end_date)
+
+      return leitura(:sem_dados) if saldo.blank?
+
+      { saldo: saldo }
+    rescue Marketplace::Providers::AindaNaoPronto => e
+      leitura(:relatorio_em_geracao, e.message)
     rescue NotImplementedError
-      nil
+      leitura(:sem_suporte)
     rescue StandardError => e
       Rails.logger.warn "[ConciliacaoDeSaldo] conta ##{conta.id}: #{e.class} #{e.message}"
 
-      nil
+      leitura(:erro, "#{e.class}: #{e.message}")
     end
 
     # O registro guarda o NOME da classe (carregamento tardio), não a classe.
     def provider_para(conta)
       nome = Marketplace::Ingestors::MarketplaceIngestor::PROVIDERS[conta.platform.to_s]
 
-      return if nome.blank?
+      return leitura(:sem_integracao) if nome.blank?
 
       classe = nome.constantize
 
-      return unless classe.configured?(conta)
+      return leitura(:nao_conectada) unless classe.configured?(conta)
 
       classe.new(account: conta)
     end
 
-    def sem_espelho(conta, nosso, motivo: :nao_informou)
-      mensagem =
-        if motivo == :sem_valor_comparavel
-          "#{conta.platform} respondeu, mas sem um valor comparável ao nosso saldo."
-        else
-          "#{conta.platform} não informou saldo: integração não conectada, " \
-            "sem suporte a leitura de saldo, ou relatório ainda sendo gerado."
-        end
+    def leitura(motivo, detalhe = nil)
+      { saldo: nil, motivo: motivo, detalhe: detalhe }
+    end
 
+    # Cada motivo diz o que aconteceu E o que fazer a respeito. "Nada a fazer"
+    # também é providência: evita que alguém saia mexendo em integração que
+    # está funcionando.
+    MOTIVOS = {
+      sem_integracao: "%{plataforma} ainda não tem integração de saldo neste sistema. " \
+                      "Nada a fazer — a conciliação de títulos continua valendo.",
+      nao_conectada: "%{plataforma} não está conectada: falta autorizar o acesso pelo OAuth " \
+                     "em Integrações.",
+      relatorio_em_geracao: "%{plataforma} ainda está gerando o relatório do período. " \
+                            "Não é erro — tente de novo em alguns minutos.",
+      sem_suporte: "%{plataforma} não expõe saldo de conta. " \
+                   "Nada a fazer — a conciliação de títulos continua valendo.",
+      sem_dados: "%{plataforma} respondeu, mas não trouxe saldo no período consultado.",
+      erro: "Não foi possível ler o saldo em %{plataforma}.",
+      sem_valor_comparavel: "%{plataforma} respondeu, mas sem um valor comparável ao nosso saldo."
+    }.freeze
+
+    def sem_espelho(conta, nosso, motivo: :sem_dados, detalhe: nil)
+      motivo ||= :sem_dados
+
+      modelo = MOTIVOS.fetch(motivo, MOTIVOS[:sem_dados])
+
+      mensagem = format(modelo, plataforma: conta.platform)
+
+      # Toda conta não conferida deixa rastro, e não só as que estouraram
+      # exceção: quando alguém pergunta "por que não conferiu?", a resposta tem
+      # que estar no log, com o id da conta.
+      registrar(conta, motivo, mensagem, detalhe)
+
+      # O `detalhe` fica só no log: é texto cru vindo da plataforma e pode
+      # carregar URL, cabeçalho ou token dentro da mensagem de erro. A tela
+      # recebe o motivo, que é vocabulário nosso e seguro de exibir.
       {
         platform_account_id: conta.id,
         platform: conta.platform,
@@ -226,6 +272,17 @@ module Financeiro
             resolution_notes: "Saldo voltou a conferir na leitura de #{Date.current}."
           )
         end
+    end
+
+    # Nem todo motivo é problema. Quem lê o log filtrando por warn não deveria
+    # ser incomodado por "o relatório ainda está sendo gerado".
+    SEM_PROVIDENCIA = %i[sem_integracao sem_suporte relatorio_em_geracao].freeze
+
+    def registrar(conta, motivo, mensagem, detalhe)
+      texto = "[ConciliacaoDeSaldo] conta ##{conta.id} (#{conta.platform}) " \
+              "sem espelho — #{motivo}: #{mensagem}#{" | #{detalhe}" if detalhe.present?}"
+
+      SEM_PROVIDENCIA.include?(motivo) ? Rails.logger.info(texto) : Rails.logger.warn(texto)
     end
 
     def chave(conta) = "saldo-conta-#{conta.id}"

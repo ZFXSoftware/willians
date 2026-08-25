@@ -4,6 +4,8 @@ import { AlertTriangle, CheckCircle2, HelpCircle, RefreshCw, Scale } from "lucid
 import {
   conferirSaldos,
   fetchSaldos,
+  type DetalheConferencia,
+  type MotivoSemEspelho,
   type SaldoDaConta,
   type SituacaoSaldo,
 } from "../../api/saldos"
@@ -30,12 +32,25 @@ const SITUACOES: Record<SituacaoSaldo, { texto: string; classe: string; Icone: t
   },
 }
 
+// Espelha SEM_PROVIDENCIA do ConciliacaoDeSaldo: motivos que não pedem ação.
+const SEM_PROVIDENCIA: MotivoSemEspelho[] = [
+  "sem_integracao",
+  "sem_suporte",
+  "relatorio_em_geracao",
+]
+
 export default function Balances() {
   const { data, loading, error, reload } = useResource(fetchSaldos)
 
   const [conferindo, setConferindo] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
-  const [semEspelho, setSemEspelho] = useState<string[]>([])
+  const [semEspelho, setSemEspelho] = useState<DetalheConferencia[]>([])
+
+  // Nem toda conta sem espelho é problema: plataforma que não expõe saldo e
+  // relatório ainda sendo gerado não pedem nada de ninguém. Misturar as duas
+  // coisas num aviso amarelo só ensina o usuário a ignorar o aviso.
+  const pendentes = semEspelho.filter((d) => !SEM_PROVIDENCIA.includes(d.motivo ?? "erro"))
+  const informativos = semEspelho.filter((d) => SEM_PROVIDENCIA.includes(d.motivo ?? "erro"))
 
   async function conferir() {
     setConferindo(true)
@@ -44,11 +59,7 @@ export default function Balances() {
     try {
       const resultado = await conferirSaldos()
 
-      setSemEspelho(
-        resultado.detalhes
-          .filter((d) => d.situacao === "sem_espelho")
-          .map((d) => d.mensagem ?? rotulo(d.plataforma)),
-      )
+      setSemEspelho(resultado.detalhes.filter((d) => d.situacao === "sem_espelho"))
 
       reload()
     } catch (e) {
@@ -87,12 +98,23 @@ export default function Balances() {
         </div>
       )}
 
-      {semEspelho.length > 0 && (
+      {pendentes.length > 0 && (
         <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-2xl px-5 py-4 text-sm text-yellow-300 space-y-1">
-          <p className="font-medium">Nem toda conta pôde ser conferida:</p>
-          {semEspelho.map((mensagem, i) => (
-            <p key={i} className="text-yellow-200/80">
-              {mensagem}
+          <p className="font-medium">Estas contas precisam de você:</p>
+          {pendentes.map((d) => (
+            <p key={d.platform_account_id} className="text-yellow-200/80">
+              {d.mensagem ?? rotulo(d.platform)}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {informativos.length > 0 && (
+        <div className="bg-zinc-500/10 border border-zinc-500/20 rounded-2xl px-5 py-4 text-sm text-zinc-300 space-y-1">
+          <p className="font-medium">Não conferidas, sem nada a fazer:</p>
+          {informativos.map((d) => (
+            <p key={d.platform_account_id} className="text-zinc-400">
+              {d.mensagem ?? rotulo(d.platform)}
             </p>
           ))}
         </div>

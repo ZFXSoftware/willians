@@ -28,6 +28,10 @@ module Marketplace
       # endpoint de saldo do Mercado Pago (/users/$ID/mercadopago_account/
       # balance) existe, mas é liberado sob aprovação — "Public access not
       # allowed" é a resposta comum. Usar o relatório evita essa dependência.
+      #
+      # ReportPending sobe: "o relatório ainda está sendo gerado" é uma resposta
+      # diferente de "não deu para ler o saldo", e quem chama precisa saber qual
+      # das duas foi para dizer isso a quem está olhando a tela.
       def account_balance(start_date:, end_date:)
         csv = releases_client.csv_for(start_date: start_date, end_date: end_date)
 
@@ -41,8 +45,6 @@ module Marketplace
           total: saldos[:total] || saldos[:disponivel],
           source: "relatorio_de_liberacoes"
         }
-      rescue MercadoLivre::ReleasesClient::ReportPending
-        nil
       end
 
       private
