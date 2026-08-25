@@ -94,6 +94,10 @@ module Integracoes
         opcoes: campo.opcoes,
         secreto: campo.secreto?,
         obrigatorio: campo.obrigatorio?,
+        # A tela precisa dizer que este valor é só o padrão e que cada conta de
+        # marketplace pode ter o seu — é AQUI que a pergunta aparece, olhando
+        # um campo único com vários marketplaces para atender.
+        por_conta: campo.por_conta?,
         preenchido: valor.present?,
         origem: Config.origem(provedor.chave, campo.chave, tenant: current_tenant),
         variavel_de_ambiente: campo.env,

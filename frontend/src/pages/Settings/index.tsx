@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
 import {
   Check,
   Copy,
@@ -335,6 +336,22 @@ function Campo({
       </div>
 
       {campo.ajuda && <p className="text-xs text-zinc-500 mt-2">{campo.ajuda}</p>}
+
+      {/* A dúvida nasce AQUI: um campo só, e vários marketplaces para atender.
+          A resposta — que cada conta tem o seu — estava na outra tela, e quem
+          não sabe que ela existe não vai procurar. A placa fica onde a pessoa
+          está olhando. */}
+      {campo.por_conta && (
+        <p className="text-xs text-sky-300/80 mt-1">
+          Vale para todos os marketplaces. Se cada um tem o seu no OMIE,
+          preencha por conta em{" "}
+          <Link to="/integracoes" className="underline hover:text-sky-200">
+            Integrações
+          </Link>{" "}
+          — ali cada conta tem este campo, e o que estiver em branco usa o valor
+          desta tela.
+        </p>
+      )}
 
       {campo.origem === "ambiente" && (
         <p className="text-xs text-zinc-500 mt-1">

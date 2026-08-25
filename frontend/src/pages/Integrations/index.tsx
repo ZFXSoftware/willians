@@ -606,7 +606,9 @@ function CodigosDoOmie({
         onClick={() => setAberto(!aberto)}
         className="text-xs text-zinc-400 hover:text-zinc-200 transition"
       >
-        Códigos do OMIE desta conta {aberto ? "▲" : "▼"}
+        {/* Nomeia o marketplace: é assim que a pessoa pensa o problema —
+            "cada marketplace tem um cliente diferente no OMIE". */}
+        Códigos do OMIE para {rotulo(conta.plataforma)} {aberto ? "▲" : "▼"}
       </button>
 
       {!aberto && (

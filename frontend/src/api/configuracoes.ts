@@ -17,6 +17,8 @@ export interface CampoConfiguracao {
   opcoes: OpcaoCampo[] | null
   secreto: boolean
   obrigatorio: boolean
+  /** Este valor é só o PADRÃO: cada conta de marketplace pode ter o seu. */
+  por_conta: boolean
   preenchido: boolean
   origem: OrigemValor
   variavel_de_ambiente: string

@@ -7,19 +7,23 @@ module Integracoes
   module Catalogo
     Campo = Struct.new(
       :chave, :env, :rotulo, :ajuda, :tipo, :secreto, :obrigatorio, :opcoes, :padrao,
-      keyword_init: true
+      :por_conta, keyword_init: true
     ) do
       def secreto? = !!secreto
 
       def obrigatorio? = !!obrigatorio
+
+      # Este campo pode ser sobrescrito em cada conta de marketplace.
+      def por_conta? = !!por_conta
     end
 
     Provedor = Struct.new(:chave, :rotulo, :ajuda, :documentacao, :campos, keyword_init: true)
 
     def self.campo(chave, env:, rotulo:, ajuda: nil, tipo: :texto, secreto: false,
-                   obrigatorio: false, opcoes: nil, padrao: nil)
+                   obrigatorio: false, opcoes: nil, padrao: nil, por_conta: false)
       Campo.new(chave: chave.to_s, env: env, rotulo: rotulo, ajuda: ajuda, tipo: tipo,
-                secreto: secreto, obrigatorio: obrigatorio, opcoes: opcoes, padrao: padrao)
+                secreto: secreto, obrigatorio: obrigatorio, opcoes: opcoes, padrao: padrao,
+                por_conta: por_conta)
     end
 
     PROVEDORES = {
@@ -48,14 +52,14 @@ module Integracoes
           # A tela só não dizia isso, e parecia obrigar a escolha única.
           campo(:cliente_fornecedor_id, env: "OMIE_CLIENTE_FORNECEDOR_ID",
                 rotulo: "Código do cliente/fornecedor",
+                por_conta: true,
                 ajuda: "Quem aparece como cliente nos títulos que criamos — normalmente o " \
-                       "próprio marketplace. Padrão da empresa: cada conta de marketplace " \
-                       "pode ter o seu. Rode `omie:opcoes` para ver os códigos."),
+                       "próprio marketplace. Este campo é o PADRÃO da empresa."),
           campo(:conta_corrente_id, env: "OMIE_CONTA_CORRENTE_ID",
                 rotulo: "Conta corrente",
+                por_conta: true,
                 ajuda: "Onde as baixas caem — em geral a conta virtual do marketplace. " \
-                       "Padrão da empresa: cada conta de marketplace pode ter a sua. " \
-                       "Rode `omie:opcoes` para ver os códigos."),
+                       "Este campo é o PADRÃO da empresa."),
           campo(:conta_corrente_destino_id, env: "OMIE_CONTA_CORRENTE_DESTINO_ID",
                 rotulo: "Conta corrente de destino",
                 ajuda: "Conta bancária para onde o marketplace deposita o saque. É o destino " \
