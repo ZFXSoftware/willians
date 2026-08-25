@@ -122,22 +122,49 @@ namespace :omie do
     # Zero pode ser: cliente de simulação no lugar do real, filtro de emissão
     # que o OMIE não aceita, ou não haver título mesmo. As três se parecem no
     # log e pedem providências diferentes.
-    tenant = Tenant.find_by(id: ENV["TENANT"]) || Tenant.order(:id).first
-
-    abort "Nenhuma empresa cadastrada." if tenant.blank?
-
     fim = (ENV["ATE"].presence&.to_date || Date.current)
     inicio = (ENV["DE"].presence&.to_date || fim - 30)
 
+    # Varre TODAS as empresas em vez de assumir uma.
+    #
+    # A primeira versão desta tarefa pegava `Tenant.order(:id).first` e caiu na
+    # "Tenant Demo", que é sobra de teste sem chave nenhuma — e respondeu com
+    # confiança que o problema era falta de configuração. Errado, e do jeito
+    # mais convincente possível. Num sistema multi-empresa a pergunta "as
+    # chaves estão configuradas?" não tem resposta sem dizer DE QUEM.
+    puts
+    puts "Empresas e chaves do OMIE:"
+
+    empresas = Tenant.order(:id).to_a
+
+    configuradas = empresas.select do |empresa|
+      configurada = Current.with_tenant(empresa) { Omie::Client.configured? }
+
+      contas = empresa.platform_accounts.count
+
+      puts format("  #%-4d %-32s chaves: %-4s contas de marketplace: %d",
+                  empresa.id, empresa.name.to_s[0, 32], configurada ? "sim" : "NÃO", contas)
+
+      configurada
+    end
+
+    escolhida = Tenant.find_by(id: ENV["TENANT"]) || configuradas.first
+
+    if escolhida.blank?
+      puts
+      puts "Nenhuma empresa tem chave do OMIE resolvida. Sem chave, a conciliação"
+      puts "roda contra o cliente de SIMULAÇÃO, que não devolve título nenhum."
+      next
+    end
+
+    tenant = escolhida
+
     Current.with_tenant(tenant) do
       puts
-      puts "Empresa: ##{tenant.id} #{tenant.name}"
-      puts "Chaves do OMIE configuradas: #{Omie::Client.configured? ? 'sim' : 'NÃO'}"
+      puts "Consultando a empresa ##{tenant.id} #{tenant.name}"
 
       unless Omie::Client.configured?
-        puts
-        puts "É esta a causa: sem chave, a conciliação roda contra o cliente de"
-        puts "SIMULAÇÃO, que não devolve título nenhum. Preencha em Configurações."
+        puts "Esta empresa não tem chave do OMIE. Use TENANT=<id> para escolher outra."
         next
       end
 
