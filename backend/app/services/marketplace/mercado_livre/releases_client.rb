@@ -69,10 +69,26 @@ module Marketplace
         post(BASE_PATH, begin_date: inicio(start_date), end_date: fim(end_date))
       end
 
+      # Devolve [] quando não reconhece o formato — e isso é indistinguível de
+      # "nenhum relatório existe". Como quem chama fica esperando o arquivo
+      # aparecer nessa lista, o formato inesperado viraria espera eterna sem
+      # uma linha sequer no log.
       def relatorios
         resposta = get("#{BASE_PATH}/list")
 
-        resposta.is_a?(Array) ? resposta : (resposta["results"] || [])
+        return resposta if resposta.is_a?(Array)
+
+        lista = resposta.is_a?(Hash) ? resposta["results"] : nil
+
+        return lista if lista.is_a?(Array)
+
+        Rails.logger.warn(
+          "[ReleasesClient] a lista de relatórios veio num formato não previsto " \
+          "(#{resposta.class}#{", chaves: #{resposta.keys.join(', ')}" if resposta.is_a?(Hash)}). " \
+          "Tratando como vazia — é isto que faz a espera nunca terminar."
+        )
+
+        []
       end
 
       def download(arquivo)
@@ -102,9 +118,27 @@ module Marketplace
           return encontrado if encontrado
         end
 
+        # Diz o que a lista TINHA. "Ainda sendo gerado" é uma leitura otimista
+        # de "não achei o meu ali dentro" — e as duas se parecem até alguém
+        # comparar os períodos que voltaram com o período pedido.
+        Rails.logger.warn(
+          "[ReleasesClient] desisti de esperar o relatório de #{start_date} a #{end_date}. " \
+          "A lista do Mercado Pago tem #{disponiveis.size} relatório(s): " \
+          "#{disponiveis.empty? ? 'nenhum' : disponiveis.join(' | ')}"
+        )
+
         raise ReportPending,
               "O relatório de liberações de #{start_date} a #{end_date} ainda está sendo gerado " \
               "pelo Mercado Pago. A próxima execução o encontra pronto."
+      end
+
+      # Os períodos que a lista devolveu, para conferir contra o que pedimos.
+      def disponiveis
+        relatorios.first(10).map do |relatorio|
+          "#{relatorio['begin_date']}..#{relatorio['end_date']}"
+        end
+      rescue StandardError => e
+        [ "(não deu para listar: #{e.class})" ]
       end
 
       # A lista traz begin_date/end_date do período pedido; casamos pela data,

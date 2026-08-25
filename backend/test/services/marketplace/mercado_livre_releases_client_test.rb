@@ -116,6 +116,32 @@ module Marketplace
       assert_includes erro.message, "end_date must not be in the future"
     end
 
+    # Lista em formato não previsto virava [] em silêncio — e como quem chama
+    # espera o arquivo APARECER nessa lista, o resultado era espera eterna sem
+    # uma linha no log. É o formato de "sempre dá relatório ainda sendo gerado".
+    test "lista em formato inesperado é denunciada, não tratada como vazia" do
+      http = Object.new
+
+      def http.call(_req) = HttpFalso::Resposta.new("200", '{"paging":{},"data":[]}')
+
+      anterior = Rails.logger
+
+      saida = StringIO.new
+
+      Rails.logger = ActiveSupport::Logger.new(saida)
+
+      begin
+        assert_raises(ML::ReleasesClient::ReportPending) do
+          cliente(http, timeout: 5).csv_for(start_date: DE, end_date: ATE)
+        end
+      ensure
+        Rails.logger = anterior
+      end
+
+      assert_includes saida.string, "formato não previsto"
+      assert_includes saida.string, "paging"
+    end
+
     test "não fica esperando para sempre" do
       http = HttpFalso.new(listas: [[]])
 

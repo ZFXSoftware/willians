@@ -452,11 +452,16 @@ export default function Integrations() {
                       </p>
                     )}
 
-                    {conta.erro_de_sincronizacao && (
-                      <p className="mt-4 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
-                        Última importação falhou: {conta.erro_de_sincronizacao}
-                      </p>
-                    )}
+                    {conta.erro_de_sincronizacao &&
+                      (conta.status_sincronizacao === "pendente" ? (
+                        <p className="mt-4 text-xs text-sky-300 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
+                          Aguardando o marketplace: {conta.erro_de_sincronizacao}
+                        </p>
+                      ) : (
+                        <p className="mt-4 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+                          Última importação falhou: {conta.erro_de_sincronizacao}
+                        </p>
+                      ))}
 
                     <div className="mt-6 flex gap-2">
                       {!conta.integracao_disponivel ? (
