@@ -1,9 +1,23 @@
 namespace :tiny do
   desc "Testa a conexão com o Tiny e mede o elo pedido -> NF (SOMENTE LEITURA)"
   task check: :environment do
+    # As chaves do Tiny e do OMIE ficam por EMPRESA (tela de Configurações), e
+    # rake roda sem `Current.tenant`. Sem escolher a empresa, `configured?`
+    # olhava só o ambiente e concluía que nada estava configurado — o mesmo
+    # falso negativo que a `omie:titulos` deu.
+    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
+             Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
+
+    if tenant.blank?
+      abort "Nenhuma empresa com token do Tiny. No Tiny: instale a extensão 'Token API' em " \
+            "Início > Extensões da Olist, depois Configurações > aba E-commerce > Token API. " \
+            "Cole o token em Configurações > Tiny. Use TENANT=<id> para escolher a empresa."
+    end
+
+    Current.tenant = tenant
+
     unless Fiscal::Tiny::Settings.configured?
-      abort "TINY_TOKEN não configurado. No Tiny: instale a extensão 'Token API' em " \
-            "Início > Extensões da Olist, depois Configurações > aba E-commerce > Token API."
+      abort "A empresa ##{tenant.id} #{tenant.name} não tem token do Tiny. Use TENANT=<id>."
     end
 
     dias = (ENV["DIAS"] || 30).to_i
@@ -11,6 +25,7 @@ namespace :tiny do
     fim = Date.current
     inicio = fim - dias
 
+    puts "Empresa: ##{tenant.id} #{tenant.name}"
     puts "API do Tiny: #{Fiscal::Tiny::Settings.version}"
     puts "Janela: #{inicio} a #{fim}"
     puts
