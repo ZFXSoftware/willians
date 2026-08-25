@@ -1,5 +1,6 @@
 require "net/http"
 require "json"
+require "time"
 
 module Marketplace
   module MercadoLivre
@@ -66,7 +67,9 @@ module Marketplace
       end
 
       def criar(start_date:, end_date:)
-        post(BASE_PATH, begin_date: inicio(start_date), end_date: fim(end_date))
+        post(BASE_PATH,
+             begin_date: iso(inicio_instante(start_date)),
+             end_date: iso(fim_instante(end_date)))
       end
 
       # Devolve [] quando não reconhece o formato — e isso é indistinguível de
@@ -141,31 +144,70 @@ module Marketplace
         [ "(não deu para listar: #{e.class})" ]
       end
 
-      # A lista traz begin_date/end_date do período pedido; casamos pela data,
-      # não pelo nome do arquivo, que carrega o instante da geração.
+      # O Mercado Pago NÃO devolve o período que pedimos.
+      #
+      # Pedimos 2026-07-26T00:00:00Z..2026-08-25T14:00:00Z e a lista traz
+      # 2026-07-25T03:00:00Z..2026-08-26T02:59:59Z — que é 2026-07-25 00:00 a
+      # 2026-08-25 23:59:59 no fuso da conta (BRT, UTC-3). Ele converte para o
+      # horário local e arredonda para dias INTEIROS.
+      #
+      # Casar por igualdade de data nunca dava certo. Como o relatório nunca
+      # era encontrado, cada tentativa mandava gerar outro: a conta do cliente
+      # acumulou dez relatórios idênticos e a espera não terminava nunca.
+      #
+      # O arredondamento só ALARGA a janela — piso e teto de dia local caem
+      # sempre fora do que foi pedido, em qualquer fuso. Então o critério é
+      # CONTER, o que dispensa saber qual é o fuso da conta.
       def encontrar(start_date, end_date)
-        relatorios.find do |relatorio|
-          mesma_data?(relatorio["begin_date"], start_date) &&
-            mesma_data?(relatorio["end_date"], end_date)
-        end
+        inicio = inicio_instante(start_date)
+
+        fim = fim_instante(end_date)
+
+        # Entre os que servem, o mais justo: sem isso um relatório de um ano
+        # atenderia um pedido de trinta dias, e baixaríamos o ano inteiro.
+        relatorios
+          .select { |relatorio| cobre?(relatorio, inicio, fim) }
+          .min_by { |relatorio| duracao(relatorio) }
       end
 
-      def mesma_data?(valor, data)
-        Date.parse(valor.to_s) == data.to_date
-      rescue Date::Error, TypeError
-        false
+      def cobre?(relatorio, inicio, fim)
+        de = instante(relatorio["begin_date"])
+
+        ate = instante(relatorio["end_date"])
+
+        return false if de.nil? || ate.nil?
+
+        de <= inicio && ate >= fim
       end
 
-      def inicio(data)
-        iso(data.to_date.beginning_of_day)
+      def duracao(relatorio)
+        de = instante(relatorio["begin_date"])
+
+        ate = instante(relatorio["end_date"])
+
+        de && ate ? ate - de : Float::INFINITY
+      end
+
+      def instante(valor)
+        Time.parse(valor.to_s)
+      rescue ArgumentError, TypeError
+        nil
+      end
+
+      def inicio_instante(data)
+        data.to_date.beginning_of_day
       end
 
       # O fim do dia de HOJE está no futuro, e relatório do que ainda não
-      # aconteceu não existe — o Mercado Pago recusa o período. Como a janela
-      # padrão da conciliação termina em Date.current, esse era o pedido de
-      # todo dia.
-      def fim(data)
-        iso([ data.to_date.end_of_day, Time.current ].min)
+      # aconteceu não existe. Como a janela padrão da conciliação termina em
+      # Date.current, esse era o pedido de todo dia.
+      #
+      # Sem fração de segundo: `end_of_day` é 23:59:59.999999999, o relatório
+      # volta com 23:59:59, e a comparação "cobre o que pedi?" reprovava por
+      # menos de um segundo — que é justamente a precisão que o `iso` descarta
+      # ao mandar o pedido.
+      def fim_instante(data)
+        [ data.to_date.end_of_day, Time.current ].min.change(usec: 0)
       end
 
       def iso(instante)

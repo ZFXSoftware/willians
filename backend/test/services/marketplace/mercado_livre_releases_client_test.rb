@@ -119,6 +119,43 @@ module Marketplace
     # Lista em formato não previsto virava [] em silêncio — e como quem chama
     # espera o arquivo APARECER nessa lista, o resultado era espera eterna sem
     # uma linha no log. É o formato de "sempre dá relatório ainda sendo gerado".
+    # O caso REAL, copiado do log da produção.
+    #
+    # Pedimos 2026-07-26..2026-08-25 e o Mercado Pago devolveu
+    # 2026-07-25T03:00:00Z..2026-08-26T02:59:59Z: ele converte para o fuso da
+    # conta (BRT) e arredonda para dias inteiros. Casando por igualdade de
+    # data, o relatório nunca era encontrado — e cada tentativa mandava gerar
+    # outro. O cliente tinha DEZ relatórios idênticos e a espera nunca acabava.
+    test "reaproveita o relatório mesmo quando o ML alarga o período pedido" do
+      alargado = [ { "file_name" => "release-report.csv",
+                     "begin_date" => "2026-07-25T03:00:00Z",
+                     "end_date" => "2026-08-26T02:59:59Z" } ]
+
+      http = HttpFalso.new(listas: [ alargado ])
+
+      assert_equal CSV, cliente(http).csv_for(start_date: Date.new(2026, 7, 26),
+                                              end_date: Date.new(2026, 8, 25))
+
+      assert_empty http.chamadas.select { |m, _, _| m == "POST" },
+                   "gerar de novo o que já existe é o que empilhou dez relatórios na conta"
+    end
+
+    test "entre os relatórios que servem, baixa o mais justo" do
+      lista = [
+        { "file_name" => "ano.csv", "begin_date" => "2026-01-01T00:00:00Z",
+          "end_date" => "2026-12-31T23:59:59Z" },
+        { "file_name" => "mes.csv", "begin_date" => "2026-07-31T03:00:00Z",
+          "end_date" => "2026-08-26T02:59:59Z" }
+      ]
+
+      http = HttpFalso.new(listas: [ lista ])
+
+      cliente(http).csv_for(start_date: Date.new(2026, 8, 1), end_date: Date.new(2026, 8, 25))
+
+      assert_equal "/v1/account/release_report/mes.csv", http.chamadas.last[1],
+                   "baixar o ano inteiro para atender um pedido de 25 dias é desperdício"
+    end
+
     test "lista em formato inesperado é denunciada, não tratada como vazia" do
       http = Object.new
 
