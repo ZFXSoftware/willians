@@ -32,6 +32,20 @@ module Marketplace
       eventos(csv).index_by { |e| e[:external_id] }
     end
 
+    def capturando_log
+      anterior = Rails.logger
+
+      saida = StringIO.new
+
+      Rails.logger = ActiveSupport::Logger.new(saida)
+
+      yield
+
+      saida.string
+    ensure
+      Rails.logger = anterior
+    end
+
     # ----------------------------------------------------------- normalização
 
     test "a venda entra pelo bruto, vinculada ao pedido" do
@@ -108,6 +122,33 @@ module Marketplace
 
       assert_equal({ "tipo_novo_do_ml" => 1 }, leitor.ignorados,
                    "o que não sabemos tratar precisa aparecer, não sumir")
+    end
+
+    # O pior zero possível: o relatório veio cheio e o leitor não reconheceu
+    # nada. Sem aviso, isso chega na tela como "0 lançamento(s)" — igualzinho
+    # a uma conta que não vendeu. Se o Mercado Livre mudar os cabeçalhos, é
+    # assim que a gente descobre.
+    test "linhas sem nenhum lançamento produzido avisam quais colunas vieram" do
+      estranho = <<~CSV
+        DATA,ID_ORIGEM,PEDIDO,TIPO,VALOR_BRUTO
+        2026-08-02T10:00:00Z,PAY-111,2000000111,release,150.00
+      CSV
+
+      leitor = ML::ReleaseEvents.new(csv: estranho)
+
+      registro = capturando_log { assert_empty leitor.call }
+
+      assert_includes registro, "NENHUM lançamento produzido", "silêncio aqui esconde o problema"
+      assert_includes registro, "DATA, ID_ORIGEM, PEDIDO, TIPO, VALOR_BRUTO"
+    end
+
+    test "relatório legítimo e completo não gera aviso de leitura muda" do
+      leitor = ML::ReleaseEvents.new(csv: CSV_RELATORIO)
+
+      registro = capturando_log { leitor.call }
+
+      assert_not_includes registro, "NENHUM lançamento",
+                          "avisar quando está tudo certo ensina a ignorar o aviso"
     end
 
     test "external_id é estável entre execuções e único" do

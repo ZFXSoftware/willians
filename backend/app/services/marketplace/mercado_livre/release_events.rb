@@ -63,10 +63,29 @@ module Marketplace
         @ignorados = Hash.new(0)
 
         @saldos = {}
+
+        @lidas = 0
+
+        @colunas = []
       end
 
       def call
-        linhas.flat_map { |linha| eventos_de(linha) }.compact
+        tabela = linhas
+
+        @lidas = tabela.size
+
+        @colunas = tabela.headers.compact if tabela.respond_to?(:headers)
+
+        eventos = tabela.flat_map { |linha| eventos_de(linha) }.compact
+
+        avisar_se_mudo(eventos)
+
+        eventos
+      end
+
+      # O que o leitor viu, para quem precisa explicar um resultado vazio.
+      def diagnostico
+        { linhas: @lidas, colunas: @colunas, ignorados: ignorados.dup }
       end
 
       # As linhas de resumo do relatório são o saldo que a PLATAFORMA declara.
@@ -87,6 +106,22 @@ module Marketplace
       private
 
       attr_reader :csv
+
+      # Relatório com linhas e nenhum evento é o pior tipo de zero: parece "não
+      # houve venda" e pode ser "as colunas não são as que eu espero". As
+      # colunas reais vão no aviso porque são exatamente o que responde isso —
+      # e são nomes de cabeçalho, não dado de ninguém.
+      def avisar_se_mudo(eventos)
+        return if @lidas.zero?
+        return if eventos.any?
+        return if @saldos.any?
+
+        Rails.logger.warn(
+          "[ReleaseEvents] #{@lidas} linha(s) lida(s) e NENHUM lançamento produzido. " \
+          "Colunas recebidas: #{@colunas.join(', ')}. " \
+          "Tipos ignorados: #{ignorados.any? ? ignorados.inspect : 'nenhum'}."
+        )
+      end
 
       def linhas
         return [] if csv.strip.empty?

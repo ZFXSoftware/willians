@@ -64,6 +64,14 @@ module Marketplace
 
         @ignorados = leitor.ignorados
 
+        # Toda execução deixa registrado o que o relatório trazia. Sem isso, a
+        # única resposta possível para "por que veio zero?" é abrir o CSV na
+        # mão — e o CSV não fica guardado em lugar nenhum.
+        Rails.logger.info(
+          "[MercadoLivre] relatório de #{start_date} a #{end_date}: " \
+          "#{leitor.diagnostico[:linhas]} linha(s), #{eventos.size} lançamento(s)"
+        )
+
         eventos
       end
 
