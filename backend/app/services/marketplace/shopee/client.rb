@@ -48,9 +48,11 @@ module Marketplace
         include Marketplace::CredencialRecusada
       end
 
+      # Erro de negócio da Shopee que NÃO é de token. Não carrega mais o
+      # marcador de recusa definitiva: com ele, `error_server` e `error_busy` —
+      # que a própria lista acima classifica como retentáveis — desconectavam a
+      # conta do lojista. Ver [Marketplace::RecusaDefinitiva].
       class ApiError < Error
-        include Marketplace::TokenRefreshRejected
-
         attr_reader :code
 
         def initialize(message, code: nil)

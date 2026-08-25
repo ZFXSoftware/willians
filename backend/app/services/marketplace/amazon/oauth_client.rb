@@ -23,9 +23,9 @@ module Marketplace
 
       class ConfigError < Error; end
 
+      # Sem o marcador de recusa definitiva: instabilidade da Amazon não pode
+      # desconectar a conta do lojista. Ver [Marketplace::RecusaDefinitiva].
       class TokenError < Error
-        include Marketplace::TokenRefreshRejected
-
         attr_reader :code
 
         def initialize(message, code: nil)
@@ -33,6 +33,10 @@ module Marketplace
 
           super(message)
         end
+      end
+
+      class TokenRejected < TokenError
+        include Marketplace::TokenRefreshRejected
       end
 
       def self.configured? = Settings.configured?
@@ -127,9 +131,13 @@ module Marketplace
         parsed = JSON.parse(response.body.to_s)
 
         if parsed["error"].present?
-          raise TokenError.new(
-            "Amazon recusou a operação de token: #{parsed['error']} #{parsed['error_description']}".strip,
-            code: parsed["error"]
+          codigo = parsed["error"]
+
+          classe = Marketplace::RecusaDefinitiva.definitiva?(codigo) ? TokenRejected : TokenError
+
+          raise classe.new(
+            "Amazon recusou a operação de token: #{codigo} #{parsed['error_description']}".strip,
+            code: codigo
           )
         end
 

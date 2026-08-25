@@ -27,9 +27,11 @@ module Marketplace
 
       class ConfigError < Error; end
 
+      # O Mercado Livre recusou a operação de token. NÃO carrega mais o
+      # marcador de recusa definitiva: ele fazia um 500 ou um 429 deles
+      # desconectar a conta do lojista, que precisava refazer o OAuth por causa
+      # de uma instabilidade passageira.
       class TokenError < Error
-        include Marketplace::TokenRefreshRejected
-
         attr_reader :code
 
         def initialize(message, code: nil)
@@ -37,6 +39,11 @@ module Marketplace
 
           super(message)
         end
+      end
+
+      # Aqui sim: o refresh_token não vale mais e reconectar é a providência.
+      class TokenRejected < TokenError
+        include Marketplace::TokenRefreshRejected
       end
 
       PROVEDOR = "mercado_livre".freeze
@@ -174,10 +181,14 @@ module Marketplace
         parsed = JSON.parse(response.body.to_s)
 
         unless response.is_a?(Net::HTTPSuccess)
-          raise TokenError.new(
-            "Mercado Livre recusou a operação de token: " \
-            "#{parsed['error']} #{parsed['message'] || parsed['error_description']}".strip,
-            code: parsed["error"]
+          codigo = parsed["error"]
+
+          classe = Marketplace::RecusaDefinitiva.definitiva?(codigo) ? TokenRejected : TokenError
+
+          raise classe.new(
+            "Mercado Livre recusou a operação de token (HTTP #{response.code}): " \
+            "#{codigo} #{parsed['message'] || parsed['error_description']}".strip,
+            code: codigo
           )
         end
 

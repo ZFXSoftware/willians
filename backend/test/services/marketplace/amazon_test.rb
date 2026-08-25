@@ -251,12 +251,23 @@ module Marketplace
 
     # ------------------------------------------------------------------ recusas
 
-    test "recusa de token de qualquer plataforma é reconhecível por um tipo só" do
-      [MercadoLivre::OauthClient::TokenError.new("x"),
+    test "recusa DEFINITIVA de qualquer plataforma é reconhecível por um tipo só" do
+      [MercadoLivre::OauthClient::TokenRejected.new("x"),
        Shopee::Client::AuthError.new("x"),
-       A::OauthClient::TokenError.new("x")].each do |erro|
+       A::OauthClient::TokenRejected.new("x")].each do |erro|
         assert_kind_of Marketplace::TokenRefreshRejected, erro,
                        "#{erro.class} precisa ser tratável como recusa de renovação"
+      end
+    end
+
+    # O contrário importa mais: era isto que desconectava a conta do lojista
+    # quando a plataforma dava 500, 429 ou uma instabilidade de dez segundos.
+    test "erro passageiro NÃO se disfarça de recusa definitiva" do
+      [MercadoLivre::OauthClient::TokenError.new("500"),
+       Shopee::Client::ApiError.new("error_server", code: "error_server"),
+       A::OauthClient::TokenError.new("500")].each do |erro|
+        assert_not_kind_of Marketplace::TokenRefreshRejected, erro,
+                           "#{erro.class} passageiro não pode custar um OAuth novo ao lojista"
       end
     end
   end

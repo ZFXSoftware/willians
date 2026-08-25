@@ -49,6 +49,8 @@ module Marketplace
       def refresh!(credential = fetch_credential!)
         failure = nil
 
+        temporary = nil
+
         # Escopo restaurável, não atribuição: o job de renovação percorre
         # credenciais de tenants diferentes numa execução só.
         Current.with_tenant(platform_account.tenant) do
@@ -60,11 +62,18 @@ module Marketplace
               perform_refresh!(credential)
             rescue Marketplace::TokenRefreshRejected => e
               failure = e
+            rescue StandardError => e
+              # Falha passageira. Guardada para aparecer na tela, e relançada
+              # depois do lock — mas SEM desconectar: só a plataforma dizendo
+              # que o refresh_token morreu justifica pedir um OAuth novo.
+              temporary = e
             end
           end
         end
 
         handle_failure!(credential, failure) if failure
+
+        handle_retry!(credential, temporary) if temporary
 
         credential
       end
@@ -118,6 +127,20 @@ module Marketplace
 
         raise NeedsReauthorization,
               "Renovação recusada pelo #{platform_account.platform}: #{error.message}"
+      end
+
+      # A conta continua conectada: a próxima renovação tenta de novo. O erro
+      # sobe para quem chamou decidir o que fazer com a requisição em curso.
+      def handle_retry!(credential, error)
+        Rails.logger.warn(
+          "[TokenProvider] conta ##{platform_account.id} " \
+          "(#{platform_account.platform}) não renovou agora, segue conectada: " \
+          "#{error.class} #{error.message}"
+        )
+
+        credential.mark_refresh_retry!(error.message)
+
+        raise error
       end
 
       def expires_at_for(tokens)

@@ -162,7 +162,7 @@ module Marketplace
 
       recusa = Class.new do
         def refresh(refresh_token:)
-          raise Marketplace::MercadoLivre::OauthClient::TokenError.new(
+          raise Marketplace::MercadoLivre::OauthClient::TokenRejected.new(
             "invalid_grant: expirado", code: "invalid_grant"
           )
         end
@@ -181,6 +181,55 @@ module Marketplace
       assert_equal "expired", credencial.status
       assert_includes credencial.refresh_error.to_s, "invalid_grant"
       refute Providers::BaseProvider.configured?(credencial.platform_account)
+    end
+
+    # O oposto, e é o que estava errado: QUALQUER erro do endpoint de token
+    # marcava a credencial como expirada. Um 500 do Mercado Livre, um 429, uma
+    # instabilidade de dez segundos — e o lojista tinha que refazer o OAuth.
+    test "falha passageira na renovação não desconecta a conta" do
+      credencial = conectar
+      credencial.update_columns(expires_at: 1.minute.from_now)
+
+      instavel = Class.new do
+        def refresh(refresh_token:)
+          raise Marketplace::MercadoLivre::OauthClient::TokenError.new(
+            "Mercado Livre recusou a operação de token (HTTP 500)", code: "internal_error"
+          )
+        end
+      end
+
+      assert_raises(Marketplace::MercadoLivre::OauthClient::TokenError) do
+        Credentials::TokenProvider.new(
+          platform_account: credencial.platform_account, client: instavel.new
+        ).access_token
+      end
+
+      credencial.reload
+
+      assert_equal "connected", credencial.status, "a conta não pode cair por soluço da plataforma"
+      assert_includes credencial.refresh_error.to_s, "HTTP 500",
+                      "o motivo precisa ficar visível, mesmo sem desconectar"
+      assert Providers::BaseProvider.configured?(credencial.platform_account)
+    end
+
+    # A classe certa depende do que a plataforma respondeu, e é o parse que
+    # decide: sem isso, `invalid_grant` viraria erro passageiro e a conta
+    # morta ficaria tentando renovar de hora em hora para sempre.
+    test "invalid_grant vira recusa definitiva; o resto, não" do
+      cliente = Marketplace::MercadoLivre::OauthClient.new(client_id: "x", client_secret: "y")
+
+      definitiva = Struct.new(:code, :body).new("400", '{"error":"invalid_grant"}')
+      passageira = Struct.new(:code, :body).new("500", '{"error":"internal_error"}')
+
+      assert_raises(Marketplace::MercadoLivre::OauthClient::TokenRejected) do
+        cliente.send(:parse_token!, definitiva)
+      end
+
+      erro = assert_raises(Marketplace::MercadoLivre::OauthClient::TokenError) do
+        cliente.send(:parse_token!, passageira)
+      end
+
+      assert_not_kind_of Marketplace::TokenRefreshRejected, erro
     end
 
     test "conta sem credencial aponta o caminho para o usuário" do

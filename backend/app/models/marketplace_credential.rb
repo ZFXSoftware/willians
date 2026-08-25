@@ -35,9 +35,21 @@ class MarketplaceCredential < ApplicationRecord
     connected? && access_token.present?
   end
 
+  # Recusa DEFINITIVA: o refresh_token não vale mais e o lojista precisa
+  # autorizar de novo. Só quem sabe disso é a plataforma, dizendo invalid_grant
+  # — ver Marketplace::RecusaDefinitiva.
   def mark_refresh_failure!(error)
     update!(
       status: :expired,
+      refresh_failed_at: Time.current,
+      refresh_error: error.to_s.truncate(500)
+    )
+  end
+
+  # Falha passageira: guarda o motivo para aparecer na tela e MANTÉM a conta
+  # conectada. Um 500 da plataforma não pode custar um OAuth novo ao lojista.
+  def mark_refresh_retry!(error)
+    update!(
       refresh_failed_at: Time.current,
       refresh_error: error.to_s.truncate(500)
     )

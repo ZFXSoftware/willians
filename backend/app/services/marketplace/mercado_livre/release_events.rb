@@ -27,6 +27,11 @@ module Marketplace
       # Vírgula primeiro só para desempate: o real usa ponto e vírgula.
       SEPARADORES = [ ",", ";" ].freeze
 
+      # Colunas que poderiam trazer o número do pedido — o elo com a NF do
+      # Tiny. Contadas a cada leitura para que "o lançamento não tem pedido"
+      # tenha resposta sem ninguém abrir o CSV.
+      IDENTIFICADORES = %w[ORDER_ID PURCHASE_ID EXTERNAL_REFERENCE SOURCE_ID].freeze
+
       # O arquivo não traz a coluna que diz o que cada linha É.
       class LayoutDesconhecido < StandardError; end
 
@@ -180,14 +185,34 @@ module Marketplace
       def relatar(eventos)
         return if @lidas.zero?
 
+        com_pedido = eventos.count { |evento| evento[:external_order_id].present? }
+
         Rails.logger.info(
           "[ReleaseEvents] #{@lidas} linha(s): #{eventos.size} lançamento(s), " \
           "#{@internos.values.sum} movimento(s) interno(s) fora do razão, " \
           "saldos #{@saldos.any? ? @saldos.keys.join('/') : 'AUSENTES'}. " \
-          "Tipos: #{@tipos.inspect}"
+          "Tipos: #{@tipos.inspect}. " \
+          "Com pedido: #{com_pedido}/#{eventos.size}. " \
+          "Colunas preenchidas: #{preenchimento.inspect}"
         )
 
         avisar_se_mudo(eventos)
+      end
+
+      # Quantas linhas trouxeram valor em cada coluna que poderia identificar o
+      # pedido. É o que responde "por que o lançamento não tem pedido?" sem
+      # abrir o arquivo: ou a coluna existe e vem vazia, ou o número está em
+      # outra. Contagens, nunca os valores.
+      def preenchimento
+        @preenchimento ||= Hash.new(0)
+      end
+
+      def contar_preenchimento(linha)
+        IDENTIFICADORES.each do |coluna|
+          next if linha[coluna].to_s.strip.empty?
+
+          preenchimento[coluna] += 1
+        end
       end
 
       # Relatório com linhas e nenhum evento é o pior tipo de zero: parece "não
@@ -233,6 +258,8 @@ module Marketplace
         tipo = tipo_da(linha)
 
         @tipos[tipo.presence || "(vazio)"] += 1
+
+        contar_preenchimento(linha)
 
         if RESUMO.include?(tipo)
           registrar_saldo(tipo, linha)
