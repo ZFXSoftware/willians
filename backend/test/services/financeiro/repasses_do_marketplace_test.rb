@@ -141,5 +141,58 @@ module Financeiro
       assert_operator ConciliacaoRegistro.where(tenant: @tenant).count, :>, 0,
                       "era esta a tela vazia: razão cheio e nenhum registro de conciliação"
     end
+
+    # ------------------------------------------------ a chave contra o OMIE
+
+    def conciliar(titulos)
+      cliente = Object.new
+
+      cliente.define_singleton_method(:request) do |_endpoint, _call, **_params|
+        { "conta_receber_cadastro" => titulos, "total_de_paginas" => 1 }
+      end
+
+      Conciliacao::ConciliacaoEngine.new(
+        tenant: @tenant, platform_account: @conta,
+        start_date: Date.current - 30, end_date: Date.current,
+        omie_client: cliente
+      ).call
+
+      ConciliacaoRegistro.where(tenant: @tenant).order(:id).last
+    end
+
+    # O índice do OMIE é montado por NÚMERO DE NOTA FISCAL. O nosso lado
+    # mandava o external_id do recebível — MLREL-PAY-1-SALE, identificador
+    # nosso, que não existe no OMIE. A comparação não tinha como casar, e todo
+    # repasse saía como "sem título correspondente": é o traço na coluna
+    # "Esperado (OMIE)".
+    test "casa com o título do OMIE pelo número da nota fiscal" do
+      venda_com_taxa(bruto: 150, taxa: 15)
+      repasse
+
+      pedido = criar_pedido(tenant: @tenant, conta: @conta, external_id: "2000000111")
+      nota = criar_nota(tenant: @tenant, pedido: pedido, numero: "12345", valor: 150)
+
+      ReceivableUnit.find_by(tenant: @tenant).update!(invoice: nota, order: pedido)
+
+      fechar
+
+      registro = conciliar([ { "numero_documento_fiscal" => "12345", "valor_documento" => "150.00" } ])
+
+      assert_equal "matched", registro.status
+      assert_equal BigDecimal("150"), registro.conciliation_metadata["valor_omie"].to_d
+    end
+
+    test "sem nota fiscal do nosso lado, o título do OMIE não é encontrado" do
+      venda_com_taxa(bruto: 150, taxa: 15)
+      repasse
+
+      fechar
+
+      registro = conciliar([ { "numero_documento_fiscal" => "12345", "valor_documento" => "150.00" } ])
+
+      assert_nil registro.conciliation_metadata["valor_omie"],
+                 "sem NF não há como saber QUAL título é o desta venda"
+      assert_includes registro.observacao.to_s, "Sem título correspondente"
+    end
   end
 end

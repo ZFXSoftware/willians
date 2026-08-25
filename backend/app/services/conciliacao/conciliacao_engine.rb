@@ -11,6 +11,8 @@ module Conciliacao
 
     SOURCE = "omie".freeze
 
+    LOG_PREFIX = "[ConciliacaoEngine]".freeze
+
     # O título é emitido no OMIE na data da venda, mas o repasse cai semanas
     # depois. Buscar títulos na mesma janela dos repasses não acharia nada.
     EMISSION_LOOKBACK_DAYS = 90
@@ -132,6 +134,8 @@ module Conciliacao
 
         counters[resultado.status] += 1
 
+        counters[:com_nf] += 1 if notas_fiscais_for(payout).any?
+
         registros << registro_row(payout, resultado)
 
         divergencia = divergencia_row(payout, resultado)
@@ -183,9 +187,21 @@ module Conciliacao
     end
 
     # Um repasse é conciliado pelas referências dos recebíveis que ele liquidou.
-    # Quando o repasse ainda não tem recebível alocado, cai na própria referência
-    # externa do repasse.
+    #
+    # A PRIMEIRA referência é o número da nota fiscal, porque é por ele que o
+    # índice do OMIE é montado (ver Omie::Readers::ReceivableTotals). Antes só
+    # existia o `external_id` do recebível, que é identificador NOSSO — do lado
+    # do marketplace, algo como MLREL-PAY-1-SALE. Ele não existe no OMIE, então
+    # a comparação nunca podia casar e todo repasse saía como "sem título
+    # correspondente".
+    #
+    # O external_id continua como último recurso: em repasse lançado à mão a
+    # referência pode ter sido escrita no número do documento.
     def referencias_for(payout)
+      notas = notas_fiscais_for(payout)
+
+      return notas if notas.any?
+
       refs =
         payout
           .financial_entry_allocations
@@ -193,6 +209,13 @@ module Conciliacao
           .uniq
 
       refs.presence || [payout.external_id].compact
+    end
+
+    def notas_fiscais_for(payout)
+      payout
+        .financial_entry_allocations
+        .filter_map { |allocation| allocation.receivable_unit&.invoice&.number.presence }
+        .uniq
     end
 
     def payouts
@@ -332,8 +355,24 @@ module Conciliacao
           "start_date" => start_date.to_s,
           "end_date" => end_date.to_s,
           "omie_referencias" => omie_totals.size,
-          "nao_encontrados" => counters[:nao_encontrado]
+          "nao_encontrados" => counters[:nao_encontrado],
+          "repasses_com_nf" => counters[:com_nf]
         )
+      )
+
+      registrar(omie_totals)
+    end
+
+    # "Esperado (OMIE)" vazio tem três causas com providências diferentes, e a
+    # tela mostra um traço para as três: o OMIE não devolveu título nenhum no
+    # período; os repasses não têm nota fiscal do nosso lado (é a NF que casa
+    # com o OMIE); ou têm, e o título não está lá.
+    def registrar(omie_totals)
+      Rails.logger.info(
+        "#{LOG_PREFIX} conta ##{platform_account.id}: " \
+        "#{omie_totals.size} título(s) no OMIE entre #{start_date} e #{end_date}, " \
+        "#{counters[:total]} repasse(s), #{counters[:com_nf]} com nota fiscal nossa, " \
+        "#{counters[:ok]} conferido(s), #{counters[:nao_encontrado]} sem título correspondente"
       )
     end
 
