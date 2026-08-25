@@ -3,11 +3,16 @@ import { api } from "./client"
 export interface Movimentacao {
   id: number
   data: string
-  descricao: string
   plataforma: string | null
   valor: string
   direcao: "credit" | "debit"
   tipo: string
+  // O número do pedido no marketplace — é por ele que a pessoa acha a venda lá
+  // e a nota no Tiny. Nem todo lançamento tem: um repasse para o banco não é
+  // de nenhum pedido em particular.
+  pedido: string | null
+  // Nosso identificador interno. Serve para suporte, não para leitura.
+  referencia: string
   status: string
 }
 

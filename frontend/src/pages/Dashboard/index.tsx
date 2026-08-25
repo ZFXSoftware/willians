@@ -89,7 +89,19 @@ export default function Dashboard() {
                     className="border-t border-zinc-800 hover:bg-zinc-800/30 transition"
                   >
                     <td className="px-6 py-4 text-zinc-400">{dataBR(m.data)}</td>
-                    <td className="px-6 py-4 font-medium">{m.descricao}</td>
+                    <td className="px-6 py-4">
+                      {/* O que aconteceu vem primeiro e em português; o pedido
+                          logo abaixo, porque é por ele que se acha a venda no
+                          marketplace. O id interno fica no title: serve para
+                          suporte, e ocupava a linha inteira sem dizer nada. */}
+                      <span className="font-medium">{rotulo(m.tipo)}</span>
+                      <span
+                        className="block text-xs text-zinc-500 mt-0.5"
+                        title={m.referencia}
+                      >
+                        {m.pedido ? `Pedido ${m.pedido}` : "Sem pedido associado"}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 text-zinc-300">
                       {rotulo(m.plataforma)}
                     </td>

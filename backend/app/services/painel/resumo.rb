@@ -82,27 +82,32 @@ module Painel
     def ultimas_movimentacoes
       FinancialEntry
         .where(tenant_id: tenant.id)
-        .includes(:platform_account)
+        .includes(:platform_account, :order)
         .order(occurred_at: :desc)
         .limit(ULTIMAS)
         .map do |entry|
           {
             id: entry.id,
             data: entry.occurred_at,
-            descricao: descricao_de(entry),
+            # Em pedaços, e não numa frase pronta: o texto que a pessoa lê é
+            # decisão de tela, e o dicionário de rótulos em português já vive
+            # lá. Aqui ficam os fatos.
             plataforma: entry.platform_account&.platform,
             valor: entry.amount,
             direcao: entry.direction,
             tipo: entry.entry_type,
+            pedido: pedido_de(entry),
+            referencia: entry.external_id,
             status: entry.status
           }
         end
     end
 
-    def descricao_de(entry)
-      [entry.entry_type&.humanize, entry.external_reference.presence || entry.external_id]
-        .compact
-        .join(" · ")
+    # O número do pedido é o que a pessoa reconhece — é por ele que ela acha a
+    # venda no Mercado Livre e a nota no Tiny. O external_id é nosso, interno,
+    # e não diz nada a ninguém.
+    def pedido_de(entry)
+      entry.order&.external_id.presence || entry.external_reference.presence
     end
   end
 end

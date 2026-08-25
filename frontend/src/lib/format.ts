@@ -81,6 +81,24 @@ const ROTULOS: Record<string, string> = {
   active: "Ativa",
   inactive: "Inativa",
   error: "Com erro",
+
+  // Tipos de lançamento do razão. Antes a tela mostrava o valor cru do banco
+  // com `humanize` — "Refund", "Settlement" —, que é o nome que o programador
+  // deu, em inglês, e não o que aconteceu com o dinheiro.
+  sale: "Venda",
+  refund: "Estorno",
+  fee: "Tarifa",
+  settlement: "Repasse para o banco",
+  chargeback: "Contestação",
+  dispute: "Disputa",
+  transfer: "Transferência",
+  payment: "Pagamento",
+  adjustment: "Ajuste",
+  future_receivable: "A receber",
+  unidentified: "Não identificado",
+  settled: "Liquidado",
+  reconciled: "Conciliado",
+  cancelled: "Cancelado",
 }
 
 export function rotulo(chave: string | null | undefined): string {
