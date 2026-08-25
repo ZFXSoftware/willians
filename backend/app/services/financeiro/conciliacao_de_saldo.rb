@@ -127,8 +127,12 @@ module Financeiro
       return leitura(:sem_dados) if saldo.blank?
 
       { saldo: saldo }
-    rescue Marketplace::Providers::AindaNaoPronto => e
+    rescue Marketplace::AindaNaoPronto => e
       leitura(:relatorio_em_geracao, e.message)
+    rescue Marketplace::CredencialRecusada => e
+      leitura(:token_recusado, e.message)
+    rescue Marketplace::LimiteDeRequisicoes => e
+      leitura(:limite_de_requisicoes, e.message)
     rescue NotImplementedError
       leitura(:sem_suporte)
     rescue StandardError => e
@@ -162,12 +166,20 @@ module Financeiro
                       "Nada a fazer — a conciliação de títulos continua valendo.",
       nao_conectada: "%{plataforma} não está conectada: falta autorizar o acesso pelo OAuth " \
                      "em Integrações.",
+      token_recusado: "%{plataforma} recusou a credencial da conta. Reconecte-a em " \
+                      "Integrações — o acesso pode ter vencido, sido revogado do lado " \
+                      "deles, ou não incluir permissão de leitura financeira.",
+      limite_de_requisicoes: "%{plataforma} limitou as requisições por excesso de consultas. " \
+                             "Não é erro — tente de novo em alguns minutos.",
       relatorio_em_geracao: "%{plataforma} ainda está gerando o relatório do período. " \
                             "Não é erro — tente de novo em alguns minutos.",
       sem_suporte: "%{plataforma} não expõe saldo de conta. " \
                    "Nada a fazer — a conciliação de títulos continua valendo.",
       sem_dados: "%{plataforma} respondeu, mas não trouxe saldo no período consultado.",
-      erro: "Não foi possível ler o saldo em %{plataforma}.",
+      # A causa crua não vem para a tela (pode carregar token), mas deixar o
+      # usuário sem saber onde procurar é abandoná-lo com o problema.
+      erro: "Não foi possível ler o saldo em %{plataforma}. " \
+            "A causa ficou registrada no log do servidor.",
       sem_valor_comparavel: "%{plataforma} respondeu, mas sem um valor comparável ao nosso saldo."
     }.freeze
 
@@ -276,7 +288,9 @@ module Financeiro
 
     # Nem todo motivo é problema. Quem lê o log filtrando por warn não deveria
     # ser incomodado por "o relatório ainda está sendo gerado".
-    SEM_PROVIDENCIA = %i[sem_integracao sem_suporte relatorio_em_geracao].freeze
+    SEM_PROVIDENCIA = %i[
+      sem_integracao sem_suporte relatorio_em_geracao limite_de_requisicoes
+    ].freeze
 
     def registrar(conta, motivo, mensagem, detalhe)
       texto = "[ConciliacaoDeSaldo] conta ##{conta.id} (#{conta.platform}) " \

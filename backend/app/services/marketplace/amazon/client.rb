@@ -24,9 +24,13 @@ module Marketplace
 
       class Error < StandardError; end
 
-      class AuthError < Error; end
+      class AuthError < Error
+        include Marketplace::CredencialRecusada
+      end
 
-      class RateLimited < Error; end
+      class RateLimited < Error
+        include Marketplace::LimiteDeRequisicoes
+      end
 
       class ApiError < Error
         attr_reader :code

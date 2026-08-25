@@ -37,6 +37,7 @@ const SEM_PROVIDENCIA: MotivoSemEspelho[] = [
   "sem_integracao",
   "sem_suporte",
   "relatorio_em_geracao",
+  "limite_de_requisicoes",
 ]
 
 export default function Balances() {

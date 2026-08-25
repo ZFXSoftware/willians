@@ -44,6 +44,8 @@ module Marketplace
 
       class AuthError < Error
         include Marketplace::TokenRefreshRejected
+
+        include Marketplace::CredencialRecusada
       end
 
       class ApiError < Error

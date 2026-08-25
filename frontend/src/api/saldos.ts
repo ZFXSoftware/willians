@@ -38,6 +38,8 @@ export interface SaldosResponse {
 export type MotivoSemEspelho =
   | "sem_integracao"
   | "nao_conectada"
+  | "token_recusado"
+  | "limite_de_requisicoes"
   | "relatorio_em_geracao"
   | "sem_suporte"
   | "sem_dados"

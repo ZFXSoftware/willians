@@ -230,6 +230,57 @@ module Financeiro
       assert_includes detalhe[:mensagem], "Não é erro"
     end
 
+    test "credencial recusada manda reconectar, e não some como erro genérico" do
+      com_saldo_interno(500)
+
+      recusa = lambda do |start_date:, end_date:|
+        raise Marketplace::MercadoLivre::ReleasesClient::AuthError, "token inválido"
+      end
+
+      resultado = com_metodo(Marketplace::Providers::MercadoLivreProvider, :account_balance, recusa) do
+        com_metodo(Marketplace::Providers::MercadoLivreProvider.singleton_class, :configured?, ->(_c) { true }) do
+          ConciliacaoDeSaldo.new(tenant: @tenant).call
+        end
+      end
+
+      detalhe = resultado[:detalhes].first
+
+      assert_equal :token_recusado, detalhe[:motivo]
+      assert_includes detalhe[:mensagem], "Reconecte"
+    end
+
+    test "corte por excesso de requisições não vira pendência do usuário" do
+      com_saldo_interno(500)
+
+      cortado = lambda do |start_date:, end_date:|
+        raise Marketplace::MercadoLivre::ReleasesClient::RateLimited, "429"
+      end
+
+      resultado = com_metodo(Marketplace::Providers::MercadoLivreProvider, :account_balance, cortado) do
+        com_metodo(Marketplace::Providers::MercadoLivreProvider.singleton_class, :configured?, ->(_c) { true }) do
+          ConciliacaoDeSaldo.new(tenant: @tenant).call
+        end
+      end
+
+      assert_equal :limite_de_requisicoes, resultado[:detalhes].first[:motivo]
+    end
+
+    # O texto cru da plataforma pode trazer URL ou cabeçalho com token dentro.
+    # Ele fica no log; a tela recebe só vocabulário nosso.
+    test "detalhe do erro da plataforma não vaza para a resposta" do
+      com_saldo_interno(500)
+
+      explode = ->(start_date:, end_date:) { raise "Bearer APP_USR-123-segredo vazando" }
+
+      resultado = com_metodo(Marketplace::Providers::MercadoLivreProvider, :account_balance, explode) do
+        com_metodo(Marketplace::Providers::MercadoLivreProvider.singleton_class, :configured?, ->(_c) { true }) do
+          ConciliacaoDeSaldo.new(tenant: @tenant).call
+        end
+      end
+
+      assert_not_includes resultado.to_json, "APP_USR-123-segredo"
+    end
+
     test "plataforma sem integração de saldo não vira pendência do usuário" do
       conta = criar_conta(tenant: @tenant, plataforma: "magalu")
 
