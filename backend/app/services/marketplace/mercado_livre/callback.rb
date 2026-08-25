@@ -93,7 +93,11 @@ module Marketplace
 
           refresh_failed_at: nil,
 
-          refresh_error: nil,
+          # Autorização sem acesso offline não devolve token de renovação: o
+          # acesso dura 6 horas e acaba. Gravar isso AGORA é o que faz a tela
+          # avisar hoje, em vez de a conta simplesmente parar de sincronizar
+          # amanhã com uma mensagem crua da plataforma.
+          refresh_error: aviso_de_acesso_offline(tokens),
 
           metadata: credential.metadata.merge(
             "authorized_by_user_id" => oauth_state.user_id,
@@ -104,6 +108,19 @@ module Marketplace
         credential.save!
 
         credential
+      end
+
+      def aviso_de_acesso_offline(tokens)
+        return if tokens[:refresh_token].present?
+
+        Rails.logger.warn(
+          "[MercadoLivre] conta #{tokens[:user_id]} autorizada SEM refresh_token: " \
+          "o aplicativo está sem acesso offline no painel do Mercado Livre."
+        )
+
+        "Conectada sem acesso offline: o Mercado Livre não devolveu token de renovação, " \
+        "e este acesso expira em poucas horas. Ligue o acesso offline do aplicativo no " \
+        "painel do Mercado Livre e conecte a conta de novo."
       end
 
       def expires_at_for(tokens)

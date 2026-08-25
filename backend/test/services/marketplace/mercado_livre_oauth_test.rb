@@ -212,6 +212,33 @@ module Marketplace
       assert Providers::BaseProvider.configured?(credencial.platform_account)
     end
 
+    # Sem esta checagem o pedido de renovação ia sem o parâmetro, e a
+    # plataforma devolvia a reclamação dela na cara do usuário: "Missing
+    # parameters: refresh_token". Isso não diz o que fazer e parece defeito de
+    # código — a causa é a autorização ter sido concedida sem acesso offline.
+    test "credencial sem refresh_token não tenta renovar, e diz o que fazer" do
+      credencial = conectar
+      credencial.update_columns(expires_at: 1.minute.from_now)
+      credencial.update!(refresh_token: nil)
+
+      nunca_chamado = Class.new do
+        def refresh(refresh_token:)
+          raise "não devia ter chegado aqui: sem refresh_token não há o que renovar"
+        end
+      end
+
+      erro = assert_raises(Credentials::TokenProvider::NeedsReauthorization) do
+        Credentials::TokenProvider.new(
+          platform_account: credencial.platform_account, client: nunca_chamado.new
+        ).access_token
+      end
+
+      assert_includes erro.message, "acesso offline"
+
+      # Definitiva: retentar de hora em hora só adiaria a única providência.
+      assert_equal "expired", credencial.reload.status
+    end
+
     # A classe certa depende do que a plataforma respondeu, e é o parse que
     # decide: sem isso, `invalid_grant` viraria erro passageiro e a conta
     # morta ficaria tentando renovar de hora em hora para sempre.

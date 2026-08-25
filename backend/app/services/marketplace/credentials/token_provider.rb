@@ -101,6 +101,8 @@ module Marketplace
       end
 
       def perform_refresh!(credential)
+        exigir_refresh_token!(credential)
+
         tokens = oauth_client.refresh(refresh_token: credential.refresh_token)
 
         credential.update!(
@@ -119,6 +121,28 @@ module Marketplace
 
           refresh_error: nil
         )
+      end
+
+      # Sem refresh_token não há renovação possível, e mandar a requisição
+      # assim faz a plataforma devolver a própria reclamação dela na cara do
+      # usuário: "Missing parameters: refresh_token". Isso não diz o que fazer,
+      # e parece defeito de código.
+      #
+      # A causa costuma ser uma só: a autorização foi concedida sem acesso
+      # OFFLINE. O Mercado Livre só devolve refresh_token quando o aplicativo
+      # tem essa opção ligada no painel dele — sem ela o acesso dura 6 horas e
+      # acaba, e não há o que renovar.
+      #
+      # É recusa definitiva de propósito: nenhuma tentativa futura vai
+      # funcionar, e insistir de hora em hora só empurraria o problema.
+      def exigir_refresh_token!(credential)
+        return if credential.refresh_token.present?
+
+        raise Marketplace::SemRefreshToken,
+              "A conta #{platform_account.platform} foi conectada sem acesso offline, " \
+              "então não veio um token de renovação e o acesso expira em poucas horas. " \
+              "No painel do #{platform_account.platform}, ligue o acesso offline do " \
+              "aplicativo e conecte a conta de novo em Integrações."
       end
 
       # Refresh recusado é definitivo: o lojista precisa autorizar de novo.
