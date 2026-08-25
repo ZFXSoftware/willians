@@ -352,6 +352,11 @@ module Marketplace
           currency: linha["CURRENCY"].to_s.strip.presence || "BRL",
           occurred_at: ocorrido,
           available_on: ocorrido&.to_date,
+          # Este relatório é o de LIBERAÇÕES: cada linha é dinheiro que já
+          # afetou o saldo. Não há nada pendente aqui — pendente é o que ainda
+          # vai cair, e isso vive em receivable_units, não no razão.
+          status: :settled,
+          settled_at: ocorrido,
           external_order_id: com_pedido ? pedido : nil,
           description: linha["DESCRIPTION"].to_s.strip.presence,
           metadata: {

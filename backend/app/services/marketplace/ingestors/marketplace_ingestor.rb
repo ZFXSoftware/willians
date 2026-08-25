@@ -208,7 +208,14 @@ module Marketplace
 
           raw_payload: event[:raw_payload],
 
-          status: :pending
+          # Quem sabe se o dinheiro já se moveu é o provider, não o ingestor.
+          # Gravar :pending para tudo zerava o saldo virtual da tela: o
+          # BalanceEngine só soma lançamentos `settled`, então o extrato de
+          # dinheiro JÁ LIBERADO do Mercado Pago entrava como se nada tivesse
+          # caído. `pending` continua o padrão de quem não se pronuncia.
+          status: event[:status] || :pending,
+
+          settled_at: event[:settled_at]
         )
 
         summary[:created] += 1

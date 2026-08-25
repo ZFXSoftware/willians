@@ -185,6 +185,16 @@ module Marketplace
       assert_raises(ML::ReleaseEvents::ValorIlegivel) { reais(quebrado).call }
     end
 
+    # O BalanceEngine só soma lançamentos `settled`. Gravando tudo como
+    # pendente, o extrato de dinheiro JÁ LIBERADO entrava como se nada tivesse
+    # caído — e o saldo virtual da tela ficava zerado.
+    test "liberação já ocorrida entra como liquidada, não como pendente" do
+      reais.call.each do |evento|
+        assert_equal :settled, evento[:status], "#{evento[:entry_type]} não devia estar pendente"
+        assert_not_nil evento[:settled_at]
+      end
+    end
+
     test "PURCHASE_ID serve de pedido quando não há ORDER_ID" do
       venda = reais.call.find { |e| e[:entry_type] == :sale }
 

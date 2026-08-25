@@ -58,5 +58,63 @@ module Marketplace
 
       assert_equal 0, resumo[:received].to_i
     end
+
+    # ------------------------------------------------------- o que o razão grava
+
+    def eventos_de_teste(extras = {})
+      [ {
+        external_id: "MLREL-1-SALE", source: :mercado_livre, entry_type: :sale,
+        direction: :credit, amount: BigDecimal("150"), occurred_at: 1.day.ago,
+        external_order_id: "2000000111"
+      }.merge(extras) ]
+    end
+
+    def ingerir_eventos(extras = {})
+      # Precisa da credencial: sem ela o ingestor escolhe o provider de
+      # simulação e o dublê abaixo nem chega a ser chamado.
+      MarketplaceCredential.find_or_create_by!(platform_account: @conta) do |c|
+        c.tenant = @tenant
+        c.platform = "mercado_livre"
+        c.access_token = "AT-teste"
+        c.status = :connected
+        c.expires_at = 5.hours.from_now
+      end
+
+      # Resolvido FORA do lambda: `com_metodo` o instala como método de
+      # instância do provider, então lá dentro `self` já não é o teste.
+      eventos = eventos_de_teste(extras)
+
+      com_metodo(Providers::MercadoLivreProvider, :financial_events,
+                 ->(start_date:, end_date:) { eventos }) do
+        com_env("MARKETPLACE_SIMULATION" => "false") { ingerir(@conta) }
+      end
+    end
+
+    # O ingestor gravava :pending para TUDO, ignorando o que o provider dizia.
+    # O BalanceEngine só soma `settled`, então o extrato de dinheiro já
+    # liberado do Mercado Pago deixava o saldo virtual zerado.
+    test "o status vem do provider, e não fixo no ingestor" do
+      ingerir_eventos(status: :settled, settled_at: 1.day.ago)
+
+      lancamento = FinancialEntry.find_by(external_id: "MLREL-1-SALE")
+
+      assert_equal "settled", lancamento.status
+      assert_not_nil lancamento.settled_at
+    end
+
+    test "provider que não se pronuncia continua caindo em pendente" do
+      ingerir_eventos
+
+      assert_equal "pending", FinancialEntry.find_by(external_id: "MLREL-1-SALE").status
+    end
+
+    test "o pedido do marketplace é criado e amarrado ao lançamento" do
+      ingerir_eventos
+
+      lancamento = FinancialEntry.find_by(external_id: "MLREL-1-SALE")
+
+      assert_not_nil lancamento.order, "sem o vínculo não há como chegar na NF do Tiny"
+      assert_equal "2000000111", lancamento.order.external_id
+    end
   end
 end
