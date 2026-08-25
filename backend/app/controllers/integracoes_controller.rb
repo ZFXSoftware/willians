@@ -46,6 +46,10 @@ class IntegracoesController < ApplicationController
       # nunca ter sincronizado.
       ultima_sincronizacao: conta.last_synced_at,
       ultimo_lancamento: sincronizado_em,
+      # "ok", "pendente" ou "falha". Sem isto a tela só sabia ler a ausência de
+      # erro como sucesso, e anunciava importação concluída para uma importação
+      # que o marketplace ainda estava preparando.
+      status_sincronizacao: conta.last_sync_status,
       erro_de_sincronizacao: conta.last_sync_error,
       lancamentos: total_lancamentos,
       precisa_atencao: precisa_atencao?(conta)
@@ -55,7 +59,13 @@ class IntegracoesController < ApplicationController
   def precisa_atencao?(conta)
     return true unless conta.active?
 
-    return true if conta.last_sync_error.present?
+    # Pendente não pede nada de ninguém: é o marketplace preparando o dado.
+    # Marcá-la como "precisa de atenção" ensina o usuário a ignorar o aviso.
+    return true if conta.last_sync_status == "falha"
+
+    # Contas sincronizadas antes da coluna existir: ali, erro presente era a
+    # única forma de dizer "falhou".
+    return true if conta.last_sync_status.blank? && conta.last_sync_error.present?
 
     credencial = conta.marketplace_credential
 

@@ -49,6 +49,12 @@ module Marketplace
 
       private
 
+      # ReportPending sobe daqui de propósito.
+      #
+      # Antes era engolido e virava lista vazia, e o resultado chegava na tela
+      # como "importação concluída — 0 lançamento(s)". Sucesso com zero é
+      # indistinguível de "a conta não vendeu nada no período" — e as duas
+      # coisas pedem reações opostas: uma é esperar, a outra é seguir a vida.
       def liberacoes(start_date:, end_date:)
         csv = releases_client.csv_for(start_date: start_date, end_date: end_date)
 
@@ -59,12 +65,6 @@ module Marketplace
         @ignorados = leitor.ignorados
 
         eventos
-      rescue MercadoLivre::ReleasesClient::ReportPending => e
-        # Geração assíncrona: não é falha, é "ainda não". A próxima execução
-        # encontra o arquivo pronto, e nada foi perdido.
-        Rails.logger.info "[MercadoLivre] #{e.message}"
-
-        []
       end
 
       def faturamento(start_date:, end_date:)

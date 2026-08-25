@@ -52,6 +52,8 @@ module Marketplace
         contas: resultados.size,
         sincronizadas: resultados.count { |r| r[:status] == :ok },
         ignoradas: resultados.count { |r| r[:status] == :ignorada },
+        # Nem sincronizada nem falha: a plataforma ainda está preparando o dado.
+        pendentes: resultados.count { |r| r[:status] == :pendente },
         falhas: resultados.count { |r| r[:status] == :falha },
         recebidos: resultados.sum { |r| r[:recebidos].to_i },
         novos: resultados.sum { |r| r[:novos].to_i },
@@ -93,7 +95,7 @@ module Marketplace
 
       # A tentativa vale mesmo quando não trouxe nada: é o que impede o
       # agendador de tentar de novo daqui a cinco minutos.
-      conta.update_columns(last_synced_at: Time.current, last_sync_error: nil)
+      registrar(conta, :ok)
 
       log "conta ##{conta.id} (#{conta.platform}): #{resumo[:received].to_i} recebido(s), " \
           "#{resumo[:created].to_i} novo(s), #{resumo[:skipped].to_i} repetido(s), " \
@@ -110,6 +112,8 @@ module Marketplace
         # log se não subir até aqui, e "recebi 300, gravei 280" precisa aparecer.
         recusados: resumo[:failed].to_i
       }
+    rescue Marketplace::AindaNaoPronto => e
+      pendente(conta, e)
     rescue StandardError => e
       falha(conta, e)
     end
@@ -149,6 +153,26 @@ module Marketplace
       }
     end
 
+    # O marketplace ainda está preparando o dado. Não é sucesso — não trouxe
+    # nada — e não é falha: nada quebrou e nada se perdeu.
+    #
+    # Marca a tentativa como as outras (senão o agendador de 5 minutos manda
+    # gerar o mesmo relatório repetidamente), e deixa o motivo em
+    # `last_sync_error` para a tela mostrar. Quem não quiser esperar o próximo
+    # ciclo usa "Sincronizar agora", que ignora o intervalo.
+    def pendente(conta, erro)
+      log "conta ##{conta.id} (#{conta.platform}) aguardando a plataforma: #{erro.message}"
+
+      registrar(conta, :pendente, erro.message)
+
+      {
+        platform_account_id: conta.id,
+        platform: conta.platform,
+        status: :pendente,
+        motivo: erro.message
+      }
+    end
+
     def falha(conta, erro)
       mensagem = "#{erro.class}: #{erro.message}"
 
@@ -156,7 +180,7 @@ module Marketplace
 
       # Marca a tentativa junto com o erro: sem isso uma conta com credencial
       # quebrada seria retentada a cada cinco minutos, indefinidamente.
-      conta.update_columns(last_synced_at: Time.current, last_sync_error: mensagem.truncate(250))
+      registrar(conta, :falha, mensagem)
 
       {
         platform_account_id: conta.id,
@@ -164,6 +188,16 @@ module Marketplace
         status: :falha,
         erro: erro.message
       }
+    end
+
+    # Um único lugar grava o desfecho, para que status e mensagem nunca fiquem
+    # contando histórias diferentes.
+    def registrar(conta, status, mensagem = nil)
+      conta.update_columns(
+        last_synced_at: Time.current,
+        last_sync_status: status.to_s,
+        last_sync_error: mensagem&.truncate(250)
+      )
     end
 
     def log(mensagem) = Rails.logger.info("#{LOG_PREFIX} #{mensagem}")

@@ -150,6 +150,53 @@ module Marketplace
       assert_not_nil @conta.last_synced_at
     end
 
+    # ------------------------------------------- nem sucesso, nem falha
+
+    # O caso que produziu "importação concluída — 0 lançamento(s) no total"
+    # para uma importação que não aconteceu: o relatório do Mercado Pago é
+    # gerado de forma assíncrona, e a espera vinha virando lista vazia.
+    test "marketplace ainda preparando o dado não conta como sincronizada" do
+      conectar!
+
+      pendente = Marketplace::MercadoLivre::ReleasesClient::ReportPending.new("ainda gerando")
+
+      resumo = com_ingestor(resumo: pendente) { |_| sincronizar }
+
+      assert_equal 0, resumo[:sincronizadas]
+      assert_equal 0, resumo[:falhas]
+      assert_equal 1, resumo[:pendentes]
+      assert_equal :pendente, resumo[:detalhes].first[:status]
+    end
+
+    test "a espera fica gravada na conta, sem virar erro" do
+      conectar!
+
+      pendente = Marketplace::MercadoLivre::ReleasesClient::ReportPending.new("ainda gerando")
+
+      com_ingestor(resumo: pendente) { |_| sincronizar }
+
+      @conta.reload
+
+      assert_equal "pendente", @conta.last_sync_status
+      assert_match(/ainda gerando/, @conta.last_sync_error)
+
+      # Carimba a tentativa: o agendador roda de 5 em 5 minutos, e mandar
+      # gerar o mesmo relatório a cada volta é abuso da API do outro lado.
+      assert_not_nil @conta.last_synced_at
+    end
+
+    test "sucesso e falha também ficam marcados" do
+      conectar!
+
+      com_ingestor { |_| sincronizar }
+
+      assert_equal "ok", @conta.reload.last_sync_status
+
+      com_ingestor(resumo: RuntimeError.new("caiu")) { |_| sincronizar(forcar: true) }
+
+      assert_equal "falha", @conta.reload.last_sync_status
+    end
+
     test "o erro anterior some quando a sincronização volta a funcionar" do
       conectar!
 

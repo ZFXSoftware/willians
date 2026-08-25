@@ -157,7 +157,13 @@ module Marketplace
       end
     end
 
-    test "geração pendente não derruba a ingestão" do
+    # Este teste dizia o contrário: que a pendência virava lista vazia.
+    #
+    # Virava mesmo — e chegava na tela como "importação concluída — 0
+    # lançamento(s)", indistinguível de uma conta que não vendeu nada. Quem
+    # decide o que fazer com a espera é o SincronizacaoService, e para decidir
+    # ele precisa saber que ela aconteceu.
+    test "geração pendente sobe em vez de virar lista vazia" do
       pendente = ML::ReleasesClient::ReportPending.new("ainda gerando")
 
       provider = Providers::MercadoLivreProvider.allocate
@@ -168,8 +174,9 @@ module Marketplace
 
       provider.define_singleton_method(:ingerir_faturamento?) { false }
 
-      # Sem exceção e sem evento: a próxima execução encontra o arquivo pronto.
-      assert_empty provider.financial_events(start_date: DE, end_date: ATE)
+      assert_raises(ML::ReleasesClient::ReportPending) do
+        provider.financial_events(start_date: DE, end_date: ATE)
+      end
     end
   end
 end

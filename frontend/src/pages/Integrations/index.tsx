@@ -44,8 +44,41 @@ const ESPERA_MAXIMA = 48 // 4 minutos: o relatório do Mercado Pago pode demorar
 const dorme = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 interface Nota {
-  tipo: "ok" | "erro"
+  // "espera" é o marketplace ainda preparando o dado: nada quebrou e nada
+  // chegou. Pintar de verde seria mentir; de vermelho, assustar à toa.
+  tipo: "ok" | "espera" | "erro"
   texto: string
+}
+
+const CORES_DA_NOTA: Record<Nota["tipo"], string> = {
+  ok: "bg-emerald-500/10 border-emerald-500/20 text-emerald-300",
+  espera: "bg-sky-500/10 border-sky-500/20 text-sky-300",
+  erro: "bg-red-500/10 border-red-500/20 text-red-300",
+}
+
+// Três desfechos, três frases.
+//
+// Antes eram dois — erro, ou sucesso —, e "o Mercado Livre ainda está gerando
+// o relatório" caía no ramo do sucesso: "importação concluída — 0
+// lançamento(s) no total", para uma importação que não aconteceu.
+function notaDaSincronizacao(nome: string, conta: Integracao): Nota {
+  if (conta.status_sincronizacao === "pendente") {
+    return {
+      tipo: "espera",
+      texto:
+        `${nome}: o marketplace ainda está preparando os dados do período. ` +
+        "Nada falhou — tente de novo em alguns minutos.",
+    }
+  }
+
+  if (conta.erro_de_sincronizacao) {
+    return { tipo: "erro", texto: `${nome}: ${conta.erro_de_sincronizacao}` }
+  }
+
+  return {
+    tipo: "ok",
+    texto: `${nome}: importação concluída — ${conta.lancamentos} lançamento(s) no total.`,
+  }
 }
 
 export default function Integrations() {
@@ -176,14 +209,7 @@ export default function Integrations() {
       setImportando(null)
       reload()
 
-      setNota(
-        atual.erro_de_sincronizacao
-          ? { tipo: "erro", texto: `${conta.nome}: ${atual.erro_de_sincronizacao}` }
-          : {
-              tipo: "ok",
-              texto: `${conta.nome}: importação concluída — ${atual.lancamentos} lançamento(s) no total.`,
-            },
-      )
+      setNota(notaDaSincronizacao(conta.nome, atual))
 
       return
     }
@@ -243,11 +269,7 @@ export default function Integrations() {
 
       {nota && (
         <div
-          className={`rounded-2xl px-5 py-4 text-sm flex items-center justify-between gap-4 border ${
-            nota.tipo === "ok"
-              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
-              : "bg-red-500/10 border-red-500/20 text-red-300"
-          }`}
+          className={`rounded-2xl px-5 py-4 text-sm flex items-center justify-between gap-4 border ${CORES_DA_NOTA[nota.tipo]}`}
         >
           <span>{nota.texto}</span>
           <button onClick={() => setNota(null)} className="text-zinc-400 hover:text-white shrink-0">

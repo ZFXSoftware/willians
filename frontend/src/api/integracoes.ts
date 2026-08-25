@@ -18,6 +18,9 @@ export interface Integracao {
   credencial: Credencial | null
   ultima_sincronizacao: string | null
   ultimo_lancamento: string | null
+  // "pendente" é o marketplace ainda preparando o dado — nem sucesso nem
+  // falha. Nulo nas contas sincronizadas antes da coluna existir.
+  status_sincronizacao: "ok" | "pendente" | "falha" | null
   erro_de_sincronizacao: string | null
   lancamentos: number
   precisa_atencao: boolean

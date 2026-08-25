@@ -113,7 +113,11 @@ def imprimir_conta(conta)
 
   linha_conta "pronta para sincronizar:", pronta_para_sincronizar(conta)
   linha_conta "última sincronização:", quando(conta.last_synced_at)
-  linha_conta "último erro:", conta.last_sync_error if conta.last_sync_error.present?
+
+  # "pendente" é o marketplace ainda preparando o dado: nem sucesso nem falha.
+  linha_conta "desfecho:", conta.last_sync_status if conta.last_sync_status.present?
+
+  linha_conta "mensagem:", conta.last_sync_error if conta.last_sync_error.present?
 
   imprimir_volumes(conta)
 end
