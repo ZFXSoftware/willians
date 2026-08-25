@@ -13,10 +13,12 @@ module Fiscal
         /denegad/i => :denied
       }.freeze
 
-      def initialize(tenant:, reader: nil)
+      def initialize(tenant:, reader: nil, platform_account: nil)
         @tenant = tenant
 
         @reader = reader || Reader.new
+
+        @platform_account = platform_account
 
         @resumo = Hash.new(0)
       end
@@ -56,10 +58,73 @@ module Fiscal
 
         return {} if refs.empty?
 
+        criar_pedidos_faltantes!(refs)
+
         Order
           .where(tenant_id: tenant.id, external_id: refs)
           .pluck(:external_id, :id)
           .to_h
+      end
+
+      # A NF é a única fonte que tem o número do PEDIDO do marketplace.
+      #
+      # O relatório de liberações do Mercado Livre não traz esse número, então
+      # esperar que o pedido já exista significava descartar tudo: com o razão
+      # vindo só do extrato, nenhuma nota encontraria pedido e o sync contaria
+      # 4027 vezes `sem_pedido`. Criar o pedido a partir da nota é o que dá
+      # início à corrente pedido -> NF -> título.
+      #
+      # O pedido nasce só com o número; o conteúdo (comprador, valor, datas)
+      # vem depois, do marketplace.
+      def criar_pedidos_faltantes!(refs)
+        conta = conta_da_nota
+
+        return resumo[:sem_plataforma] += refs.size if conta.blank?
+
+        conhecidos = Order.where(tenant_id: tenant.id, external_id: refs).pluck(:external_id).to_set
+
+        faltando = refs.reject { |ref| conhecidos.include?(ref) }
+
+        return if faltando.empty?
+
+        agora = Time.current
+
+        Order.insert_all(
+          faltando.map do |ref|
+            {
+              tenant_id: tenant.id,
+              platform_account_id: conta.id,
+              platform: conta.platform,
+              external_id: ref,
+              status: "pending",
+              currency: "BRL",
+              metadata: { "origem" => "tiny_invoice_sync" },
+              created_at: agora,
+              updated_at: agora
+            }
+          end,
+          unique_by: :idx_orders_unique
+        )
+
+        resumo[:pedidos_criados] += faltando.size
+      end
+
+      # A nota do Tiny não diz de qual marketplace ela é. Com uma conta só na
+      # empresa, não há ambiguidade. Com várias, atribuir seria chute — e um
+      # pedido no marketplace errado estragaria a conciliação daquela conta.
+      def conta_da_nota
+        return @platform_account if @platform_account
+
+        contas = tenant.platform_accounts.where(status: :active).to_a
+
+        return contas.first if contas.one?
+
+        Rails.logger.warn(
+          "[InvoiceSync] empresa ##{tenant.id} tem #{contas.size} contas de marketplace ativas; " \
+          "não dá para saber de qual marketplace é a nota. Informe platform_account."
+        )
+
+        nil
       end
 
       def processar(nota, pedidos)

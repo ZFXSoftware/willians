@@ -166,8 +166,10 @@ module Fiscal
       resumo = sincronizar(tenant)
 
       assert_equal 3, resumo[:lidas]
-      assert_equal 1, resumo[:criadas]
-      assert_equal 1, resumo[:sem_pedido], "PED-SEM-PEDIDO não existe aqui"
+      # Duas: a do pedido que já existia e a do PED-SEM-PEDIDO, cujo pedido
+      # passa a ser criado a partir da própria nota (ver o teste abaixo).
+      assert_equal 2, resumo[:criadas]
+      assert_equal 0, resumo[:sem_pedido]
       assert_equal 1, resumo[:sem_referencia], "nota sem numero_ecommerce"
 
       nota = Invoice.find_by(tenant: tenant, number: "251372")
@@ -179,6 +181,42 @@ module Fiscal
       assert_equal nota.id, recebivel.reload.invoice_id
     end
 
+    # A NF é a única fonte que tem o número do PEDIDO do marketplace: o
+    # relatório de liberações do Mercado Livre não traz.
+    #
+    # Exigir que o pedido já existisse fazia o sync descartar tudo — com o
+    # razão vindo só do extrato, nenhuma das 4027 notas do cliente encontraria
+    # pedido, e a corrente pedido -> NF -> título nunca começava.
+    test "pedido que não existe é criado a partir da própria nota" do
+      tenant = criar_tenant
+      conta = criar_conta(tenant: tenant)
+
+      resumo = sincronizar(tenant)
+
+      assert_equal 2, resumo[:pedidos_criados]
+
+      pedido = Order.find_by(tenant: tenant, external_id: "PED-SEM-PEDIDO")
+
+      assert_not_nil pedido
+      assert_equal conta.id, pedido.platform_account_id
+      assert_equal "tiny_invoice_sync", pedido.metadata["origem"]
+      assert_equal pedido.id, Invoice.find_by(tenant: tenant, order_id: pedido.id)&.order_id
+    end
+
+    # Atribuir a nota ao marketplace errado estragaria a conciliação daquela
+    # conta, e a nota do Tiny não diz de qual marketplace ela é.
+    test "com mais de um marketplace na empresa, não chuta o pedido" do
+      tenant = criar_tenant
+      criar_conta(tenant: tenant, plataforma: "mercado_livre")
+      criar_conta(tenant: tenant, plataforma: "shopee")
+
+      resumo = sincronizar(tenant)
+
+      assert_equal 0, resumo[:pedidos_criados]
+      assert_operator resumo[:sem_plataforma].to_i, :>, 0
+      assert_equal 0, Order.where(tenant: tenant).count
+    end
+
     test "reprocessar atualiza em vez de duplicar" do
       tenant = criar_tenant
       conta = criar_conta(tenant: tenant)
@@ -188,8 +226,11 @@ module Fiscal
       segundo = sincronizar(tenant)
 
       assert_equal 0, segundo[:criadas]
-      assert_equal 1, segundo[:atualizadas]
-      assert_equal 1, Invoice.where(tenant: tenant).count
+      # Duas notas com pedido: a do pedido criado à mão e a do pedido que o
+      # próprio sync criou a partir da nota.
+      assert_equal 2, segundo[:atualizadas]
+      assert_equal 2, Invoice.where(tenant: tenant).count
+      assert_equal 0, segundo[:pedidos_criados], "o pedido da primeira rodada já existe"
     end
 
     test "nota de devolução é lida como entrada e não rouba o vínculo da venda" do

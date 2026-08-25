@@ -1,4 +1,49 @@
 namespace :tiny do
+  desc "Importa as notas fiscais do Tiny para o nosso banco (não toca no OMIE)"
+  task importar: :environment do
+    # O InvoiceSync existia e ninguém o chamava — quarta peça do sistema com
+    # esse problema. Sem ele a tabela `invoices` fica vazia, e é ela que
+    # carrega o número da NF, que é a chave de casamento com o título do OMIE.
+    #
+    # Escreve SÓ no nosso banco. Nada é enviado ao OMIE aqui.
+    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
+             Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
+
+    abort "Nenhuma empresa com token do Tiny. Use TENANT=<id>." if tenant.blank?
+
+    dias = (ENV["DIAS"] || 30).to_i
+
+    fim = Date.current
+    inicio = fim - dias
+
+    puts
+    puts "Empresa: ##{tenant.id} #{tenant.name}"
+    puts "Janela: #{inicio} a #{fim}"
+    puts "Isto escreve apenas no banco do Willians. O OMIE não é tocado."
+    puts
+
+    resumo = Fiscal::Tiny::InvoiceSync
+               .new(tenant: tenant)
+               .call(start_date: inicio, end_date: fim)
+
+    puts "Notas lidas do Tiny:      #{resumo[:lidas]}"
+    puts "Pedidos criados:          #{resumo[:pedidos_criados]}"
+    puts "Notas criadas:            #{resumo[:criadas]}"
+    puts "Notas atualizadas:        #{resumo[:atualizadas]}"
+    puts "Lançamentos vinculados:   #{resumo[:vinculados]}"
+    puts
+
+    %i[sem_referencia sem_numero sem_pedido sem_plataforma].each do |motivo|
+      next if resumo[motivo].to_i.zero?
+
+      puts format("  ignoradas por %-16s %d", motivo, resumo[motivo])
+    end
+
+    puts
+    puts "Total de notas no banco agora: #{Invoice.where(tenant_id: tenant.id).count}"
+  end
+
+
   desc "Testa a conexão com o Tiny e mede o elo pedido -> NF (SOMENTE LEITURA)"
   task check: :environment do
     # As chaves do Tiny e do OMIE ficam por EMPRESA (tela de Configurações), e
