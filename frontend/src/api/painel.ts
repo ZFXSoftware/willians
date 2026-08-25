@@ -11,6 +11,10 @@ export interface Movimentacao {
   // e a nota no Tiny. Nem todo lançamento tem: um repasse para o banco não é
   // de nenhum pedido em particular.
   pedido: string | null
+  // Id do pagamento no Mercado Pago. Não é o pedido, mas é o único
+  // identificador que o relatório de liberações traz — e é por ele que se acha
+  // o lançamento no extrato.
+  pagamento: string | null
   // Nosso identificador interno. Serve para suporte, não para leitura.
   referencia: string
   status: string

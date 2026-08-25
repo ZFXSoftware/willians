@@ -36,5 +36,17 @@ module Painel
 
       assert_nil primeira[:pedido]
     end
+
+    # O relatório de liberações do ML não traz o número do pedido — PURCHASE_ID
+    # vem vazio em todas as linhas. Sobra o id do pagamento no Mercado Pago:
+    # não é o pedido, mas é por ele que a pessoa acha a linha no extrato.
+    test "sem pedido, o id do pagamento ainda identifica o lançamento" do
+      lancamento = criar_lancamento(tenant: @tenant, conta: @conta, tipo: :sale)
+
+      lancamento.update!(metadata: { "source_id" => "PAY-123" })
+
+      assert_nil primeira[:pedido]
+      assert_equal "PAY-123", primeira[:pagamento]
+    end
   end
 end

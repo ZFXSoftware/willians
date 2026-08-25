@@ -99,7 +99,11 @@ export default function Dashboard() {
                         className="block text-xs text-zinc-500 mt-0.5"
                         title={m.referencia}
                       >
-                        {m.pedido ? `Pedido ${m.pedido}` : "Sem pedido associado"}
+                        {m.pedido
+                          ? `Pedido ${m.pedido}`
+                          : m.pagamento
+                            ? `Pagamento ${m.pagamento}`
+                            : "Sem identificação da plataforma"}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-zinc-300">

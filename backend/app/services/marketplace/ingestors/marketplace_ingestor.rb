@@ -208,6 +208,13 @@ module Marketplace
 
           raw_payload: event[:raw_payload],
 
+          # O provider monta isto e ninguém gravava. No relatório de liberações
+          # do Mercado Livre é onde vive o SOURCE_ID — o id do pagamento no
+          # Mercado Pago —, e ele é o ÚNICO identificador que aquele arquivo
+          # traz: PURCHASE_ID vem vazio em todas as linhas. Sem gravar, o
+          # único fio até o pedido e à nota fiscal se perdia na importação.
+          metadata: event[:metadata] || {},
+
           # Quem sabe se o dinheiro já se moveu é o provider, não o ingestor.
           # Gravar :pending para tudo zerava o saldo virtual da tela: o
           # BalanceEngine só soma lançamentos `settled`, então o extrato de

@@ -97,6 +97,7 @@ module Painel
             direcao: entry.direction,
             tipo: entry.entry_type,
             pedido: pedido_de(entry),
+            pagamento: pagamento_de(entry),
             referencia: entry.external_id,
             status: entry.status
           }
@@ -108,6 +109,15 @@ module Painel
     # e não diz nada a ninguém.
     def pedido_de(entry)
       entry.order&.external_id.presence || entry.external_reference.presence
+    end
+
+    # O relatório de liberações do Mercado Livre não traz o número do pedido:
+    # PURCHASE_ID vem vazio em todas as linhas, e o único identificador é o
+    # SOURCE_ID, o id do pagamento no Mercado Pago. Não é o pedido, mas é por
+    # ele que a pessoa acha o lançamento no extrato — melhor do que "sem
+    # pedido associado" e ponto final.
+    def pagamento_de(entry)
+      entry.metadata.is_a?(Hash) ? entry.metadata["source_id"].presence : nil
     end
   end
 end
