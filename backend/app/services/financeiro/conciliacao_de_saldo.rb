@@ -175,7 +175,13 @@ module Financeiro
                             "Não é erro — tente de novo em alguns minutos.",
       sem_suporte: "%{plataforma} não expõe saldo de conta. " \
                    "Nada a fazer — a conciliação de títulos continua valendo.",
-      sem_dados: "%{plataforma} respondeu, mas não trouxe saldo no período consultado.",
+      # "Não trouxe saldo" era lido como "não houve movimento", e não é isso:
+      # o saldo vem de linhas de RESUMO do relatório, que são registros à parte
+      # da movimentação. Dá para ter vendido o dia inteiro e o relatório não
+      # trazer nenhuma linha de saldo.
+      sem_dados: "%{plataforma} respondeu, mas o relatório do período não traz as linhas de " \
+                 "saldo (anterior, disponível e total). Isso é independente de ter havido " \
+                 "movimentação: os lançamentos entram na conciliação normalmente.",
       # A causa crua não vem para a tela (pode carregar token), mas deixar o
       # usuário sem saber onde procurar é abandoná-lo com o problema.
       erro: "Não foi possível ler o saldo em %{plataforma}. " \

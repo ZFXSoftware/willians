@@ -67,6 +67,10 @@ module Marketplace
         @lidas = 0
 
         @colunas = []
+
+        # TODOS os tipos vistos, e não só os desconhecidos. É o que responde
+        # "o relatório tem movimentação mas não tem saldo?" sem abrir o CSV.
+        @tipos = Hash.new(0)
       end
 
       def call
@@ -78,14 +82,20 @@ module Marketplace
 
         eventos = tabela.flat_map { |linha| eventos_de(linha) }.compact
 
-        avisar_se_mudo(eventos)
+        relatar(eventos)
 
         eventos
       end
 
       # O que o leitor viu, para quem precisa explicar um resultado vazio.
       def diagnostico
-        { linhas: @lidas, colunas: @colunas, ignorados: ignorados.dup }
+        {
+          linhas: @lidas,
+          colunas: @colunas,
+          tipos: @tipos.dup,
+          ignorados: ignorados.dup,
+          saldos: @saldos.keys
+        }
       end
 
       # As linhas de resumo do relatório são o saldo que a PLATAFORMA declara.
@@ -107,12 +117,30 @@ module Marketplace
 
       attr_reader :csv
 
+      # Toda leitura deixa registrado o que o relatório tinha DENTRO.
+      #
+      # A contagem por tipo é o que responde "tem movimentação mas não tem
+      # saldo?" — a pergunta que aparece quando a conta claramente vendeu e a
+      # conferência de saldo diz que não veio nada. Saldo vem das linhas de
+      # resumo, que são registros à parte da movimentação; ter uma não implica
+      # ter a outra.
+      def relatar(eventos)
+        return if @lidas.zero?
+
+        Rails.logger.info(
+          "[ReleaseEvents] #{@lidas} linha(s): #{eventos.size} lançamento(s), " \
+          "saldos #{@saldos.any? ? @saldos.keys.join('/') : 'AUSENTES'}. " \
+          "Tipos: #{@tipos.inspect}"
+        )
+
+        avisar_se_mudo(eventos)
+      end
+
       # Relatório com linhas e nenhum evento é o pior tipo de zero: parece "não
       # houve venda" e pode ser "as colunas não são as que eu espero". As
       # colunas reais vão no aviso porque são exatamente o que responde isso —
       # e são nomes de cabeçalho, não dado de ninguém.
       def avisar_se_mudo(eventos)
-        return if @lidas.zero?
         return if eventos.any?
         return if @saldos.any?
 
@@ -133,6 +161,8 @@ module Marketplace
 
       def eventos_de(linha)
         tipo = linha["RECORD_TYPE"].to_s.strip.downcase
+
+        @tipos[tipo.presence || "(vazio)"] += 1
 
         if RESUMO.include?(tipo)
           registrar_saldo(tipo, linha)

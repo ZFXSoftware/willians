@@ -151,6 +151,37 @@ module Marketplace
                           "avisar quando está tudo certo ensina a ignorar o aviso"
     end
 
+    # Vender e ter saldo declarado são coisas diferentes no relatório: o saldo
+    # vem de linhas de RESUMO, à parte da movimentação. Quando a conta vende o
+    # dia inteiro e a conferência de saldo diz que não veio nada, é isto — e
+    # sem o log não havia como saber sem abrir o CSV na mão.
+    test "movimentação sem linhas de resumo é registrada como saldos ausentes" do
+      so_movimento = <<~CSV
+        DATE,SOURCE_ID,ORDER_ID,RECORD_TYPE,GROSS_AMOUNT,MP_FEE_AMOUNT
+        2026-08-02T10:00:00Z,PAY-111,2000000111,release,150.00,-15.50
+      CSV
+
+      leitor = ML::ReleaseEvents.new(csv: so_movimento)
+
+      registro = capturando_log { assert_equal 2, leitor.call.size }
+
+      assert_includes registro, "saldos AUSENTES"
+      assert_includes registro, "release"
+      assert_empty leitor.diagnostico[:saldos]
+    end
+
+    test "o diagnóstico conta todos os tipos vistos, não só os desconhecidos" do
+      leitor = ML::ReleaseEvents.new(csv: CSV_RELATORIO)
+      leitor.call
+
+      tipos = leitor.diagnostico[:tipos]
+
+      assert_equal 2, tipos["release"]
+      assert_equal 1, tipos["payout"]
+      assert_equal 1, tipos["tipo_novo_do_ml"]
+      assert_equal %w[initial_available_balance total], leitor.diagnostico[:saldos].sort
+    end
+
     test "external_id é estável entre execuções e único" do
       primeira = eventos.map { |e| e[:external_id] }
 
