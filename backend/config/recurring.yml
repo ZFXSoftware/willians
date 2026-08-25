@@ -15,8 +15,8 @@ production:
     schedule: every hour at minute 12
 
   # Rede de segurança para contas que ficam tempo sem ingestão: o caminho normal
-  # é a renovação sob demanda no TokenProvider. Só roda com o supervisor do
-  # Solid Queue ativo (`bin/jobs`), que ainda NÃO está no docker-compose.
+  # é a renovação sob demanda no TokenProvider. Depende do supervisor do Solid
+  # Queue, que roda no serviço `jobs` do docker-compose.prod.yml.
   refresh_marketplace_credentials:
     class: Marketplace::RefreshCredentialsJob
     schedule: every hour at minute 7
