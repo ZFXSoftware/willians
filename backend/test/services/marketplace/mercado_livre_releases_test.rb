@@ -124,39 +124,72 @@ module Marketplace
                    "o que não sabemos tratar precisa aparecer, não sumir")
     end
 
-    # O relatório REAL do Mercado Pago, com o cabeçalho copiado do log da
-    # produção: separado por ponto e vírgula. Com vírgula, o cabeçalho inteiro
-    # virava uma coluna só e as 41 linhas produziam zero lançamentos.
+    # O relatório REAL do Mercado Pago, copiado do log da produção: separado
+    # por ponto e vírgula, sem RECORD_TYPE (quem carrega o tipo é DESCRIPTION),
+    # sem ORDER_ID (é PURCHASE_ID) e com decimal por vírgula.
+    #
+    # Lido com vírgula, o cabeçalho inteiro virava UMA coluna e as 41 linhas
+    # produziam zero lançamentos em silêncio.
     CSV_REAL = <<~CSV
       DATE;SOURCE_ID;DESCRIPTION;NET_CREDIT_AMOUNT;NET_DEBIT_AMOUNT;GROSS_AMOUNT;MP_FEE_AMOUNT;TAXES_AMOUNT;PAYMENT_METHOD;TRANSACTION_APPROVAL_DATE;BUSINESS_UNIT;SUB_UNIT;BALANCE_AMOUNT;PAYMENT_METHOD_TYPE;PURCHASE_ID
-      2026-08-24T10:00:00Z;PAY-111;Venda;124,25;0;150,00;-15,50;-2,25;credit_card;2026-08-24T09:00:00Z;mercadolibre;sales;1000,00;credit_card;2000000111
+      2026-08-24T10:00:00Z;PAY-111;payment;124,25;0;1.150,00;-15,50;-2,25;credit_card;2026-08-24T09:00:00Z;mercadolibre;sales;1000,00;credit_card;2000000111
+      2026-08-24T11:00:00Z;RES-1;reserve_for_payout;0;100,00;0;0;0;;;;;900,00;;
+      2026-08-24T12:00:00Z;PAY-999;payout;0;100,00;0;0;0;;;;;800,00;;
     CSV
 
-    test "reconhece o relatório separado por ponto e vírgula" do
-      leitor = ML::ReleaseEvents.new(csv: CSV_REAL)
-
-      leitor.call
-    rescue ML::ReleaseEvents::LayoutDesconhecido
-      # A recusa é assunto do teste seguinte; aqui só interessa que as colunas
-      # foram separadas de verdade, e não lidas como um nome gigante.
-      assert_includes leitor.diagnostico[:colunas], "GROSS_AMOUNT"
-      assert_includes leitor.diagnostico[:colunas], "PURCHASE_ID"
-      assert_equal 1, leitor.diagnostico[:linhas]
+    def reais(csv = CSV_REAL)
+      ML::ReleaseEvents.new(csv: csv)
     end
 
-    # Sem RECORD_TYPE toda linha cairia no ramo de venda: um saque viraria
-    # receita. Dado financeiro errado é pior do que dado nenhum.
-    test "relatório sem RECORD_TYPE recusa importar em vez de adivinhar" do
-      leitor = ML::ReleaseEvents.new(csv: CSV_REAL)
+    test "reconhece o relatório separado por ponto e vírgula" do
+      leitor = reais
 
-      registro = capturando_log do
-        erro = assert_raises(ML::ReleaseEvents::LayoutDesconhecido) { leitor.call }
+      leitor.call
 
-        assert_includes erro.message, "RECORD_TYPE"
-      end
+      assert_includes leitor.diagnostico[:colunas], "GROSS_AMOUNT"
+      assert_includes leitor.diagnostico[:colunas], "PURCHASE_ID"
+      assert_equal 3, leitor.diagnostico[:linhas]
+    end
 
-      # O que sobra para montar o de-para depois.
-      assert_includes registro, "mercadolibre | sales | Venda -> 1"
+    test "o tipo vem de DESCRIPTION quando não existe RECORD_TYPE" do
+      tipos = reais.call.group_by { |e| e[:entry_type] }.transform_values(&:size)
+
+      # payment -> venda + duas deduções; payout -> repasse; reserva fica fora.
+      assert_equal 1, tipos[:sale]
+      assert_equal 2, tipos[:fee]
+      assert_equal 1, tipos[:settlement]
+    end
+
+    # 18 reserve_for_payout para 9 payout no relatório do cliente: dois por
+    # transferência, um reservando e outro liberando. Importar isso contaria a
+    # mesma saída de dinheiro duas vezes.
+    test "reserva de saque fica fora do razão, e aparece na contagem" do
+      leitor = reais
+      leitor.call
+
+      assert_equal({ "reserve_for_payout" => 1 }, leitor.diagnostico[:internos])
+      assert_empty leitor.ignorados, "reserva é conhecida e excluída de propósito, não ignorada"
+    end
+
+    # "1.150,00" com BigDecimal direto levanta, e o código antigo devolvia zero
+    # nesse caso: o lançamento entraria valendo R$ 0,00 sem nenhum sinal.
+    test "decimal por vírgula é lido pelo valor certo, não por zero" do
+      venda = reais.call.find { |e| e[:entry_type] == :sale }
+
+      assert_equal BigDecimal("1150.00"), venda[:amount]
+    end
+
+    test "valor ilegível recusa em vez de virar zero" do
+      quebrado = CSV_REAL.sub("1.150,00", "mil e cento")
+
+      assert_raises(ML::ReleaseEvents::ValorIlegivel) { reais(quebrado).call }
+    end
+
+    test "PURCHASE_ID serve de pedido quando não há ORDER_ID" do
+      venda = reais.call.find { |e| e[:entry_type] == :sale }
+
+      assert_equal "2000000111", venda[:external_order_id],
+                   "sem o pedido não há como chegar na NF do Tiny"
     end
 
     # O pior zero possível: o relatório veio cheio e o leitor não reconheceu
@@ -228,14 +261,22 @@ module Marketplace
       assert_empty eventos("DATE,SOURCE_ID,ORDER_ID,RECORD_TYPE,GROSS_AMOUNT\n")
     end
 
-    test "valor ilegível não derruba a leitura inteira" do
+    # Este teste dizia o contrário: que o bruto ilegível virava zero e "só a
+    # taxa sobrevive". A intenção era não deixar uma célula ruim derrubar 41
+    # linhas — mas o resultado era pior do que o problema: a VENDA sumia do
+    # razão e a taxa dela ficava, sem nenhum sinal. Some dinheiro, e a
+    # conciliação contra o OMIE acusa uma diferença cuja origem ninguém acha.
+    #
+    # E o caso que apareceu de verdade não foi uma célula ruim: foi o arquivo
+    # inteiro com decimal por vírgula, o que zerava TODOS os valores em
+    # silêncio. Tolerância aqui é como o erro grande passa despercebido.
+    test "valor ilegível recusa a leitura em vez de apagar dinheiro" do
       csv = "DATE,SOURCE_ID,ORDER_ID,RECORD_TYPE,GROSS_AMOUNT,MP_FEE_AMOUNT\n" \
             "2026-08-02T10:00:00Z,PAY-9,2000000999,release,abc,-1.00\n"
 
-      lancamentos = eventos(csv)
+      erro = assert_raises(ML::ReleaseEvents::ValorIlegivel) { eventos(csv) }
 
-      assert_equal 1, lancamentos.size, "só a taxa sobrevive; o bruto ilegível vira zero"
-      assert_equal :fee, lancamentos.first[:entry_type]
+      assert_includes erro.message, '"abc"', "a mensagem precisa dizer QUAL valor"
     end
 
     # -------------------------------------------------------------- persistência

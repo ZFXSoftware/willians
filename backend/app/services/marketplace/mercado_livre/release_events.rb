@@ -30,21 +30,44 @@ module Marketplace
       # O arquivo não traz a coluna que diz o que cada linha É.
       class LayoutDesconhecido < StandardError; end
 
+      class ValorIlegivel < StandardError; end
+
       # Linhas de resumo do relatório: saldo anterior, total, saldo após saque.
       # Não são movimentação, são cabeçalho de conferência.
       RESUMO = %w[initial_available_balance available_balance total].freeze
+
+      # Dinheiro entrando por uma venda. No arquivo real do cliente o código é
+      # `payment`; `release` é o nome da documentação, mantido porque não custa
+      # e o formato varia entre contas.
+      VENDA = %w[payment release].freeze
 
       # Saque para a conta bancária. Não é receita nem despesa: é o dinheiro
       # saindo da conta virtual para o banco — o repasse propriamente dito.
       SAQUE = %w[payout withdrawal].freeze
 
+      # Dinheiro trocando de bolso DENTRO da conta do Mercado Pago: sai do
+      # disponível e fica reservado até a transferência sair. Não é receita,
+      # não é despesa, e o par de lançamentos se anula.
+      #
+      # Ficam FORA do razão porque a saída de dinheiro já é registrada pelo
+      # `payout`. Importar a reserva também contaria a mesma saída duas vezes,
+      # e o saldo passaria a acusar uma diferença que não existe.
+      #
+      # O relatório do cliente confirma o pareamento: 18 `reserve_for_payout`
+      # para 9 `payout` — dois por transferência, um reservando e outro
+      # liberando.
+      MOVIMENTO_INTERNO = %w[reserve_for_payout reserve_for_payment].freeze
+
       # Contestação e estorno forçado. O razão já tem esses tipos, e é por eles
       # que a devolução vai ser rastreada até a NF de origem (briefing 2.8).
+      #
+      # `reserve_for_payout` ESTAVA aqui, e não é disputa nenhuma: é a reserva
+      # que antecede a transferência para o banco. Classificado como disputa,
+      # ele abriria uma contestação inventada a cada saque.
       DISPUTAS = {
         "chargeback" => :chargeback,
         "dispute" => :dispute,
-        "reserve_for_dispute" => :dispute,
-        "reserve_for_payout" => :dispute
+        "reserve_for_dispute" => :dispute
       }.freeze
 
       # Cada dedução vira um lançamento próprio, para que a taxa apareça
@@ -77,6 +100,8 @@ module Marketplace
         # TODOS os tipos vistos, e não só os desconhecidos. É o que responde
         # "o relatório tem movimentação mas não tem saldo?" sem abrir o CSV.
         @tipos = Hash.new(0)
+
+        @internos = Hash.new(0)
       end
 
       def call
@@ -85,8 +110,6 @@ module Marketplace
         @lidas = tabela.size
 
         @colunas = tabela.headers.compact if tabela.respond_to?(:headers)
-
-        exigir_classificacao!(tabela)
 
         eventos = tabela.flat_map { |linha| eventos_de(linha) }.compact
 
@@ -102,6 +125,7 @@ module Marketplace
           colunas: @colunas,
           tipos: @tipos.dup,
           ignorados: ignorados.dup,
+          internos: @internos.dup,
           saldos: @saldos.keys
         }
       end
@@ -125,27 +149,13 @@ module Marketplace
 
       attr_reader :csv
 
-      # Sem RECORD_TYPE, TODA linha cairia no ramo de venda: um saque viraria
-      # receita, e o razão passaria a mentir sobre quanto a loja faturou. Dado
-      # financeiro errado é pior do que dado nenhum — importar na dúvida seria
-      # o mesmo erro dos lançamentos de simulação entrando como reais.
-      #
-      # Então recusa, e deixa no log o que existe para classificar com. A
-      # correção depois é uma tabela de-para, não uma investigação.
-      def exigir_classificacao!(tabela)
-        return if @lidas.zero?
-        return if @colunas.include?("RECORD_TYPE")
+      # O arquivo real não tem RECORD_TYPE: quem carrega o tipo é DESCRIPTION,
+      # e com os mesmos códigos (payment, payout, reserve_for_payout). Não é
+      # descrição em prosa, é o campo do tipo com outro nome.
+      def tipo_da(linha)
+        valor = linha["RECORD_TYPE"].to_s.strip.presence || linha["DESCRIPTION"].to_s.strip
 
-        Rails.logger.error(
-          "[ReleaseEvents] relatório sem RECORD_TYPE. Combinações encontradas " \
-          "(unidade | sub-unidade | descrição -> linhas): #{combinacoes(tabela)}"
-        )
-
-        raise LayoutDesconhecido,
-              "O relatório de liberações veio sem a coluna RECORD_TYPE, que é a que diz o que " \
-              "cada linha é (venda, tarifa, saque). Sem ela, importar significaria adivinhar o " \
-              "tipo de cada movimento — e lançamento com tipo errado corrompe a conciliação. " \
-              "As combinações disponíveis para classificar ficaram no log."
+        valor.downcase
       end
 
       # Só os campos que classificam, com a descrição encurtada: o objetivo é
@@ -172,6 +182,7 @@ module Marketplace
 
         Rails.logger.info(
           "[ReleaseEvents] #{@lidas} linha(s): #{eventos.size} lançamento(s), " \
+          "#{@internos.values.sum} movimento(s) interno(s) fora do razão, " \
           "saldos #{@saldos.any? ? @saldos.keys.join('/') : 'AUSENTES'}. " \
           "Tipos: #{@tipos.inspect}"
         )
@@ -219,7 +230,7 @@ module Marketplace
       end
 
       def eventos_de(linha)
-        tipo = linha["RECORD_TYPE"].to_s.strip.downcase
+        tipo = tipo_da(linha)
 
         @tipos[tipo.presence || "(vazio)"] += 1
 
@@ -233,12 +244,28 @@ module Marketplace
 
         return disputa(linha, DISPUTAS[tipo]) if DISPUTAS.key?(tipo)
 
-        unless tipo == "release" || tipo.empty?
-          @ignorados[tipo] += 1
+        return venda_com_deducoes(linha) if VENDA.include?(tipo)
+
+        # Movimento interno entra na contagem própria, e não em `ignorados`:
+        # ignorado é o que não sabemos tratar, e estes a gente sabe — a decisão
+        # é deixá-los de fora de propósito.
+        if MOVIMENTO_INTERNO.include?(tipo)
+          @internos[tipo] += 1
 
           return []
         end
 
+        # Tudo o mais é contado e NÃO importado.
+        #
+        # O ramo de venda já foi o destino padrão do que não fosse reconhecido,
+        # e é exatamente assim que um saque vira receita. Tipo desconhecido
+        # agora aparece na contagem e fica de fora do razão.
+        @ignorados[tipo.presence || "(vazio)"] += 1
+
+        []
+      end
+
+      def venda_com_deducoes(linha)
         [venda(linha), *taxas(linha)].compact
       end
 
@@ -312,7 +339,7 @@ module Marketplace
       end
 
       def base(linha, sufixo:, tipo:, direcao:, valor:, com_pedido: true)
-        pedido = linha["ORDER_ID"].to_s.strip.presence
+        pedido = pedido_de(linha)
 
         ocorrido = data(linha["DATE"])
 
@@ -341,19 +368,49 @@ module Marketplace
       # pedido + data, que ainda é único por tipo de dedução.
       def identificador(linha, sufixo)
         chave = linha["SOURCE_ID"].to_s.strip.presence ||
-                [linha["ORDER_ID"], linha["DATE"]].map { |v| v.to_s.strip }.reject(&:empty?).join("-")
+                [pedido_de(linha), linha["DATE"].to_s.strip].compact_blank.join("-")
 
         "MLREL-#{chave}-#{sufixo}"
       end
 
+      # No arquivo real a coluna do pedido chama PURCHASE_ID; ORDER_ID é o nome
+      # da documentação. É este campo que liga o repasse à nota fiscal do Tiny,
+      # então vale procurar nos dois.
+      def pedido_de(linha)
+        linha["ORDER_ID"].to_s.strip.presence || linha["PURCHASE_ID"].to_s.strip.presence
+      end
+
+      # Devolver zero para o que não soube ler é a forma mais silenciosa de
+      # errar dinheiro: some do razão sem deixar rastro. O arquivo é separado
+      # por ponto e vírgula, o que costuma andar junto com decimal por VÍRGULA
+      # ("1.234,56") — e `BigDecimal("1.234,56")` levanta. Cada valor viraria
+      # zero, a importação diria que trouxe tudo, e os lançamentos seriam de
+      # R$ 0,00.
       def decimal(valor)
         texto = valor.to_s.strip
 
         return BigDecimal("0") if texto.empty?
 
-        BigDecimal(texto)
+        BigDecimal(normalizar_numero(texto))
       rescue ArgumentError
-        BigDecimal("0")
+        raise ValorIlegivel,
+              "Valor numérico ilegível no relatório de liberações: #{texto.inspect}. " \
+              "Importar com ele valendo zero apagaria dinheiro do razão em silêncio."
+      end
+
+      # Decide pelo ÚLTIMO separador, que é o decimal em qualquer das duas
+      # convenções: "1.234,56" (pt-BR) e "1,234.56" (en) são desempatados por
+      # qual vem por último.
+      def normalizar_numero(texto)
+        limpo = texto.delete(" ")
+
+        return limpo unless limpo.include?(",")
+
+        if limpo.rindex(",").to_i > limpo.rindex(".").to_i
+          limpo.delete(".").tr(",", ".")
+        else
+          limpo.delete(",")
+        end
       end
 
       def data(valor)
