@@ -39,25 +39,35 @@ module Integracoes
           # são obrigatórios para ler; são obrigatórios para gravar, e cada um
           # é exigido pelo serviço que precisa dele, com a mensagem explicando
           # onde encontrá-lo.
+          #
+          # A ajuda diz que o valor é PADRÃO DA EMPRESA porque uma pergunta
+          # legítima aparece assim que se olha a tela: com vários marketplaces
+          # e vários clientes no OMIE, mandar tudo para um código só está
+          # errado. E não é o que acontece — o Omie::Settings resolve
+          # conta de marketplace > esta tela > metadata do tenant > ambiente.
+          # A tela só não dizia isso, e parecia obrigar a escolha única.
           campo(:cliente_fornecedor_id, env: "OMIE_CLIENTE_FORNECEDOR_ID",
                 rotulo: "Código do cliente/fornecedor",
-                ajuda: "Quem aparece como cliente nos títulos que criamos. Normalmente é o " \
-                       "próprio marketplace. Obtenha em ListarClientes."),
+                ajuda: "Quem aparece como cliente nos títulos que criamos — normalmente o " \
+                       "próprio marketplace. Padrão da empresa: cada conta de marketplace " \
+                       "pode ter o seu. Rode `omie:opcoes` para ver os códigos."),
           campo(:conta_corrente_id, env: "OMIE_CONTA_CORRENTE_ID",
                 rotulo: "Conta corrente",
-                ajuda: "Onde as baixas caem. Obtenha em ListarContasCorrentes."),
+                ajuda: "Onde as baixas caem — em geral a conta virtual do marketplace. " \
+                       "Padrão da empresa: cada conta de marketplace pode ter a sua. " \
+                       "Rode `omie:opcoes` para ver os códigos."),
           campo(:conta_corrente_destino_id, env: "OMIE_CONTA_CORRENTE_DESTINO_ID",
                 rotulo: "Conta corrente de destino",
                 ajuda: "Conta bancária para onde o marketplace deposita o saque. É o destino " \
-                       "das transferências."),
+                       "das transferências. Padrão da empresa."),
           campo(:categoria_transitoria_receita, env: "OMIE_CATEGORIA_TRANSITORIA_RECEITA",
                 rotulo: "Categoria transitória de receita",
                 ajuda: "Onde entram os créditos sem vínculo com pedido ou nota fiscal. " \
-                       "Uma categoria 1.x do seu plano de contas."),
+                       "Uma categoria 1.x do seu plano de contas. Padrão da empresa."),
           campo(:categoria_transitoria_despesa, env: "OMIE_CATEGORIA_TRANSITORIA_DESPESA",
                 rotulo: "Categoria transitória de despesa",
                 ajuda: "Onde entram os débitos sem vínculo com pedido ou nota fiscal. " \
-                       "Uma categoria 2.x do seu plano de contas.")
+                       "Uma categoria 2.x do seu plano de contas. Padrão da empresa.")
         ]
       ),
 
