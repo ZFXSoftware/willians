@@ -117,6 +117,32 @@ module Financeiro
       assert_equal 1, PayoutBatch.where(tenant: @tenant).count
     end
 
+    # Um repasse cujo recebível ficou fora da janela saía com os totais
+    # zerados: uma transferência real de R$ 50 aparecia como R$ 0,00 na tela de
+    # conciliação. O dinheiro saiu — o valor do extrato é o piso.
+    test "repasse sem recebível encontrado vale o que saiu no extrato" do
+      repasse(valor: 50)
+
+      fechar
+
+      lote = PayoutBatch.find_by(tenant: @tenant)
+
+      assert_equal BigDecimal("50"), lote.net_amount
+      assert_equal BigDecimal("50"), lote.gross_amount, "R$ 0,00 num repasse real é mentira"
+    end
+
+    test "com recebível, quem manda é a soma dos recebíveis" do
+      venda_com_taxa(bruto: 150, taxa: 15)
+      repasse(valor: 135)
+
+      fechar
+
+      lote = PayoutBatch.find_by(tenant: @tenant)
+
+      assert_equal BigDecimal("150"), lote.gross_amount, "o bruto é o da venda, não o do saque"
+      assert_equal BigDecimal("135"), lote.net_amount
+    end
+
     test "conta sem repasse nenhum não inventa lote" do
       venda_com_taxa
 

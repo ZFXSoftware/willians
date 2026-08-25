@@ -110,11 +110,15 @@ module Financeiro
 
         status: :paid,
 
-        gross_amount: totals[:gross],
+        # Quando nenhum recebível foi encontrado para este repasse, os totais
+        # saem zerados — e o lote de uma transferência de R$ 50 aparecia como
+        # R$ 0,00 na tela. O dinheiro saiu de verdade: o valor do extrato é a
+        # única coisa que não é estimativa aqui, então ele é o piso.
+        gross_amount: totals[:gross].positive? ? totals[:gross] : valor_do_extrato,
 
         fee_amount: totals[:fee],
 
-        net_amount: totals[:net],
+        net_amount: totals[:net].positive? ? totals[:net] : valor_do_extrato,
 
         paid_at: paid_at
       )
@@ -178,6 +182,12 @@ module Financeiro
           released_on: paid_at.to_date,
           updated_at: Time.current
         )
+    end
+
+    # Só existe quando o repasse veio do extrato do marketplace. No caminho em
+    # que o engine cria o lançamento, o valor É a soma dos recebíveis.
+    def valor_do_extrato
+      settlement_entry&.amount.to_d
     end
 
     def totals

@@ -183,6 +183,12 @@ export default function ReconciliationDashboard() {
 
                 <tbody>
                   {data?.items.map((row) => {
+                    // Sem o lado do OMIE não existe diferença: o que o backend
+                    // devolve é o repasse inteiro. Mostrar isso na coluna
+                    // "Diferença" — e ainda em VERDE, como se fosse ganho —
+                    // fazia uma conciliação que não aconteceu parecer um saldo
+                    // a favor. Diferença nunca é boa notícia.
+                    const comparado = row.valor_esperado != null
                     const dif = Number(row.diferenca ?? 0)
 
                     return (
@@ -207,14 +213,19 @@ export default function ReconciliationDashboard() {
                         </td>
                         <td
                           className={`px-6 py-5 text-right font-medium ${
-                            dif === 0
-                              ? "text-zinc-400"
-                              : dif > 0
+                            !comparado
+                              ? "text-zinc-600"
+                              : dif === 0
                                 ? "text-emerald-400"
                                 : "text-red-400"
                           }`}
+                          title={
+                            comparado
+                              ? undefined
+                              : "Não houve comparação: nenhum título do OMIE foi encontrado para este repasse."
+                          }
                         >
-                          {brl(row.diferenca)}
+                          {comparado ? brl(row.diferenca) : "—"}
                         </td>
                         <td className="px-6 py-5 text-zinc-400">
                           {Number(row.confianca).toFixed(0)}%
