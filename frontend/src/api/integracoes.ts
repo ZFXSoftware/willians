@@ -24,6 +24,24 @@ export interface Integracao {
   erro_de_sincronizacao: string | null
   lancamentos: number
   precisa_atencao: boolean
+  omie: CodigosOmie
+}
+
+// Os códigos do OMIE desta conta de marketplace.
+//
+// `efetivo` é o que vale de verdade e `origem` diz de onde veio — em branco
+// aqui não significa faltando: pode estar herdando o padrão da empresa.
+export interface CodigosOmie {
+  cliente_fornecedor_id: string | null
+  conta_corrente_id: string | null
+  efetivo: {
+    cliente_fornecedor_id: string | number | null
+    conta_corrente_id: string | number | null
+  }
+  origem: {
+    cliente_fornecedor_id: string
+    conta_corrente_id: string
+  }
 }
 
 export interface IntegracoesResponse {
@@ -100,4 +118,23 @@ export async function desconectar(platformAccountId: number): Promise<void> {
   await api.delete("/integracoes/desconectar", {
     params: { platform_account_id: platformAccountId },
   })
+}
+
+// Códigos do OMIE desta conta de marketplace.
+//
+// Uma empresa que vende no Mercado Livre, na Amazon e na Shopee precisa de um
+// cliente/fornecedor e de uma conta corrente por marketplace — o campo único
+// da tela da empresa é só o padrão de quem não preencheu aqui.
+//
+// String vazia apaga o código e devolve a conta ao padrão da empresa.
+export async function salvarCodigosOmie(
+  platformAccountId: number,
+  omie: { cliente_fornecedor_id?: string; conta_corrente_id?: string },
+): Promise<{ id: number; omie: Record<string, string | null> }> {
+  const { data } = await api.put(
+    `/integracoes/contas/${platformAccountId}/omie`,
+    { omie },
+  )
+
+  return data
 }

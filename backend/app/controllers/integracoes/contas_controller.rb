@@ -65,7 +65,42 @@ module Integracoes
       render json: { id: conta.id, status: conta.status }
     end
 
+    # Códigos do OMIE desta conta de marketplace.
+    #
+    # Existe porque a tela da empresa tem UM campo de cliente/fornecedor e UM
+    # de conta corrente, e quem vende no Mercado Livre, na Amazon e na Shopee
+    # precisa de três — cada marketplace é um cliente diferente no OMIE e cai
+    # numa conta corrente diferente.
+    #
+    # A hierarquia do Omie::Settings já previa isto (conta > tela da empresa >
+    # metadata do tenant > ambiente); o que não existia era como preencher o
+    # nível da conta sem mexer no banco à mão.
+    def omie
+      conta = buscar
+
+      valores = CAMPOS_OMIE.index_with { |campo| params.dig(:omie, campo) }.compact
+
+      # String vazia APAGA o código da conta, voltando ao padrão da empresa —
+      # é a única forma de desfazer sem um botão só para isso.
+      metadata = conta.metadata.merge(
+        valores.transform_keys { |campo| "omie_#{campo}" }
+               .transform_values { |valor| valor.to_s.strip.presence }
+      ).compact
+
+      conta.update!(metadata: metadata)
+
+      render json: { id: conta.id, omie: codigos_de(conta) }
+    end
+
     private
+
+    # Só os que fazem sentido variar por marketplace. As categorias
+    # transitórias são do plano de contas da empresa e continuam na tela dela.
+    CAMPOS_OMIE = %w[cliente_fornecedor_id conta_corrente_id].freeze
+
+    def codigos_de(conta)
+      CAMPOS_OMIE.index_with { |campo| conta.metadata["omie_#{campo}"] }
+    end
 
     # Escopado na empresa do contexto: pedir a conta de outro cliente devolve
     # 404, e não os dados dele.

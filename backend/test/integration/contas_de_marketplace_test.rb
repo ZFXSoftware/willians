@@ -107,6 +107,58 @@ class ContasDeMarketplaceTest < ActionDispatch::IntegrationTest
     assert PlatformAccount.exists?(estranha.id)
   end
 
+  # --------------------------------------------------- códigos do OMIE
+
+  # A tela da empresa tem UM campo de cliente/fornecedor e UM de conta
+  # corrente. Quem vende no Mercado Livre, na Amazon e na Shopee precisa de
+  # três: cada marketplace é um cliente diferente no OMIE. A hierarquia já
+  # existia no Omie::Settings; faltava onde preencher o nível da conta.
+  test "cada conta de marketplace guarda os próprios códigos do OMIE" do
+    outra = criar_conta(tenant: @tenant, plataforma: "shopee")
+
+    put "/integracoes/contas/#{@conta.id}/omie",
+        params: { omie: { cliente_fornecedor_id: "111", conta_corrente_id: "222" } },
+        headers: @cabecalhos, as: :json
+
+    assert_response :success
+
+    put "/integracoes/contas/#{outra.id}/omie",
+        params: { omie: { cliente_fornecedor_id: "333", conta_corrente_id: "444" } },
+        headers: @cabecalhos, as: :json
+
+    assert_response :success
+
+    assert_equal "111", @conta.reload.metadata["omie_cliente_fornecedor_id"]
+    assert_equal "333", outra.reload.metadata["omie_cliente_fornecedor_id"]
+
+    assert_equal 111, Omie::Settings.new(tenant: @tenant, platform_account: @conta).cliente_fornecedor_id
+    assert_equal 333, Omie::Settings.new(tenant: @tenant, platform_account: outra).cliente_fornecedor_id
+  end
+
+  # Sem isso não há como desfazer: um campo preenchido por engano ficaria
+  # sobrescrevendo o padrão da empresa para sempre.
+  test "apagar o código devolve a conta ao padrão da empresa" do
+    @conta.update!(metadata: { "omie_cliente_fornecedor_id" => "111" })
+
+    put "/integracoes/contas/#{@conta.id}/omie",
+        params: { omie: { cliente_fornecedor_id: "" } },
+        headers: @cabecalhos, as: :json
+
+    assert_response :success
+    assert_nil @conta.reload.metadata["omie_cliente_fornecedor_id"]
+  end
+
+  test "não dá para mexer nos códigos de conta de outra empresa" do
+    estranha = criar_conta(tenant: criar_tenant)
+
+    put "/integracoes/contas/#{estranha.id}/omie",
+        params: { omie: { cliente_fornecedor_id: "999" } },
+        headers: @cabecalhos, as: :json
+
+    assert_response :not_found
+    assert_nil estranha.reload.metadata["omie_cliente_fornecedor_id"]
+  end
+
   test "quem só lê não remove nem arquiva" do
     leitor = criar_usuario(tenant: @tenant, papel: :viewer)
     leitor.update!(password: SENHA)

@@ -63,6 +63,11 @@ Rails.application.routes.draw do
 
     post   "contas/:id/arquivar", to: "contas#arquivar"
 
+    # Códigos do OMIE desta conta de marketplace. Uma empresa vende em vários
+    # marketplaces, e cada um é um cliente/fornecedor e uma conta corrente
+    # diferentes no OMIE — um campo único na tela da empresa não dá conta.
+    put    "contas/:id/omie", to: "contas#omie"
+
     get    "configuracoes", to: "configuracoes#index"
     put    "configuracoes/:provedor", to: "configuracoes#update"
     delete "configuracoes/:provedor/:chave", to: "configuracoes#destroy"

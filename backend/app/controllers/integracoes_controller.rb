@@ -52,7 +52,32 @@ class IntegracoesController < ApplicationController
       status_sincronizacao: conta.last_sync_status,
       erro_de_sincronizacao: conta.last_sync_error,
       lancamentos: total_lancamentos,
-      precisa_atencao: precisa_atencao?(conta)
+      precisa_atencao: precisa_atencao?(conta),
+      omie: codigos_omie(conta)
+    }
+  end
+
+  # O que vale para ESTA conta, e de onde veio.
+  #
+  # Mostrar só o que foi digitado na conta esconderia metade da verdade: um
+  # campo em branco aqui pode estar herdando o padrão da empresa e funcionando
+  # perfeitamente. "herdado" é informação, "faltando" é alarme.
+  def codigos_omie(conta)
+    settings = Omie::Settings.new(tenant: current_tenant, platform_account: conta)
+
+    resolvido = settings.resolved
+
+    {
+      cliente_fornecedor_id: conta.metadata["omie_cliente_fornecedor_id"],
+      conta_corrente_id: conta.metadata["omie_conta_corrente_id"],
+      efetivo: {
+        cliente_fornecedor_id: resolvido[:cliente_fornecedor_id],
+        conta_corrente_id: resolvido[:conta_corrente_id]
+      },
+      origem: {
+        cliente_fornecedor_id: resolvido[:origem_cliente],
+        conta_corrente_id: resolvido[:origem_conta]
+      }
     }
   end
 

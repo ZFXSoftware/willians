@@ -19,6 +19,7 @@ import {
   desconectar,
   fetchIntegracoes,
   removerConta,
+  salvarCodigosOmie,
   sincronizar,
   type Integracao,
 } from "../../api/integracoes"
@@ -463,6 +464,8 @@ export default function Integrations() {
                         </p>
                       ))}
 
+                    <CodigosDoOmie conta={conta} aoSalvar={reload} />
+
                     <div className="mt-6 flex gap-2">
                       {!conta.integracao_disponivel ? (
                         <p className="text-sm text-zinc-500">
@@ -536,6 +539,121 @@ export default function Integrations() {
             </div>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// Os códigos do OMIE desta conta de marketplace.
+//
+// A tela da empresa tem UM campo de cliente/fornecedor e UM de conta corrente.
+// Quem vende no Mercado Livre, na Amazon e na Shopee precisa de três: cada
+// marketplace é um cliente diferente no OMIE e cai numa conta corrente
+// diferente. A hierarquia já existia no backend; faltava onde preencher.
+function CodigosDoOmie({
+  conta,
+  aoSalvar,
+}: {
+  conta: Integracao
+  aoSalvar: () => void
+}) {
+  const [aberto, setAberto] = useState(false)
+  const [cliente, setCliente] = useState(conta.omie?.cliente_fornecedor_id ?? "")
+  const [contaCorrente, setContaCorrente] = useState(
+    conta.omie?.conta_corrente_id ?? "",
+  )
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  if (!conta.integracao_disponivel || !conta.omie) return null
+
+  // "herdado" e não "faltando": campo em branco aqui pode estar usando o
+  // padrão da empresa e funcionando. Alarme onde não há problema ensina a
+  // ignorar alarme.
+  function resumo(chave: "cliente_fornecedor_id" | "conta_corrente_id") {
+    const efetivo = conta.omie.efetivo[chave]
+    const origem = conta.omie.origem[chave]
+
+    if (!efetivo) return "não definido"
+
+    return origem === "platform_account"
+      ? `${efetivo} (desta conta)`
+      : `${efetivo} (padrão da empresa)`
+  }
+
+  async function salvar() {
+    setSalvando(true)
+    setErro(null)
+
+    try {
+      await salvarCodigosOmie(conta.id, {
+        cliente_fornecedor_id: cliente,
+        conta_corrente_id: contaCorrente,
+      })
+
+      aoSalvar()
+      setAberto(false)
+    } catch (e) {
+      setErro(errorMessage(e, "Não foi possível salvar os códigos"))
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 border-t border-zinc-800 pt-4">
+      <button
+        onClick={() => setAberto(!aberto)}
+        className="text-xs text-zinc-400 hover:text-zinc-200 transition"
+      >
+        Códigos do OMIE desta conta {aberto ? "▲" : "▼"}
+      </button>
+
+      {!aberto && (
+        <p className="text-xs text-zinc-500 mt-2">
+          Cliente {resumo("cliente_fornecedor_id")} · Conta corrente{" "}
+          {resumo("conta_corrente_id")}
+        </p>
+      )}
+
+      {aberto && (
+        <div className="mt-3 space-y-3">
+          <p className="text-xs text-zinc-500">
+            Em branco usa o padrão da empresa. Rode{" "}
+            <code className="text-zinc-400">rails omie:opcoes</code> para ver os
+            códigos disponíveis no seu OMIE.
+          </p>
+
+          <div>
+            <label className="text-xs text-zinc-400">Cliente/fornecedor</label>
+            <input
+              value={cliente}
+              onChange={(e) => setCliente(e.target.value)}
+              placeholder={String(conta.omie.efetivo.cliente_fornecedor_id ?? "")}
+              className="mt-1 w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-zinc-400">Conta corrente</label>
+            <input
+              value={contaCorrente}
+              onChange={(e) => setContaCorrente(e.target.value)}
+              placeholder={String(conta.omie.efetivo.conta_corrente_id ?? "")}
+              className="mt-1 w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm"
+            />
+          </div>
+
+          {erro && <p className="text-xs text-red-400">{erro}</p>}
+
+          <button
+            onClick={salvar}
+            disabled={salvando}
+            className="bg-white text-black hover:opacity-90 transition px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50"
+          >
+            {salvando ? "Salvando..." : "Salvar"}
+          </button>
+        </div>
       )}
     </div>
   )

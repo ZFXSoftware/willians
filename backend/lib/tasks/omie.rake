@@ -256,6 +256,16 @@ namespace :omie do
                      colecao: "ListarContasCorrentes", codigo: "nCodCC",
                      nome: %w[descricao cDesc nome], busca: busca)
 
+      sleep 4
+
+      # Plano de contas: é daqui que saem as categorias transitórias e a
+      # categoria da receita de venda. Sem a lista, "uma categoria 1.x do seu
+      # plano de contas" não ajuda ninguém — cada empresa tem o seu.
+      listar(client, titulo: "CATEGORIAS  ->  Categoria transitória de receita (1.x) / despesa (2.x)",
+                     endpoint: "geral/categorias/", call: "ListarCategorias",
+                     colecao: "categoria_cadastro", codigo: "codigo",
+                     nome: %w[descricao descricao_padrao], busca: busca)
+
       puts
       puts "Copie o CÓDIGO (a primeira coluna) para o campo correspondente em"
       puts "Configurações > OMIE. Use BUSCA=mercado para filtrar pelo nome."
