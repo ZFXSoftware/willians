@@ -50,8 +50,12 @@ module Financeiro
     def anchor_entry
       return financial_entry if financial_entry.sale?
 
-      return if financial_entry.order_id.blank?
+      return venda_do_pedido if financial_entry.order_id.present?
 
+      venda_do_pagamento(financial_entry)
+    end
+
+    def venda_do_pedido
       FinancialEntry
         .sales
         .find_by(
@@ -60,17 +64,50 @@ module Financeiro
         )
     end
 
-    # Sem pedido não há como agrupar: o lançamento responde por si só. Agrupar
-    # por `order_id: nil` casaria com todos os lançamentos órfãos do tenant.
-    def related_entries(anchor)
-      return [anchor] if anchor.order_id.blank?
+    def venda_do_pagamento(entry)
+      pagamento = pagamento_de(entry)
 
+      return if pagamento.blank?
+
+      por_pagamento(entry.tenant_id, pagamento).sales.first
+    end
+
+    def related_entries(anchor)
+      return por_pedido(anchor).to_a if anchor.order_id.present?
+
+      pagamento = pagamento_de(anchor)
+
+      # Sem pedido e sem pagamento não há como agrupar: o lançamento responde
+      # por si só. Agrupar por `order_id: nil` casaria com todos os lançamentos
+      # órfãos do tenant.
+      return [anchor] if pagamento.blank?
+
+      por_pagamento(anchor.tenant_id, pagamento).to_a
+    end
+
+    def por_pedido(anchor)
+      FinancialEntry.where(
+        tenant_id: anchor.tenant_id,
+        order_id: anchor.order_id
+      )
+    end
+
+    # O relatório de liberações do Mercado Livre não traz o número do pedido —
+    # PURCHASE_ID vem vazio em todas as linhas. Mas a venda e as deduções dela
+    # saem da MESMA linha do relatório e carregam o mesmo SOURCE_ID, o id do
+    # pagamento no Mercado Pago.
+    #
+    # Sem agrupar por ele, cada taxa ficava órfã (a âncora exigia pedido) e o
+    # recebível saía pelo BRUTO, sem nenhuma dedução — o valor a receber
+    # apareceria maior do que o dinheiro que vai cair.
+    def por_pagamento(tenant_id, pagamento)
       FinancialEntry
-        .where(
-          tenant_id: anchor.tenant_id,
-          order_id: anchor.order_id
-        )
-        .to_a
+        .where(tenant_id: tenant_id, order_id: nil)
+        .where("metadata->>'source_id' = ?", pagamento)
+    end
+
+    def pagamento_de(entry)
+      entry.metadata.is_a?(Hash) ? entry.metadata["source_id"].presence : nil
     end
 
     def totals_for(entries)

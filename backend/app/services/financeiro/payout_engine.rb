@@ -8,7 +8,8 @@ module Financeiro
       tenant:,
       platform_account:,
       payout_reference:,
-      paid_at:
+      paid_at:,
+      settlement_entry: nil
     )
       @tenant = tenant
 
@@ -17,6 +18,15 @@ module Financeiro
       @payout_reference = payout_reference
 
       @paid_at = paid_at
+
+      # Quando o repasse veio do EXTRATO do marketplace, o lançamento de
+      # liquidação já existe — é a linha `payout` do relatório de liberações.
+      # Criar outro duplicaria a saída de dinheiro no razão e esbarraria no
+      # índice único de external_id.
+      #
+      # O engine nasceu para o caminho oposto, em que o repasse chega só como
+      # referência e ele mesmo cria o lançamento. Os dois convivem.
+      @settlement_entry = settlement_entry
     end
 
     def call
@@ -25,7 +35,7 @@ module Financeiro
       return existing if existing
 
       ActiveRecord::Base.transaction do
-        payout = create_payout!(create_settlement_entry!)
+        payout = create_payout!(settlement_entry || create_settlement_entry!)
 
         allocate_receivables!(payout)
 
@@ -42,7 +52,8 @@ module Financeiro
     attr_reader :tenant,
                 :platform_account,
                 :payout_reference,
-                :paid_at
+                :paid_at,
+                :settlement_entry
 
     def find_payout
       PayoutBatch.find_by(

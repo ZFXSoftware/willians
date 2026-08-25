@@ -93,6 +93,11 @@ module Marketplace
         end_date: end_date
       ).call
 
+      # Depois de tudo gravado, e não no after_commit de cada lançamento: o
+      # repasse precisa que os recebíveis da mesma leva já existam, e a ordem
+      # em que as linhas do extrato chegam não garante isso.
+      repasses = fechar_repasses(conta)
+
       # A tentativa vale mesmo quando não trouxe nada: é o que impede o
       # agendador de tentar de novo daqui a cinco minutos.
       registrar(conta, :ok)
@@ -110,12 +115,28 @@ module Marketplace
         repetidos: resumo[:skipped].to_i,
         # Evento que veio do marketplace e o razão recusou (validação). Some no
         # log se não subir até aqui, e "recebi 300, gravei 280" precisa aparecer.
-        recusados: resumo[:failed].to_i
+        recusados: resumo[:failed].to_i,
+        repasses: repasses
       }
     rescue Marketplace::AindaNaoPronto => e
       pendente(conta, e)
     rescue StandardError => e
       falha(conta, e)
+    end
+
+    # Fechar os repasses NÃO pode derrubar a ingestão: os lançamentos já estão
+    # no razão e valem por si. Sem lote, a conciliação é que fica esperando.
+    def fechar_repasses(conta)
+      Financeiro::RepassesDoMarketplace.new(
+        tenant: conta.tenant,
+        platform_account: conta,
+        start_date: start_date,
+        end_date: end_date
+      ).call
+    rescue StandardError => e
+      Rails.logger.error "#{LOG_PREFIX} conta ##{conta.id}: repasses falharam: #{e.class} #{e.message}"
+
+      { erro: e.message }
     end
 
     # => nil para sincronizar, ou o motivo de não sincronizar.
