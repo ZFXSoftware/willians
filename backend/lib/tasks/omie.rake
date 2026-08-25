@@ -221,6 +221,50 @@ namespace :omie do
     end
   end
 
+  desc "Lista os clientes e contas correntes do OMIE, com os códigos para as Configurações"
+  task opcoes: :environment do
+    # A tela de configurações pede "Código do cliente/fornecedor" e "Conta
+    # corrente" e manda obter em ListarClientes / ListarContasCorrentes — o que
+    # exige chamar a API na mão. Numa empresa com dezenas de cadastros, isso é
+    # pedir para o usuário adivinhar.
+    #
+    # SOMENTE LEITURA.
+    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
+             Tenant.order(:id).find { |t| Current.with_tenant(t) { Omie::Client.configured? } }
+
+    abort "Nenhuma empresa com chave do OMIE. Rode `omie:titulos` para ver quais existem." if tenant.blank?
+
+    Current.with_tenant(tenant) do
+      abort "A empresa ##{tenant.id} não tem chave do OMIE." unless Omie::Client.configured?
+
+      puts
+      puts "Empresa ##{tenant.id} #{tenant.name}"
+
+      client = Omie::Client.new
+
+      busca = ENV["BUSCA"].to_s.strip.downcase
+
+      listar(client, titulo: "CLIENTES / FORNECEDORES  ->  Código do cliente/fornecedor",
+                     endpoint: "geral/clientes/", call: "ListarClientes",
+                     colecao: "clientes_cadastro", codigo: "codigo_cliente_omie",
+                     nome: %w[razao_social nome_fantasia], busca: busca)
+
+      sleep 4 # o OMIE bloqueia consulta repetida em sequência
+
+      listar(client, titulo: "CONTAS CORRENTES  ->  Conta corrente / Conta corrente de destino",
+                     endpoint: "geral/contacorrente/", call: "ListarContasCorrentes",
+                     colecao: "ListarContasCorrentes", codigo: "nCodCC",
+                     nome: %w[descricao cDesc nome], busca: busca)
+
+      puts
+      puts "Copie o CÓDIGO (a primeira coluna) para o campo correspondente em"
+      puts "Configurações > OMIE. Use BUSCA=mercado para filtrar pelo nome."
+      puts
+      puts "Estes campos só fazem falta para GRAVAR no OMIE. A conciliação, que"
+      puts "só lê, funciona sem nenhum deles."
+    end
+  end
+
   desc "Mostra os códigos de cliente/conta corrente resolvidos por conta de marketplace"
   task settings: :environment do
     Tenant.includes(:platform_accounts).find_each do |tenant|
@@ -239,6 +283,43 @@ namespace :omie do
 
     puts "Ordem de resolução: platform_account.metadata > tenant.metadata > ENV"
   end
+end
+
+# Uma listagem só, tolerante ao nome da coleção: os endpoints do OMIE não são
+# consistentes entre si, e o erro dele costuma dizer o nome certo.
+def listar(client, titulo:, endpoint:, call:, colecao:, codigo:, nome:, busca:)
+  puts
+  puts "=" * 74
+  puts titulo
+  puts "=" * 74
+
+  resposta = client.request(endpoint, call, pagina: 1, registros_por_pagina: 100)
+
+  registros = resposta[colecao] || resposta.values.find { |v| v.is_a?(Array) } || []
+
+  if registros.empty?
+    puts "  Nenhum registro. Chaves recebidas: #{resposta.keys.inspect}"
+    return
+  end
+
+  linhas = registros.map do |registro|
+    rotulo = nome.filter_map { |campo| registro[campo].presence }.first.to_s
+
+    [ registro[codigo], rotulo ]
+  end
+
+  linhas = linhas.select { |_, rotulo| rotulo.downcase.include?(busca) } if busca.present?
+
+  puts "  #{linhas.size} de #{resposta['total_de_registros'] || registros.size}"
+  puts
+
+  linhas.first(40).each { |cod, rotulo| puts format("  %-16s %s", cod, rotulo[0, 54]) }
+
+  puts "  ... (use BUSCA= para filtrar)" if linhas.size > 40
+rescue Omie::Client::ApiError => e
+  puts "  ERRO: #{e.message}"
+rescue StandardError => e
+  puts "  ERRO: #{e.class}: #{e.message[0, 160]}"
 end
 
 def print_settings(label, settings)

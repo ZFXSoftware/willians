@@ -41,6 +41,16 @@ const ORIGENS: Record<string, { texto: string; classe: string }> = {
   },
 }
 
+// Campo vazio que NÃO é obrigatório não está faltando — só não foi
+// preenchido. Marcar os cinco códigos do plano de contas do OMIE com um selo
+// vermelho de "Faltando" dizia que a integração estava quebrada quando ela
+// estava funcionando: eles só fazem falta na hora de GRAVAR no ERP, e a
+// leitura (que é o que a conciliação faz) não usa nenhum deles.
+const OPCIONAL_VAZIO = {
+  texto: "Só para gravar",
+  classe: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20",
+}
+
 export default function Settings() {
   const { data, loading, error, reload } = useResource(fetchConfiguracoes)
 
@@ -241,7 +251,10 @@ function Campo({
 }) {
   const [visivel, setVisivel] = useState(false)
 
-  const origem = ORIGENS[campo.origem] ?? ORIGENS.faltando
+  const origem =
+    campo.origem === "faltando" && !campo.obrigatorio
+      ? OPCIONAL_VAZIO
+      : ORIGENS[campo.origem] ?? ORIGENS.faltando
 
   // Segredo já gravado não volta do servidor: o campo fica vazio, e a pista
   // (últimos caracteres) mostra que existe algo lá.
