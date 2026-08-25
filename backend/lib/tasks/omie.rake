@@ -116,6 +116,84 @@ namespace :omie do
     puts "    sistema que emite as notas."
   end
 
+  desc "Roda a MESMA busca de títulos que a conciliação usa, e mostra por que ela veio vazia"
+  task titulos: :environment do
+    # A conciliação disse "0 título(s) no OMIE" numa janela de quatro meses.
+    # Zero pode ser: cliente de simulação no lugar do real, filtro de emissão
+    # que o OMIE não aceita, ou não haver título mesmo. As três se parecem no
+    # log e pedem providências diferentes.
+    tenant = Tenant.find_by(id: ENV["TENANT"]) || Tenant.order(:id).first
+
+    abort "Nenhuma empresa cadastrada." if tenant.blank?
+
+    fim = (ENV["ATE"].presence&.to_date || Date.current)
+    inicio = (ENV["DE"].presence&.to_date || fim - 30)
+
+    Current.with_tenant(tenant) do
+      puts
+      puts "Empresa: ##{tenant.id} #{tenant.name}"
+      puts "Chaves do OMIE configuradas: #{Omie::Client.configured? ? 'sim' : 'NÃO'}"
+
+      unless Omie::Client.configured?
+        puts
+        puts "É esta a causa: sem chave, a conciliação roda contra o cliente de"
+        puts "SIMULAÇÃO, que não devolve título nenhum. Preencha em Configurações."
+        next
+      end
+
+      client = Omie::Client.new
+
+      janela_inicio = inicio - Conciliacao::ConciliacaoEngine::EMISSION_LOOKBACK_DAYS
+
+      puts "Janela da conciliação (por EMISSÃO): #{janela_inicio} a #{fim}"
+      puts
+
+      totais = Omie::Readers::ReceivableTotals
+                 .new(client: client)
+                 .call(start_date: janela_inicio, end_date: fim)
+
+      puts "Títulos indexados na janela: #{totais.size}"
+
+      totais.first(5).each { |ref, valor| puts format("  %-24s %s", ref, valor.to_s("F")) }
+
+      puts
+      puts "Agora a MESMA conta, sem filtro de data:"
+
+      sleep 4 # o OMIE bloqueia consulta repetida em sequência
+
+      resposta = client.request(
+        "financas/contareceber/", "ListarContasReceber",
+        pagina: 1, registros_por_pagina: 20
+      )
+
+      titulos = resposta["conta_receber_cadastro"] || []
+
+      puts "  Total de títulos na conta: #{resposta['total_de_registros']}"
+      puts "  Nesta página: #{titulos.size}"
+
+      if titulos.empty?
+        puts
+        puts "A conta do OMIE não tem título a receber nenhum. Não é filtro: não há o que conciliar."
+        next
+      end
+
+      # A chave da conciliação é o número da NF. Se ela vem vazia, casar é
+      # impossível mesmo com títulos na janela.
+      %w[numero_documento_fiscal numero_documento data_emissao].each do |campo|
+        preenchidos = titulos.count { |t| t[campo].present? }
+
+        puts format("  %-28s %d/%d preenchido(s)", campo, preenchidos, titulos.size)
+      end
+
+      puts
+      puts "  Emissões vistas: #{titulos.filter_map { |t| t['data_emissao'] }.uniq.first(8).join(', ')}"
+      puts
+      puts "Como ler: se há títulos na conta mas zero na janela, o filtro de emissão"
+      puts "não alcança as datas acima. Se numero_documento_fiscal e numero_documento"
+      puts "vierem vazios, falta a chave — e aí nenhum filtro resolve."
+    end
+  end
+
   desc "Mostra os códigos de cliente/conta corrente resolvidos por conta de marketplace"
   task settings: :environment do
     Tenant.includes(:platform_accounts).find_each do |tenant|
