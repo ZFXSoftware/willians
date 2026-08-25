@@ -66,7 +66,7 @@ module Marketplace
       end
 
       def criar(start_date:, end_date:)
-        post(BASE_PATH, begin_date: iso(start_date), end_date: iso(end_date, fim_do_dia: true))
+        post(BASE_PATH, begin_date: inicio(start_date), end_date: fim(end_date))
       end
 
       def relatorios
@@ -122,10 +122,20 @@ module Marketplace
         false
       end
 
-      def iso(data, fim_do_dia: false)
-        hora = fim_do_dia ? "23:59:59" : "00:00:00"
+      def inicio(data)
+        iso(data.to_date.beginning_of_day)
+      end
 
-        "#{data.to_date.strftime('%Y-%m-%d')}T#{hora}Z"
+      # O fim do dia de HOJE está no futuro, e relatório do que ainda não
+      # aconteceu não existe — o Mercado Pago recusa o período. Como a janela
+      # padrão da conciliação termina em Date.current, esse era o pedido de
+      # todo dia.
+      def fim(data)
+        iso([ data.to_date.end_of_day, Time.current ].min)
+      end
+
+      def iso(instante)
+        instante.utc.strftime("%Y-%m-%dT%H:%M:%SZ")
       end
 
       def get(path)
@@ -170,22 +180,38 @@ module Marketplace
 
         http.read_timeout = READ_TIMEOUT
 
-        verificar!(http.request(requisicao))
+        verificar!(http.request(requisicao), requisicao)
       rescue Net::OpenTimeout, Net::ReadTimeout, SocketError, Errno::ECONNRESET => e
         raise Error, "Falha de rede no relatório de liberações: #{e.class} #{e.message}"
       end
 
-      def verificar!(resposta)
+      # Diz QUAL chamada falhou e o que o Mercado Pago respondeu.
+      #
+      # "Relatório de liberações respondeu HTTP 400" era um beco sem saída: o
+      # fluxo faz três chamadas diferentes (listar, criar, baixar) e a
+      # explicação do 400 vem justamente no corpo, que estava sendo descartado.
+      def verificar!(resposta, requisicao = nil)
         codigo = resposta.code.to_i
 
-        raise AuthError, "Token do Mercado Pago inválido ou expirado" if [401, 403].include?(codigo)
+        onde = requisicao ? "#{requisicao.method} #{requisicao.uri.path}" : "Relatório de liberações"
 
-        raise RateLimited, "Bloqueio por excesso de requisições (429)" if codigo == 429
+        raise AuthError, "#{onde}: token do Mercado Pago inválido ou expirado" if [ 401, 403 ].include?(codigo)
+
+        raise RateLimited, "#{onde}: bloqueio por excesso de requisições (429)" if codigo == 429
 
         # 202 é o retorno normal da criação: aceito, gerando.
         return resposta if resposta.is_a?(Net::HTTPSuccess)
 
-        raise Error, "Relatório de liberações respondeu HTTP #{codigo}"
+        raise Error, "#{onde} respondeu HTTP #{codigo}#{explicacao(resposta)}"
+      end
+
+      # O corpo do erro é texto do Mercado Pago sobre a NOSSA requisição (as
+      # datas que mandamos), não sobre a credencial — o token vai em cabeçalho
+      # e não é ecoado. Mesmo assim só vai para o log, nunca para a tela.
+      def explicacao(resposta)
+        corpo = resposta.body.to_s.strip
+
+        corpo.empty? ? "" : " — #{corpo.truncate(300)}"
       end
 
       def corpo(resposta) = resposta.body.to_s

@@ -47,7 +47,7 @@ module Marketplace
     def cliente(http, timeout: 30)
       c = ML::ReleasesClient.new(access_token: "AT", timeout: timeout, sleeper: ->(_s) { nil })
 
-      c.define_singleton_method(:executar) { |req| c.send(:verificar!, http.call(req)) }
+      c.define_singleton_method(:executar) { |req| c.send(:verificar!, http.call(req), req) }
 
       c
     end
@@ -82,6 +82,38 @@ module Marketplace
       assert_equal "2026-08-01T00:00:00Z", corpo["begin_date"]
       # Fim do dia: senão o último dia do período fica de fora.
       assert_equal "2026-08-07T23:59:59Z", corpo["end_date"]
+    end
+
+    # A janela padrão da conciliação termina em Date.current, então o fim do
+    # dia de hoje — que está no futuro — era o que ia no pedido todo dia.
+    test "não pede relatório de um período que termina no futuro" do
+      http = HttpFalso.new(listas: [ [] ])
+
+      # O download não interessa aqui; o que importa é o que foi PEDIDO.
+      assert_raises(ML::ReleasesClient::ReportPending) do
+        cliente(http, timeout: 5).csv_for(start_date: Date.current - 7, end_date: Date.current)
+      end
+
+      corpo = JSON.parse(http.chamadas.find { |m, _, _| m == "POST" }[2])
+
+      assert_operator Time.parse(corpo["end_date"]), :<=, Time.current
+    end
+
+    # Sem isto, "HTTP 400" é um beco sem saída: o fluxo faz três chamadas
+    # diferentes, e a explicação do Mercado Pago vem no corpo.
+    test "erro diz qual chamada falhou e o que a plataforma respondeu" do
+      http = Object.new
+
+      def http.call(_req)
+        HttpFalso::Resposta.new("400", '{"message":"end_date must not be in the future"}')
+      end
+
+      erro = assert_raises(ML::ReleasesClient::Error) do
+        cliente(http).csv_for(start_date: DE, end_date: ATE)
+      end
+
+      assert_includes erro.message, "GET /v1/account/release_report/list"
+      assert_includes erro.message, "end_date must not be in the future"
     end
 
     test "não fica esperando para sempre" do
