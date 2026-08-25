@@ -13,8 +13,7 @@ module Conciliacoes
     private
 
     def escopo
-      scope = ConciliacaoRegistro
-                .where(tenant_id: current_tenant.id)
+      scope = atuais
                 .includes(:conciliation_run, :payout_batch)
                 .order(conciliated_at: :desc, id: :desc)
 
@@ -60,8 +59,22 @@ module Conciliacoes
       }
     end
 
+    # Só o estado ATUAL de cada repasse.
+    #
+    # A conciliação grava um registro por repasse a cada execução — é o
+    # histórico de como ele foi conferido ao longo do tempo, e isso é
+    # deliberado. Mas a tela diz "cada linha compara um repasse com os títulos
+    # do OMIE", ou seja, mostra estado. Sem este recorte, rodar a conciliação
+    # três vezes exibia o mesmo repasse três vezes e o resumo contava tudo em
+    # triplicado.
+    def atuais
+      ConciliacaoRegistro
+        .where(tenant_id: current_tenant.id)
+        .where(id: ConciliacaoRegistro.ids_dos_ultimos(current_tenant.id))
+    end
+
     def resumo
-      base = ConciliacaoRegistro.where(tenant_id: current_tenant.id)
+      base = atuais
 
       por_status = base.group(:status).count
 

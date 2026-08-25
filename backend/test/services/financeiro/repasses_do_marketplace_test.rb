@@ -208,6 +208,31 @@ module Financeiro
       assert_equal BigDecimal("150"), registro.conciliation_metadata["valor_omie"].to_d
     end
 
+    # A conciliação grava um registro por repasse A CADA execução — é o
+    # histórico, e isso é de propósito. Mas a tela mostra ESTADO: sem o recorte,
+    # rodar três vezes exibia o mesmo repasse três vezes e o resumo contava
+    # tudo em triplicado.
+    test "a listagem mostra só o estado atual de cada repasse" do
+      venda_com_taxa
+      repasse
+
+      fechar
+
+      3.times { conciliar([]) }
+
+      lote = PayoutBatch.find_by(tenant: @tenant)
+
+      assert_equal 3, ConciliacaoRegistro.where(payout_batch_id: lote.id).count,
+                   "o histórico continua no banco"
+
+      atuais = ConciliacaoRegistro.where(
+        id: ConciliacaoRegistro.ids_dos_ultimos(@tenant.id)
+      )
+
+      assert_equal 1, atuais.count, "a tela mostra um repasse uma vez"
+      assert_equal ConciliacaoRegistro.where(payout_batch_id: lote.id).maximum(:id), atuais.first.id
+    end
+
     test "sem nota fiscal do nosso lado, o título do OMIE não é encontrado" do
       venda_com_taxa(bruto: 150, taxa: 15)
       repasse
