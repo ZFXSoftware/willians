@@ -22,6 +22,7 @@
 #   ./deploy/deploy.sh trocar DOMINIO       desativa o antigo e ativa o novo
 #   ./deploy/deploy.sh reverter             desfaz a troca
 #   ./deploy/deploy.sh status               saúde da stack nova
+#   ./deploy/deploy.sh estado               o que está conectado e importado
 #   ./deploy/deploy.sh parar-antigo NOME    para (sem apagar) a stack antiga
 #
 set -euo pipefail
@@ -716,9 +717,20 @@ cmd_status() {
   fi
 }
 
+# ----------------------------------------------------------------------- estado
+
+# O status acima diz se a stack está DE PÉ. Este diz se ela está FUNCIONANDO:
+# quais empresas existem, o que cada uma conectou e o que já foi importado.
+cmd_estado() {
+  exigir_env
+
+  compose exec -T backend bin/rails estado
+}
+
 # ------------------------------------------------------------------------ main
 
 case "${1:-inspecionar}" in
+  estado)        cmd_estado ;;
   inspecionar)   cmd_inspecionar ;;
   preparar)      cmd_preparar "${2:-}" ;;
   subir)         cmd_subir ;;
@@ -730,6 +742,6 @@ case "${1:-inspecionar}" in
   status)        cmd_status ;;
   *)
     erro "comando desconhecido: $1
-   use: inspecionar | preparar | subir | migrar | publicar DOMINIO | trocar DOMINIO | reverter | parar-antigo NOME | status"
+   use: inspecionar | preparar | subir | migrar | publicar DOMINIO | trocar DOMINIO | reverter | parar-antigo NOME | status | estado"
     ;;
 esac
