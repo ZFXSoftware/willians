@@ -6,14 +6,35 @@ namespace :ml do
     #
     # A mesma técnica que resolveu o "0 títulos no OMIE": perguntar de novo SEM
     # filtro nenhum. Se sem filtro também vier zero, a conta é que está vazia.
-    conta = PlatformAccount.find_by(id: ENV["CONTA"]) ||
-            PlatformAccount.where(platform: "mercado_livre").order(:id).first
+    # Lista antes de escolher.
+    #
+    # A primeira versão pegava a primeira conta por id e caiu numa sobra de
+    # teste sem credencial — mesmo tropeço da `omie:titulos`. Num sistema com
+    # várias empresas, "a conta" não existe sem dizer qual.
+    contas = PlatformAccount.where(platform: "mercado_livre").includes(:tenant, :marketplace_credential).order(:id)
 
-    abort "Nenhuma conta do Mercado Livre cadastrada. Use CONTA=<id>." if conta.blank?
+    abort "Nenhuma conta do Mercado Livre cadastrada." if contas.empty?
+
+    puts
+    puts "Contas do Mercado Livre:"
+
+    contas.each do |c|
+      puts format("  #%-4d empresa %-24s vendedor %-14s credencial: %s",
+                  c.id, c.tenant&.name.to_s[0, 24], c.external_id,
+                  c.marketplace_credential ? c.marketplace_credential.status : "NENHUMA")
+    end
+
+    conta = PlatformAccount.find_by(id: ENV["CONTA"]) ||
+            contas.find { |c| c.marketplace_credential&.usable? } ||
+            contas.find(&:marketplace_credential)
+
+    if conta.blank?
+      abort "\nNenhuma conta conectada. Conecte em Integrações, ou use CONTA=<id>."
+    end
 
     credencial = conta.marketplace_credential
 
-    abort "A conta ##{conta.id} não tem credencial. Conecte em Integrações." if credencial.blank?
+    abort "\nA conta ##{conta.id} não tem credencial. Use CONTA=<id> para escolher outra." if credencial.blank?
 
     puts
     puts "Empresa:               ##{conta.tenant_id} #{conta.tenant.name}"
