@@ -23,6 +23,7 @@
 #   ./deploy/deploy.sh reverter             desfaz a troca
 #   ./deploy/deploy.sh status               saúde da stack nova
 #   ./deploy/deploy.sh estado               o que está conectado e importado
+#   ./deploy/deploy.sh rake TAREFA [VAR=x]  roda uma tarefa de diagnóstico
 #   ./deploy/deploy.sh parar-antigo NOME    para (sem apagar) a stack antiga
 #
 set -euo pipefail
@@ -717,6 +718,29 @@ cmd_status() {
   fi
 }
 
+# ------------------------------------------------------------------------ rake
+
+# Atalho para as tarefas de diagnóstico e importação.
+#
+# Existe porque a alternativa é decorar (ou colar) a linha inteira do compose
+# com projeto, arquivo e env-file — e uma linha longa colada pela metade vira
+# erro que não tem nada a ver com o problema que se está investigando.
+#
+# `VAR=valor` funciona como argumento: o rake atribui ao ambiente sozinho.
+#
+#   ./deploy/deploy.sh rake omie:opcoes BUSCA=mercado
+#   ./deploy/deploy.sh rake omie:enviar_notas APLICAR=1 LIMITE=1
+cmd_rake() {
+  exigir_env
+
+  [[ $# -gt 0 ]] || erro "diga a tarefa. Ex.: ./deploy/deploy.sh rake tiny:check DIAS=90
+   Disponíveis: estado | tiny:check | tiny:importar | omie:titulos | omie:opcoes
+                omie:settings | omie:enviar_notas | liberacoes:corrigir_status
+                repasses:corrigir_valores"
+
+  compose exec -T backend bin/rails "$@"
+}
+
 # ----------------------------------------------------------------------- estado
 
 # O status acima diz se a stack está DE PÉ. Este diz se ela está FUNCIONANDO:
@@ -731,6 +755,7 @@ cmd_estado() {
 
 case "${1:-inspecionar}" in
   estado)        cmd_estado ;;
+  rake)          shift; cmd_rake "$@" ;;
   inspecionar)   cmd_inspecionar ;;
   preparar)      cmd_preparar "${2:-}" ;;
   subir)         cmd_subir ;;
@@ -742,6 +767,6 @@ case "${1:-inspecionar}" in
   status)        cmd_status ;;
   *)
     erro "comando desconhecido: $1
-   use: inspecionar | preparar | subir | migrar | publicar DOMINIO | trocar DOMINIO | reverter | parar-antigo NOME | status | estado"
+   use: inspecionar | preparar | subir | migrar | publicar DOMINIO | trocar DOMINIO | reverter | parar-antigo NOME | status | estado | rake TAREFA"
     ;;
 esac
