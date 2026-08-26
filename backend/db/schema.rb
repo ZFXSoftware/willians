@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_25_140000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_26_210000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -222,7 +222,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_25_140000) do
     t.jsonb "metadata"
     t.string "number"
     t.string "operation_type"
-    t.bigint "order_id", null: false
+    t.bigint "order_id"
     t.string "series"
     t.string "status"
     t.bigint "tenant_id", null: false

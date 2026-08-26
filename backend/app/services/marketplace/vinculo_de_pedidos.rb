@@ -17,6 +17,16 @@ module Marketplace
   class VinculoDePedidos
     LOG_PREFIX = "[VinculoDePedidos]".freeze
 
+    # Os pedidos são buscados numa janela MAIOR que a do extrato.
+    #
+    # As duas listas são datadas por coisas diferentes: o extrato pelo dia em
+    # que o dinheiro foi LIBERADO, os pedidos pelo dia da VENDA — e o Mercado
+    # Pago segura o valor por semanas. Pedindo a mesma janela para os dois, a
+    # liberação de hoje de uma venda de 40 dias atrás não encontrava o pedido
+    # dela: na primeira sincronização com dado real, 897 lançamentos ficaram
+    # órfãos exatamente assim.
+    RECUO_DOS_PEDIDOS = 60.days
+
     def initialize(tenant:, platform_account:, start_date:, end_date:, client: nil)
       @tenant = tenant
 
@@ -32,7 +42,7 @@ module Marketplace
     def call
       resumo = { pedidos: 0, pagamentos: 0, lancamentos_ligados: 0, ja_ligados: 0 }
 
-      pedidos = cliente.orders(start_date: start_date, end_date: end_date)
+      pedidos = cliente.orders(start_date: start_date - RECUO_DOS_PEDIDOS, end_date: end_date)
 
       resumo[:pedidos] = pedidos.size
 

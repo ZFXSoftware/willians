@@ -18,8 +18,14 @@ module Marketplace
     class OrdersClient
       PAGE_SIZE = 50
 
-      # Teto de segurança: 50 páginas são 2500 pedidos numa janela de 30 dias.
-      MAX_PAGES = 50
+      # Teto de segurança, não meta.
+      #
+      # Era 50 páginas — 2500 pedidos —, o que parecia folgado para 30 dias.
+      # Com dado real são ~43 pedidos por dia, e a janela dos pedidos recua 60
+      # dias além da do extrato para alcançar as vendas que só liberam agora:
+      # 90 dias já passam de 3800 pedidos. O laço para sozinho no total que o
+      # Mercado Livre informa; isto aqui só impede laço infinito.
+      MAX_PAGES = 400
 
       OPEN_TIMEOUT = 5
 

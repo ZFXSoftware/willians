@@ -145,6 +145,34 @@ module Marketplace
       assert_equal "SELLER-1", servico.send(:vendedor)
     end
 
+    # O extrato é datado pela LIBERAÇÃO e os pedidos pela VENDA, e o Mercado
+    # Pago segura o dinheiro por semanas. Pedindo a mesma janela para os dois,
+    # a liberação de hoje de uma venda antiga não acha o pedido dela — foi o
+    # que deixou 897 lançamentos órfãos na primeira carga com dado real.
+    test "os pedidos são buscados numa janela maior que a do extrato" do
+      pedido_de = nil
+
+      cliente = Object.new
+
+      cliente.define_singleton_method(:orders) do |start_date:, end_date:|
+        pedido_de = start_date
+
+        []
+      end
+
+      servico = VinculoDePedidos.new(
+        tenant: @tenant, platform_account: @conta,
+        start_date: Date.current - 30, end_date: Date.current
+      )
+
+      servico.instance_variable_set(:@cliente, cliente)
+
+      servico.call
+
+      assert_operator pedido_de, :<, Date.current - 30,
+                      "a janela dos pedidos precisa alcançar vendas anteriores ao extrato"
+    end
+
     test "pedido sem pagamento nenhum é ignorado" do
       resumo = vincular([ pedido_ml(pagamentos: []) ])
 

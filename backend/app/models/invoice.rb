@@ -3,7 +3,10 @@
 class Invoice < ApplicationRecord
   belongs_to :tenant
 
-  belongs_to :order
+  # Opcional porque a nota existe sem o nosso pedido: ela é documento do fisco,
+  # e o pedido é registro nosso. Quem cria a nota (o InvoiceSync) sempre a
+  # amarra a um pedido; isto aqui é para ela SOBREVIVER quando o pedido some.
+  belongs_to :order, optional: true
 
   has_many :financial_entries,
            dependent: :nullify

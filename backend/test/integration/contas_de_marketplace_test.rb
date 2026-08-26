@@ -74,6 +74,20 @@ class ContasDeMarketplaceTest < ActionDispatch::IntegrationTest
     assert_equal 0, FinancialEntry.where(platform_account_id: @conta.id).count
   end
 
+  # A nota fiscal é documento do FISCO; o pedido é registro nosso. Apagar uma
+  # conta conectada por engano apagava os pedidos, e os pedidos levavam as
+  # notas junto — 4051 documentos sumindo por causa de um OAuth errado.
+  test "apagar a conta não leva as notas fiscais junto" do
+    pedido = criar_pedido(tenant: @tenant, conta: @conta)
+    nota = criar_nota(tenant: @tenant, pedido: pedido, numero: "850512")
+
+    delete "/integracoes/contas/#{@conta.id}", params: { confirmar: true }, headers: @cabecalhos
+
+    assert_response :no_content
+    assert Invoice.exists?(nota.id), "a nota tem que sobreviver ao pedido"
+    assert_nil nota.reload.order_id
+  end
+
   test "sem confirmar, a conta com histórico continua lá" do
     criar_lancamento(tenant: @tenant, conta: @conta, valor: 100)
 
