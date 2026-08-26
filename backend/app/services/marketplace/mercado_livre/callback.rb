@@ -79,11 +79,30 @@ module Marketplace
 
         return criar(oauth_state, external_id) if indicada.blank?
 
+        # O card indicado só é REAPROVEITADO se ainda for um esboço: sem
+        # credencial e sem histórico.
+        #
+        # Renomeá-lo quando já tem dados seria pior do que o bug que este
+        # método conserta. Foi assim que aconteceu: o token do cliente venceu,
+        # alguém clicou em reconectar com OUTRA conta logada no navegador, e o
+        # card do cliente passou a carregar o token de um estranho. Renomear
+        # também o cadastro juntaria os lançamentos de dois vendedores
+        # diferentes no mesmo lugar — e desfazer isso é bem mais caro.
+        return criar(oauth_state, external_id) unless esboco?(indicada)
+
         renomear(indicada, external_id)
 
         indicada.update!(external_id: external_id)
 
         indicada
+      end
+
+      # Card recém-criado, que nunca conectou nem recebeu nada. Trocar o
+      # vendedor dele não destrói informação de ninguém.
+      def esboco?(conta)
+        conta.marketplace_credential.blank? &&
+          conta.financial_entries.none? &&
+          conta.orders.none?
       end
 
       def criar(oauth_state, external_id)

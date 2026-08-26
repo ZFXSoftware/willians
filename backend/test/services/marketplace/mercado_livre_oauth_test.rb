@@ -99,43 +99,49 @@ module Marketplace
     # Livre, e a conta ficou com o id do vendedor antigo e o token do novo.
     # Toda chamada seguinte perguntava pelos pedidos de um vendedor usando o
     # token de outro.
-    test "reconectar um card com outro vendedor acerta o id da conta" do
+    # O caso REAL: o token do cliente venceu, alguém clicou em reconectar com
+    # outra conta logada no navegador, e o card do cliente passou a carregar o
+    # token de um estranho.
+    #
+    # O card do cliente NÃO pode ser renomeado nem receber esse token: os
+    # lançamentos que já estão nele são de outro vendedor, e juntar os dois no
+    # mesmo lugar é bem pior do que o problema original.
+    test "reconectar com outro vendedor não sequestra o card que já tem dados" do
       primeira = conectar
 
-      conta = primeira.platform_account
+      cliente = primeira.platform_account
 
-      assert_equal "555000111", conta.external_id
+      criar_lancamento(tenant: @tenant, conta: cliente, valor: 100)
 
       outro = OauthFalso.new(user_id: 999_888_777)
 
       estado = ML::Authorization.new(
-        tenant: @tenant, user: @usuario, platform_account: conta, client: outro
+        tenant: @tenant, user: @usuario, platform_account: cliente, client: outro
       ).call
 
-      ML::Callback.new(code: "CODE-XYZ", state: estado[:state], client: outro).call
+      nova = ML::Callback.new(code: "CODE-XYZ", state: estado[:state], client: outro).call
 
-      assert_equal "999888777", conta.reload.external_id,
-                   "o id tem que seguir o vendedor que autorizou, não o card"
-      assert_equal "Mercado Livre 999888777", conta.name
+      assert_equal "555000111", cliente.reload.external_id, "o card do cliente fica como estava"
+      assert_equal primeira.id, cliente.marketplace_credential.id, "e com a credencial dele"
+
+      assert_not_equal cliente.id, nova.platform_account_id
+      assert_equal "999888777", nova.platform_account.external_id
+      assert_equal 2, @tenant.platform_accounts.reload.count
     end
 
-    # Nome escrito por alguém é informação; trocar por "Mercado Livre 123"
-    # apagaria isso.
-    test "nome dado pelo usuário sobrevive à troca de vendedor" do
-      conta = conectar.platform_account
-
-      conta.update!(name: "Loja principal")
-
-      outro = OauthFalso.new(user_id: 999_888_777)
+    # Card recém-criado que nunca conectou nem recebeu nada é só um esboço:
+    # trocar o vendedor dele não destrói informação de ninguém.
+    test "card em branco assume o vendedor que autorizou" do
+      esboco = criar_conta(tenant: @tenant, plataforma: "mercado_livre", external_id: "provisorio")
 
       estado = ML::Authorization.new(
-        tenant: @tenant, user: @usuario, platform_account: conta, client: outro
+        tenant: @tenant, user: @usuario, platform_account: esboco, client: @falso
       ).call
 
-      ML::Callback.new(code: "CODE-XYZ", state: estado[:state], client: outro).call
+      ML::Callback.new(code: "CODE-XYZ", state: estado[:state], client: @falso).call
 
-      assert_equal "Loja principal", conta.reload.name
-      assert_equal "999888777", conta.external_id
+      assert_equal "555000111", esboco.reload.external_id
+      assert_equal 1, @tenant.platform_accounts.reload.count
     end
 
     # Autorizar a partir do card A um vendedor que já tem o card B não pode
