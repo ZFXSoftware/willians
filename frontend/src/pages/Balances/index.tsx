@@ -38,6 +38,10 @@ const SEM_PROVIDENCIA: MotivoSemEspelho[] = [
   "sem_suporte",
   "relatorio_em_geracao",
   "limite_de_requisicoes",
+  // A mensagem dele termina dizendo que não há o que fazer, e mesmo assim
+  // aparecia na lista de "precisam de você". Alarme que se contradiz é pior
+  // do que alarme nenhum.
+  "sem_dados",
 ]
 
 export default function Balances() {

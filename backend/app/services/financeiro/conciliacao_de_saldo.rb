@@ -179,9 +179,9 @@ module Financeiro
       # o saldo vem de linhas de RESUMO do relatório, que são registros à parte
       # da movimentação. Dá para ter vendido o dia inteiro e o relatório não
       # trazer nenhuma linha de saldo.
-      sem_dados: "%{plataforma} respondeu, mas o relatório do período não traz as linhas de " \
-                 "saldo (anterior, disponível e total). Isso é independente de ter havido " \
-                 "movimentação: os lançamentos entram na conciliação normalmente.",
+      sem_dados: "%{plataforma} não declara saldo neste relatório — ele traz a movimentação, " \
+                 "não o resumo. Nada a fazer: os lançamentos entram na conciliação " \
+                 "normalmente, e só o espelho do saldo fica sem o outro lado.",
       # A causa crua não vem para a tela (pode carregar token), mas deixar o
       # usuário sem saber onde procurar é abandoná-lo com o problema.
       erro: "Não foi possível ler o saldo em %{plataforma}. " \
@@ -294,8 +294,12 @@ module Financeiro
 
     # Nem todo motivo é problema. Quem lê o log filtrando por warn não deveria
     # ser incomodado por "o relatório ainda está sendo gerado".
+    # `sem_dados` entrou aqui depois: a própria mensagem dele termina dizendo
+    # que os lançamentos entram na conciliação normalmente — ou seja, não há o
+    # que fazer —, e mesmo assim ele aparecia na lista de "precisam de você".
+    # Alarme que se contradiz é pior do que alarme nenhum.
     SEM_PROVIDENCIA = %i[
-      sem_integracao sem_suporte relatorio_em_geracao limite_de_requisicoes
+      sem_integracao sem_suporte relatorio_em_geracao limite_de_requisicoes sem_dados
     ].freeze
 
     def registrar(conta, motivo, mensagem, detalhe)
