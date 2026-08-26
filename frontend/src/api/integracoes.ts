@@ -150,10 +150,20 @@ export async function sincronizar(platformAccountId: number): Promise<{ job_id: 
   return data
 }
 
-// Some com a conta de vez. O backend recusa se já houver histórico importado —
-// apagar levaria junto pedidos e lançamentos em cascata.
-export async function removerConta(platformAccountId: number): Promise<void> {
-  await api.delete(`/integracoes/contas/${platformAccountId}`)
+// Some com a conta de vez.
+//
+// Sem `confirmar`, o backend RECUSA quando há histórico e devolve as
+// contagens — é o que permite mostrar "apagar isto leva junto N lançamentos"
+// antes de perguntar. Com `confirmar`, apaga em cascata: existe porque uma
+// conta conectada por engano traz lançamentos que nunca deveriam ter entrado
+// no razão, e arquivar não os tira do saldo nem da conciliação.
+export async function removerConta(
+  platformAccountId: number,
+  confirmar = false,
+): Promise<void> {
+  await api.delete(`/integracoes/contas/${platformAccountId}`, {
+    params: confirmar ? { confirmar: true } : undefined,
+  })
 }
 
 // Tira da operação sem destruir nada: sai da conciliação e da sincronização,

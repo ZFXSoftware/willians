@@ -37,13 +37,27 @@ module Integracoes
 
       pedidos = conta.orders.count
 
-      if lancamentos.positive? || pedidos.positive?
+      if (lancamentos.positive? || pedidos.positive?) && !confirmado?
         return render json: {
-          error: "Esta conta já tem histórico importado e não pode ser apagada.",
-          hint: "Arquive-a: sai da operação e o histórico continua auditável.",
+          error: "Esta conta já tem histórico importado.",
+          hint: "Arquive-a para tirar da operação sem destruir nada, ou confirme para apagar " \
+                "de vez junto com o que ela trouxe.",
           lancamentos: lancamentos,
           pedidos: pedidos
         }, status: :unprocessable_entity
+      end
+
+      # Apagar com histórico existe porque o caso é real: uma conta conectada
+      # por engano importa lançamentos que NUNCA deveriam ter entrado no razão
+      # do cliente. Arquivar não serve aí — o dado continua contando no saldo e
+      # na conciliação. Mas é destruição em cascata, então só com confirmação
+      # explícita, e registrada.
+      if lancamentos.positive? || pedidos.positive?
+        Rails.logger.warn(
+          "[Contas] apagando a conta ##{conta.id} (#{conta.platform} #{conta.external_id}) " \
+          "COM histórico: #{lancamentos} lançamento(s) e #{pedidos} pedido(s), " \
+          "a pedido do usuário ##{current_user&.id}."
+        )
       end
 
       conta.destroy!
@@ -93,6 +107,12 @@ module Integracoes
     end
 
     private
+
+    # Confirmação vem no parâmetro, e nunca por omissão: apagar em cascata não
+    # pode ser o efeito de uma requisição distraída.
+    def confirmado?
+      ActiveModel::Type::Boolean.new.cast(params[:confirmar]) || false
+    end
 
     # Só os que fazem sentido variar por marketplace. As categorias
     # transitórias são do plano de contas da empresa e continuam na tela dela.

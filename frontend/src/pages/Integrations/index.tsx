@@ -97,6 +97,14 @@ export default function Integrations() {
   const [acao, setAcao] = useState<string | null>(null)
   const [importando, setImportando] = useState<number | null>(null)
   const [nota, setNota] = useState<Nota | null>(null)
+  const [confirmandoRemocao, setConfirmandoRemocao] = useState<{
+    id: number
+    lancamentos: number
+    pedidos: number
+  } | null>(null)
+  // Conta arquivada saiu da operação; deixá-la no meio das ativas faz a tela
+  // parecer mais cheia do que o cliente realmente tem.
+  const [mostrarArquivadas, setMostrarArquivadas] = useState(false)
 
   const { data, loading, error, reload } = useResource(fetchIntegracoes)
 
@@ -106,6 +114,13 @@ export default function Integrations() {
   const jaTemConta = new Set(data?.items.map((i) => i.plataforma) ?? [])
 
   const disponiveis = (data?.plataformas_implementadas ?? []).filter((p) => !jaTemConta.has(p))
+
+  // Arquivada saiu da operação: fica fora da lista até alguém pedir para ver.
+  const arquivadas = (data?.items ?? []).filter((c) => c.status === "inactive")
+
+  const visiveis = mostrarArquivadas
+    ? (data?.items ?? [])
+    : (data?.items ?? []).filter((c) => c.status !== "inactive")
 
   // Retorno do OAuth: o backend devolve o navegador para cá com o resultado.
   const retornoStatus = params.get("status")
@@ -151,16 +166,30 @@ export default function Integrations() {
 
   // Conta conectada por engano. Se nada foi importado, some de vez; se já
   // houver histórico, o backend recusa e a saída é arquivar.
-  async function remover_de_vez(conta: Integracao) {
+  // Duas etapas quando há histórico: a primeira volta com as contagens, e é
+  // com elas na tela que a pessoa decide. Apagar leva pedidos e lançamentos
+  // em cascata — não pode acontecer no primeiro clique.
+  async function remover_de_vez(conta: Integracao, confirmar = false) {
     setAcao(String(conta.id))
     setNota(null)
 
     try {
-      await removerConta(conta.id)
+      await removerConta(conta.id, confirmar)
+      setConfirmandoRemocao(null)
       reload()
       setNota({ tipo: "ok", texto: `${conta.nome} foi removida.` })
-    } catch (e) {
-      setNota({ tipo: "erro", texto: errorMessage(e, "Não foi possível remover") })
+    } catch (e: any) {
+      const corpo = e?.response?.data
+
+      if (corpo?.lancamentos !== undefined) {
+        setConfirmandoRemocao({
+          id: conta.id,
+          lancamentos: corpo.lancamentos,
+          pedidos: corpo.pedidos,
+        })
+      } else {
+        setNota({ tipo: "erro", texto: errorMessage(e, "Não foi possível remover") })
+      }
     } finally {
       setAcao(null)
     }
@@ -377,7 +406,7 @@ export default function Integrations() {
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {data?.items.map((conta) => {
+              {visiveis.map((conta) => {
                 const Icone = ICONES[conta.plataforma] ?? ShoppingBag
                 const ocupado = acao === String(conta.id)
                 const ocupadoImportando = importando === conta.id
@@ -467,6 +496,36 @@ export default function Integrations() {
 
                     <ResumoDaSincronizacao resumo={conta.resumo_sincronizacao} />
 
+                    {/* A confirmação mostra o que se perde, com número. "Tem
+                        certeza?" sozinho não informa nada. */}
+                    {confirmandoRemocao?.id === conta.id && (
+                      <div className="mt-4 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-3 text-xs text-red-200 space-y-2">
+                        <p>
+                          Apagar leva junto{" "}
+                          <strong>{confirmandoRemocao.lancamentos} lançamento(s)</strong> e{" "}
+                          <strong>{confirmandoRemocao.pedidos} pedido(s)</strong>, além das
+                          conciliações e recebíveis deles. Não dá para desfazer.
+                        </p>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => remover_de_vez(conta, true)}
+                            disabled={ocupado}
+                            className="bg-red-500/80 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg font-medium disabled:opacity-50"
+                          >
+                            Apagar mesmo assim
+                          </button>
+
+                          <button
+                            onClick={() => setConfirmandoRemocao(null)}
+                            className="px-3 py-1.5 rounded-lg hover:bg-zinc-800 transition"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {conta.erro_de_sincronizacao &&
                       (conta.status_sincronizacao === "pendente" ? (
                         <p className="mt-4 text-xs text-sky-300 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
@@ -534,15 +593,31 @@ export default function Integrations() {
                               Remover
                             </button>
                           ) : (
-                            <button
-                              onClick={() => arquivar(conta)}
-                              disabled={ocupado}
-                              title="Tira da operação; o histórico continua no razão"
-                              className="flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
-                            >
-                              <Archive size={15} />
-                              Arquivar
-                            </button>
+                            <>
+                              <button
+                                onClick={() => arquivar(conta)}
+                                disabled={ocupado}
+                                title="Tira da operação; o histórico continua no razão"
+                                className="flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
+                              >
+                                <Archive size={15} />
+                                Arquivar
+                              </button>
+
+                              {/* Arquivar não serve quando a conta entrou por
+                                  ENGANO: o histórico dela continua contando no
+                                  saldo e na conciliação. Aí a saída é apagar,
+                                  e ela existe — com as contagens na frente. */}
+                              <button
+                                onClick={() => remover_de_vez(conta)}
+                                disabled={ocupado}
+                                title="Apaga a conta e tudo o que ela importou"
+                                className="flex items-center justify-center gap-2 bg-zinc-800 hover:bg-red-500/20 hover:text-red-300 transition px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
+                              >
+                                <Trash2 size={15} />
+                                Apagar
+                              </button>
+                            </>
                           )}
                         </>
                       )}
@@ -551,6 +626,16 @@ export default function Integrations() {
                 )
               })}
             </div>
+          )}
+
+          {arquivadas.length > 0 && (
+            <button
+              onClick={() => setMostrarArquivadas(!mostrarArquivadas)}
+              className="text-sm text-zinc-400 hover:text-zinc-200 transition"
+            >
+              {mostrarArquivadas ? "Ocultar" : "Mostrar"} {arquivadas.length} conta(s)
+              arquivada(s)
+            </button>
           )}
         </>
       )}

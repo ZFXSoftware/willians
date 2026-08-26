@@ -55,6 +55,34 @@ class ContasDeMarketplaceTest < ActionDispatch::IntegrationTest
     assert_match(/[Aa]rquive/, response.parsed_body["hint"])
   end
 
+  # Arquivar não serve quando a conta entrou por ENGANO: o histórico dela
+  # continua contando no saldo e na conciliação. Foi o caso real — uma conta
+  # pessoal conectada no lugar da do cliente, com 19 lançamentos importados.
+  test "conta com histórico é apagada quando confirmado, com o que trouxe" do
+    pedido = criar_pedido(tenant: @tenant, conta: @conta)
+    criar_lancamento(tenant: @tenant, conta: @conta, pedido: pedido, valor: 100)
+
+    delete "/integracoes/contas/#{@conta.id}", headers: @cabecalhos
+
+    assert_response :unprocessable_entity
+    assert_equal 1, response.parsed_body["lancamentos"], "a recusa precisa dizer o que se perde"
+
+    delete "/integracoes/contas/#{@conta.id}", params: { confirmar: true }, headers: @cabecalhos
+
+    assert_response :no_content
+    assert_nil PlatformAccount.find_by(id: @conta.id)
+    assert_equal 0, FinancialEntry.where(platform_account_id: @conta.id).count
+  end
+
+  test "sem confirmar, a conta com histórico continua lá" do
+    criar_lancamento(tenant: @tenant, conta: @conta, valor: 100)
+
+    delete "/integracoes/contas/#{@conta.id}", headers: @cabecalhos
+
+    assert_response :unprocessable_entity
+    assert PlatformAccount.exists?(@conta.id)
+  end
+
   test "arquivar tira da operação e preserva o histórico" do
     criar_lancamento(tenant: @tenant, conta: @conta, valor: 250)
 
