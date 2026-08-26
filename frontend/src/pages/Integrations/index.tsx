@@ -1018,6 +1018,18 @@ function ResumoDaSincronizacao({ resumo }: { resumo: ResumoSincronizacao | null 
         Última sincronização {resumo.periodo ? `(${resumo.periodo})` : ""}
       </p>
 
+      {/* Conta conectada que não tem NENHUM pedido é quase sempre conta
+          errada — foi o que aconteceu aqui, e custou dias para aparecer.
+          Um "0" na lista abaixo passa por "não vendeu neste mês"; escrito,
+          não passa. */}
+      {resumo.pedidos === 0 && (
+        <p className="mt-2 text-xs text-yellow-300 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-2 py-1.5">
+          Nenhum pedido no período. Se o cliente vende neste marketplace, a conta
+          conectada provavelmente não é a da operação — desconecte e conecte com
+          o login que faz as vendas.
+        </p>
+      )}
+
       {/* Os lançamentos entraram, mas sem os pedidos nada liga o dinheiro à
           nota fiscal — e a conciliação contra o OMIE fica sem chave. Isso
           precisa aparecer, mesmo com a importação tendo funcionado. */}
