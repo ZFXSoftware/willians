@@ -1,3 +1,8 @@
+# O Rails carrega net/http quando algum serviço o pede; a tarefa fala HTTP
+# direto e precisa pedir por conta própria.
+require "net/http"
+require "json"
+
 namespace :ml do
   desc "Pergunta ao Mercado Livre quantos pedidos a conta tem, com e sem filtro (SOMENTE LEITURA)"
   task pedidos: :environment do
