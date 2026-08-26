@@ -1,0 +1,126 @@
+require "test_helper"
+
+module Marketplace
+  # O último elo da corrente.
+  #
+  # O relatório de liberações do Mercado Livre identifica cada linha pelo id do
+  # PAGAMENTO — a coluna do pedido vem vazia em todas. As notas do Tiny trazem
+  # o número do PEDIDO. Sem ninguém ligando um ao outro, o dinheiro e a nota
+  # fiscal nunca se encontram, e a conciliação contra o OMIE fica sem chave.
+  class VinculoDePedidosTest < ActiveSupport::TestCase
+    def setup
+      @tenant = criar_tenant
+      @conta = criar_conta(tenant: @tenant, plataforma: "mercado_livre", external_id: "SELLER-1")
+    end
+
+    def lancamento(tipo:, direcao:, pagamento:, sufixo:, valor: 100)
+      FinancialEntry.create!(
+        tenant: @tenant, platform_account: @conta,
+        external_id: "MLREL-#{pagamento}-#{sufixo}", source: :mercado_livre,
+        entry_type: tipo, direction: direcao, amount: valor,
+        occurred_at: 2.days.ago, available_on: 2.days.ago.to_date,
+        status: :settled, metadata: { "source_id" => pagamento }
+      )
+    end
+
+    # Devolve os pedidos que o Mercado Livre devolveria, sem sair para a rede.
+    def cliente_falso(pedidos)
+      Object.new.tap do |o|
+        o.define_singleton_method(:orders) { |**| pedidos }
+      end
+    end
+
+    def vincular(pedidos)
+      VinculoDePedidos.new(
+        tenant: @tenant, platform_account: @conta,
+        start_date: Date.current - 30, end_date: Date.current
+      ).tap { |s| s.instance_variable_set(:@cliente, cliente_falso(pedidos)) }.call
+    end
+
+    def pedido_ml(id: "2000017100877708", pagamentos: [ "PAY-1" ], comprador: "fulano")
+      { external_id: id, pagamentos: pagamentos, status: "paid",
+        total: 150.0, criado_em: 2.days.ago.iso8601, comprador: comprador }
+    end
+
+    test "liga o lançamento ao pedido pelo id do pagamento" do
+      venda = lancamento(tipo: :sale, direcao: :credit, pagamento: "PAY-1", sufixo: "SALE")
+
+      resumo = vincular([ pedido_ml ])
+
+      assert_equal 1, resumo[:pedidos]
+      assert_equal 1, resumo[:lancamentos_ligados]
+
+      assert_equal "2000017100877708", venda.reload.order.external_id
+    end
+
+    # Venda e taxas saem da MESMA linha do extrato e compartilham o SOURCE_ID.
+    test "as taxas da venda vão junto, porque compartilham o pagamento" do
+      lancamento(tipo: :sale, direcao: :credit, pagamento: "PAY-1", sufixo: "SALE")
+      taxa = lancamento(tipo: :fee, direcao: :debit, pagamento: "PAY-1", sufixo: "FEE", valor: 15)
+
+      vincular([ pedido_ml ])
+
+      assert_not_nil taxa.reload.order_id
+    end
+
+    # É por `order_id` que o InvoiceSync pendura a nota fiscal. O recebível
+    # nasce antes deste vínculo existir, então ficaria para trás — e é ELE que
+    # o repasse liquida e a conciliação compara.
+    test "o recebível da venda também recebe o pedido" do
+      lancamento(tipo: :sale, direcao: :credit, pagamento: "PAY-1", sufixo: "SALE")
+
+      recebivel = ReceivableUnit.find_by(tenant: @tenant)
+
+      assert_nil recebivel.order_id, "nasce sem pedido: o extrato não traz"
+
+      vincular([ pedido_ml ])
+
+      assert_equal "2000017100877708", recebivel.reload.order.external_id
+    end
+
+    test "um pedido com dois pagamentos liga os dois" do
+      lancamento(tipo: :sale, direcao: :credit, pagamento: "PAY-1", sufixo: "SALE")
+      lancamento(tipo: :sale, direcao: :credit, pagamento: "PAY-2", sufixo: "SALE")
+
+      resumo = vincular([ pedido_ml(pagamentos: [ "PAY-1", "PAY-2" ]) ])
+
+      assert_equal 2, resumo[:lancamentos_ligados]
+    end
+
+    # O pedido pode já existir vindo da nota do Tiny, que o cria só com o
+    # número. Aqui ele ganha conteúdo.
+    test "pedido criado pela nota do Tiny ganha comprador e valor" do
+      magro = criar_pedido(tenant: @tenant, conta: @conta, external_id: "2000017100877708")
+
+      magro.update!(metadata: { "origem" => "tiny_invoice_sync" })
+
+      lancamento(tipo: :sale, direcao: :credit, pagamento: "PAY-1", sufixo: "SALE")
+
+      vincular([ pedido_ml(comprador: "sirley") ])
+
+      magro.reload
+
+      assert_equal "sirley", magro.buyer_name
+      assert_equal BigDecimal("150"), magro.total_amount
+      assert_equal 1, Order.where(tenant: @tenant).count, "não pode nascer um segundo pedido"
+    end
+
+    test "lançamento já ligado a outro pedido não é sobrescrito" do
+      outro = criar_pedido(tenant: @tenant, conta: @conta, external_id: "OUTRO")
+
+      venda = lancamento(tipo: :sale, direcao: :credit, pagamento: "PAY-1", sufixo: "SALE")
+      venda.update!(order: outro)
+
+      vincular([ pedido_ml ])
+
+      assert_equal outro.id, venda.reload.order_id, "vínculo existente é informação, não sujeira"
+    end
+
+    test "pedido sem pagamento nenhum é ignorado" do
+      resumo = vincular([ pedido_ml(pagamentos: []) ])
+
+      assert_equal 0, resumo[:lancamentos_ligados]
+      assert_equal 0, Order.where(tenant: @tenant).count
+    end
+  end
+end

@@ -93,6 +93,11 @@ module Marketplace
         end_date: end_date
       ).call
 
+      # Antes dos repasses, e depois da ingestão: o extrato identifica cada
+      # linha pelo id do PAGAMENTO, e é aqui que ela ganha o PEDIDO — que é por
+      # onde a nota fiscal e o título do OMIE se penduram.
+      vinculos = vincular_pedidos(conta)
+
       # Depois de tudo gravado, e não no after_commit de cada lançamento: o
       # repasse precisa que os recebíveis da mesma leva já existam, e a ordem
       # em que as linhas do extrato chegam não garante isso.
@@ -116,12 +121,32 @@ module Marketplace
         # Evento que veio do marketplace e o razão recusou (validação). Some no
         # log se não subir até aqui, e "recebi 300, gravei 280" precisa aparecer.
         recusados: resumo[:failed].to_i,
+        vinculos: vinculos,
         repasses: repasses
       }
     rescue Marketplace::AindaNaoPronto => e
       pendente(conta, e)
     rescue StandardError => e
       falha(conta, e)
+    end
+
+    # Só o Mercado Livre por enquanto: é o único extrato que identifica a linha
+    # pelo pagamento em vez do pedido. Falhar aqui não derruba a ingestão — os
+    # lançamentos já estão no razão e valem por si; sem o vínculo, quem espera
+    # é a conciliação.
+    def vincular_pedidos(conta)
+      return unless conta.mercado_livre?
+
+      VinculoDePedidos.new(
+        tenant: conta.tenant,
+        platform_account: conta,
+        start_date: start_date,
+        end_date: end_date
+      ).call
+    rescue StandardError => e
+      Rails.logger.error "#{LOG_PREFIX} conta ##{conta.id}: vínculo de pedidos falhou: #{e.class} #{e.message}"
+
+      { erro: e.message }
     end
 
     # Fechar os repasses NÃO pode derrubar a ingestão: os lançamentos já estão

@@ -122,19 +122,19 @@ export default function Divergences() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px]">
-              <thead className="bg-zinc-950/80 text-zinc-400 text-sm">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="bg-zinc-950/80 text-zinc-400 text-xs uppercase tracking-wide">
                 <tr>
-                  <th className="text-left font-medium px-6 py-4">Caso</th>
-                  <th className="text-left font-medium px-6 py-4">Status</th>
-                  <th className="text-left font-medium px-6 py-4">Tipo</th>
-                  <th className="text-left font-medium px-6 py-4">Referência</th>
-                  <th className="text-left font-medium px-6 py-4">Plataforma</th>
-                  <th className="text-right font-medium px-6 py-4">Esperado</th>
-                  <th className="text-right font-medium px-6 py-4">Recebido</th>
-                  <th className="text-right font-medium px-6 py-4">Diferença</th>
-                  <th className="text-left font-medium px-6 py-4">Data</th>
-                  <th className="text-right font-medium px-6 py-4">Contestação</th>
+                  <th className="text-left font-medium px-4 py-3">Caso</th>
+                  <th className="text-left font-medium px-4 py-3">Status</th>
+                  <th className="text-left font-medium px-4 py-3">Tipo</th>
+                  <th className="text-left font-medium px-4 py-3">Referência</th>
+                  <th className="text-left font-medium px-4 py-3">Plataforma</th>
+                  <th className="text-right font-medium px-4 py-3">Esperado</th>
+                  <th className="text-right font-medium px-4 py-3">Recebido</th>
+                  <th className="text-right font-medium px-4 py-3">Diferença</th>
+                  <th className="text-left font-medium px-4 py-3">Data</th>
+                  <th className="text-right font-medium px-4 py-3">Contestação</th>
                 </tr>
               </thead>
 
@@ -150,35 +150,35 @@ export default function Divergences() {
                     <tr
                       className="border-t border-zinc-800 hover:bg-zinc-800/30 transition"
                     >
-                      <td className="px-6 py-5 text-zinc-400">DIV-{row.id}</td>
-                      <td className="px-6 py-5">
+                      <td className="px-4 py-3 text-zinc-400">DIV-{row.id}</td>
+                      <td className="px-4 py-3">
                         <span className="inline-flex items-center gap-1.5">
                           <Icone size={13} className="text-zinc-400" />
                           <Selo status={row.status} texto={rotulo(row.status)} />
                         </span>
                       </td>
-                      <td className="px-6 py-5 text-zinc-300">{rotulo(row.tipo)}</td>
-                      <td className="px-6 py-5 font-medium">
+                      <td className="px-4 py-3 text-zinc-300">{rotulo(row.tipo)}</td>
+                      <td className="px-4 py-3 font-medium">
                         {row.referencia ?? "—"}
                       </td>
-                      <td className="px-6 py-5 text-zinc-300">
+                      <td className="px-4 py-3 text-zinc-300">
                         {rotulo(row.plataforma)}
                       </td>
-                      <td className="px-6 py-5 text-right">
+                      <td className="px-4 py-3 text-right">
                         {brl(row.valor_esperado)}
                       </td>
-                      <td className="px-6 py-5 text-right">
+                      <td className="px-4 py-3 text-right">
                         {brl(row.valor_recebido)}
                       </td>
                       <td
-                        className={`px-6 py-5 text-right font-medium ${
+                        className={`px-4 py-3 text-right font-medium ${
                           dif > 0 ? "text-emerald-400" : "text-red-400"
                         }`}
                       >
                         {brl(row.diferenca)}
                       </td>
-                      <td className="px-6 py-5 text-zinc-400">{dataBR(row.data)}</td>
-                      <td className="px-6 py-5 text-right">
+                      <td className="px-4 py-3 text-zinc-400">{dataBR(row.data)}</td>
+                      <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => setContestando(aberta ? null : row.id)}
                           className="text-sm text-zinc-400 hover:text-white transition whitespace-nowrap"

@@ -71,14 +71,14 @@ export default function Dashboard() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px]">
-              <thead className="bg-zinc-950/80 text-zinc-400 text-sm">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="bg-zinc-950/80 text-zinc-400 text-xs uppercase tracking-wide">
                 <tr>
-                  <th className="text-left font-medium px-6 py-4">Data</th>
-                  <th className="text-left font-medium px-6 py-4">Descrição</th>
-                  <th className="text-left font-medium px-6 py-4">Plataforma</th>
-                  <th className="text-right font-medium px-6 py-4">Valor</th>
-                  <th className="text-left font-medium px-6 py-4">Status</th>
+                  <th className="text-left font-medium px-4 py-3">Data</th>
+                  <th className="text-left font-medium px-4 py-3">Descrição</th>
+                  <th className="text-left font-medium px-4 py-3">Plataforma</th>
+                  <th className="text-right font-medium px-4 py-3">Valor</th>
+                  <th className="text-left font-medium px-4 py-3">Status</th>
                 </tr>
               </thead>
 
@@ -88,8 +88,8 @@ export default function Dashboard() {
                     key={m.id}
                     className="border-t border-zinc-800 hover:bg-zinc-800/30 transition"
                   >
-                    <td className="px-6 py-4 text-zinc-400">{dataBR(m.data)}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3 text-zinc-400">{dataBR(m.data)}</td>
+                    <td className="px-4 py-3">
                       {/* O que aconteceu vem primeiro e em português; o pedido
                           logo abaixo, porque é por ele que se acha a venda no
                           marketplace. O id interno fica no title: serve para
@@ -106,11 +106,11 @@ export default function Dashboard() {
                             : "Sem identificação da plataforma"}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-zinc-300">
+                    <td className="px-4 py-3 text-zinc-300">
                       {rotulo(m.plataforma)}
                     </td>
                     <td
-                      className={`px-6 py-4 text-right font-medium ${
+                      className={`px-4 py-3 text-right font-medium ${
                         m.direcao === "credit" ? "text-emerald-400" : "text-red-400"
                       }`}
                     >
@@ -123,7 +123,7 @@ export default function Dashboard() {
                         {brl(numero(m.valor))}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 py-3">
                       <Selo status={m.status} texto={rotulo(m.status)} />
                     </td>
                   </tr>
