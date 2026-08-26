@@ -61,8 +61,30 @@ module Marketplace
     def cliente
       @cliente ||= MercadoLivre::OrdersClient.new(
         access_token: Credentials::TokenProvider.new(platform_account: platform_account).access_token,
-        seller_id: platform_account.external_id
+        seller_id: vendedor
       )
+    end
+
+    # O dono do TOKEN, e não o `external_id` da conta.
+    #
+    # São a mesma coisa quando tudo está certo, mas divergem quando um card foi
+    # reconectado com outro login do Mercado Livre. O id gravado na credencial
+    # veio junto com o token na autorização, então é impossível ele apontar
+    # para outro vendedor — e é essa garantia que o `external_id` não tinha.
+    def vendedor
+      credencial = platform_account.marketplace_credential
+
+      dono = credencial&.external_user_id.presence
+
+      if dono && dono != platform_account.external_id
+        Rails.logger.warn(
+          "#{LOG_PREFIX} conta ##{platform_account.id}: o cadastro diz vendedor " \
+          "#{platform_account.external_id} e o token é do vendedor #{dono}. " \
+          "Usando o dono do token. Reconecte a conta para acertar o cadastro."
+        )
+      end
+
+      dono || platform_account.external_id
     end
 
     # O pedido pode já existir vindo da nota do Tiny, que o cria só com o

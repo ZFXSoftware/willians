@@ -116,6 +116,35 @@ module Marketplace
       assert_equal outro.id, venda.reload.order_id, "vínculo existente é informação, não sujeira"
     end
 
+    # O 403 "caller.id does not match buyer or seller" da produção: a conta
+    # tinha o id de um vendedor e a credencial o token de outro. Perguntar pelos
+    # pedidos de um usando o token do outro é recusa garantida — e o id da
+    # credencial veio junto com o token, então é impossível ele divergir.
+    test "consulta pelo dono do token, não pelo id gravado na conta" do
+      MarketplaceCredential.create!(
+        tenant: @tenant, platform_account: @conta, platform: "mercado_livre",
+        status: :connected, access_token: "AT", external_user_id: "999888777",
+        expires_at: 4.hours.from_now
+      )
+
+      servico = VinculoDePedidos.new(
+        tenant: @tenant, platform_account: @conta,
+        start_date: Date.current - 30, end_date: Date.current
+      )
+
+      assert_equal "999888777", servico.send(:vendedor)
+      assert_equal "SELLER-1", @conta.external_id, "o cadastro continua como está"
+    end
+
+    test "sem credencial, cai no id da conta" do
+      servico = VinculoDePedidos.new(
+        tenant: @tenant, platform_account: @conta,
+        start_date: Date.current - 30, end_date: Date.current
+      )
+
+      assert_equal "SELLER-1", servico.send(:vendedor)
+    end
+
     test "pedido sem pagamento nenhum é ignorado" do
       resumo = vincular([ pedido_ml(pagamentos: []) ])
 

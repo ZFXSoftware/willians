@@ -94,6 +94,75 @@ module Marketplace
       assert_equal primeira.platform_account_id, segunda.platform_account_id
     end
 
+    # O caso que produziu, em produção, o 403 "caller.id does not match buyer
+    # or seller": o card existente foi reconectado com OUTRO login do Mercado
+    # Livre, e a conta ficou com o id do vendedor antigo e o token do novo.
+    # Toda chamada seguinte perguntava pelos pedidos de um vendedor usando o
+    # token de outro.
+    test "reconectar um card com outro vendedor acerta o id da conta" do
+      primeira = conectar
+
+      conta = primeira.platform_account
+
+      assert_equal "555000111", conta.external_id
+
+      outro = OauthFalso.new(user_id: 999_888_777)
+
+      estado = ML::Authorization.new(
+        tenant: @tenant, user: @usuario, platform_account: conta, client: outro
+      ).call
+
+      ML::Callback.new(code: "CODE-XYZ", state: estado[:state], client: outro).call
+
+      assert_equal "999888777", conta.reload.external_id,
+                   "o id tem que seguir o vendedor que autorizou, não o card"
+      assert_equal "Mercado Livre 999888777", conta.name
+    end
+
+    # Nome escrito por alguém é informação; trocar por "Mercado Livre 123"
+    # apagaria isso.
+    test "nome dado pelo usuário sobrevive à troca de vendedor" do
+      conta = conectar.platform_account
+
+      conta.update!(name: "Loja principal")
+
+      outro = OauthFalso.new(user_id: 999_888_777)
+
+      estado = ML::Authorization.new(
+        tenant: @tenant, user: @usuario, platform_account: conta, client: outro
+      ).call
+
+      ML::Callback.new(code: "CODE-XYZ", state: estado[:state], client: outro).call
+
+      assert_equal "Loja principal", conta.reload.name
+      assert_equal "999888777", conta.external_id
+    end
+
+    # Autorizar a partir do card A um vendedor que já tem o card B não pode
+    # criar um terceiro nem esbarrar no índice único.
+    test "se o vendedor já tem conta, é ela que recebe a credencial" do
+      primeira = conectar
+
+      outro = OauthFalso.new(user_id: 999_888_777)
+
+      segunda = ML::Callback.new(
+        code: "CODE-XYZ",
+        state: ML::Authorization.new(tenant: @tenant, user: @usuario, client: outro).call[:state],
+        client: outro
+      ).call
+
+      # Agora, partindo do card da PRIMEIRA, autoriza de novo o segundo
+      # vendedor: tem que cair no card dele.
+      estado = ML::Authorization.new(
+        tenant: @tenant, user: @usuario, platform_account: primeira.platform_account, client: outro
+      ).call
+
+      terceira = ML::Callback.new(code: "CODE-XYZ", state: estado[:state], client: outro).call
+
+      assert_equal 2, @tenant.platform_accounts.reload.count
+      assert_equal segunda.platform_account_id, terceira.platform_account_id
+    end
+
     test "token não fica em claro na coluna" do
       credencial = conectar
 

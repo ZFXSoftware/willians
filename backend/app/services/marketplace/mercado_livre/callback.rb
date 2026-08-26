@@ -53,19 +53,55 @@ module Marketplace
 
       # O external_id da conta é o user_id do vendedor no ML, que só é conhecido
       # depois da troca — por isso a conta pode ser criada aqui.
+      #
+      # Quem manda é o vendedor que AUTORIZOU, não a conta que o botão indicou.
+      # Antes a conta indicada era devolvida sem mais nada, e reconectar um card
+      # existente com outro login do Mercado Livre deixava o `external_id`
+      # apontando para o vendedor antigo com o token do novo. As chamadas
+      # seguintes perguntavam pelos pedidos de um vendedor usando o token de
+      # outro, e o ML respondia 403 "caller.id does not match buyer or seller".
       def resolve_platform_account!(oauth_state, tokens)
-        return oauth_state.platform_account if oauth_state.platform_account
+        external_id = tokens[:user_id].to_s.presence
 
-        external_id = tokens[:user_id].to_s
+        return oauth_state.platform_account if external_id.blank?
 
-        PlatformAccount.find_or_create_by!(
+        escopo = PlatformAccount.where(
+          tenant_id: oauth_state.tenant_id, platform: Settings::PLATFORM
+        )
+
+        # Já existe a conta deste vendedor: é ela, mesmo que o botão tenha
+        # partido de outro card.
+        existente = escopo.find_by(external_id: external_id)
+
+        return existente if existente
+
+        indicada = oauth_state.platform_account
+
+        return criar(oauth_state, external_id) if indicada.blank?
+
+        renomear(indicada, external_id)
+
+        indicada.update!(external_id: external_id)
+
+        indicada
+      end
+
+      def criar(oauth_state, external_id)
+        PlatformAccount.create!(
           tenant_id: oauth_state.tenant_id,
           platform: Settings::PLATFORM,
-          external_id: external_id
-        ) do |account|
-          account.name = "Mercado Livre #{external_id}"
-          account.status = :active
-        end
+          external_id: external_id,
+          name: "Mercado Livre #{external_id}",
+          status: :active
+        )
+      end
+
+      # Só mexe no nome se ele for o automático: nome escrito por alguém é
+      # informação, e trocar por "Mercado Livre 123" apagaria isso.
+      def renomear(conta, external_id)
+        return unless conta.name.to_s.strip == "Mercado Livre #{conta.external_id}"
+
+        conta.name = "Mercado Livre #{external_id}"
       end
 
       def persist_credential!(oauth_state, account, tokens)
