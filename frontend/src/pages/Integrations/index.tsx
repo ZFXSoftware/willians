@@ -25,6 +25,7 @@ import {
   sincronizar,
   type Integracao,
   type NotasFiscais,
+  type ResultadoImportacao,
 } from "../../api/integracoes"
 import { errorMessage } from "../../api/client"
 import { useResource } from "../../hooks/useResource"
@@ -668,6 +669,42 @@ function CodigosDoOmie({
   )
 }
 
+// O que a última importação fez, em uma frase.
+//
+// Zero nota lida NÃO é erro nem sucesso: costuma ser janela sem faturamento, e
+// merece frase própria. E `sem_plataforma` é o caso silencioso que mais custa
+// caro — a nota foi lida e descartada porque a empresa tem mais de um
+// marketplace e não dá para saber de qual ela é.
+function notaDaImportacao(r: ResultadoImportacao): Nota {
+  if (r.erro) return { tipo: "erro", texto: r.erro }
+
+  if (!r.lidas) {
+    return {
+      tipo: "espera",
+      texto: `Nenhuma nota encontrada no período${r.periodo ? ` (${r.periodo})` : ""}.`,
+    }
+  }
+
+  const partes = [
+    `${r.lidas} nota(s) lida(s)`,
+    `${r.criadas ?? 0} nova(s)`,
+    `${r.atualizadas ?? 0} atualizada(s)`,
+  ]
+
+  if (r.pedidos_criados) partes.push(`${r.pedidos_criados} pedido(s) criado(s)`)
+
+  if (r.sem_plataforma) {
+    return {
+      tipo: "erro",
+      texto:
+        `${partes.join(", ")}. Mas ${r.sem_plataforma} ficaram de fora: a empresa tem ` +
+        "mais de um marketplace e a nota do Tiny não diz de qual ela é.",
+    }
+  }
+
+  return { tipo: "ok", texto: `${partes.join(", ")}.` }
+}
+
 // As notas fiscais do Tiny.
 //
 // Não são uma conta de marketplace, mas pertencem a esta tela: respondem à
@@ -684,30 +721,56 @@ function NotasFiscaisCard({
   const [importando, setImportando] = useState(false)
   const [aviso, setAviso] = useState<Nota | null>(null)
 
+  // "Enfileirado" não é resposta: é igual para sucesso e para falha.
+  //
+  // O backend grava o desfecho na empresa quando a fila termina, e aqui a
+  // tela espera esse carimbo mudar — o mesmo caminho do "Sincronizar agora".
   async function importar() {
+    const marco = notas.ultimo_resultado?.em ?? null
+
     setImportando(true)
-    setAviso(null)
+    setAviso({
+      tipo: "espera",
+      texto: "Importação em andamento. São milhares de notas em páginas de 100.",
+    })
 
     try {
       await importarNotas(90)
-
-      // O gateway responde 202 e a leitura continua em segundo plano. Sem
-      // dizer isso, um número que não muda na hora parece falha.
-      setAviso({
-        tipo: "espera",
-        texto:
-          "Importação em andamento. São milhares de notas em páginas de 100 — " +
-          "atualize daqui a pouco para ver o total subir.",
-      })
     } catch (e) {
-      setAviso({
-        tipo: "erro",
-        texto: errorMessage(e, "Não foi possível iniciar a importação"),
-      })
-    } finally {
       setImportando(false)
-      aoTerminar()
+      setAviso({ tipo: "erro", texto: errorMessage(e, "Não foi possível iniciar a importação") })
+      return
     }
+
+    for (let tentativa = 0; tentativa < ESPERA_MAXIMA; tentativa++) {
+      await dorme(ESPERA_MS)
+
+      let atual: NotasFiscais | undefined
+
+      try {
+        atual = (await fetchIntegracoes()).notas_fiscais
+      } catch {
+        continue // hipo da rede não cancela a espera
+      }
+
+      if (!atual?.ultimo_resultado || atual.ultimo_resultado.em === marco) continue
+
+      setImportando(false)
+      setAviso(notaDaImportacao(atual.ultimo_resultado))
+      aoTerminar()
+
+      return
+    }
+
+    setImportando(false)
+    aoTerminar()
+
+    setAviso({
+      tipo: "espera",
+      texto:
+        "A importação continua rodando em segundo plano — 4 mil notas levam alguns " +
+        "minutos. Atualize a página daqui a pouco.",
+    })
   }
 
   return (
@@ -768,13 +831,22 @@ function NotasFiscaisCard({
         </div>
       </div>
 
-      {aviso && (
-        <div
-          className={`mt-4 rounded-2xl px-4 py-3 text-sm border ${CORES_DA_NOTA[aviso.tipo]}`}
-        >
-          {aviso.texto}
-        </div>
-      )}
+      {/* Sem o `?? `, o desfecho sumia ao recarregar a página e a pessoa
+          ficava sem saber o que a última importação fez. */}
+      {(() => {
+        const mostrar =
+          aviso ?? (notas.ultimo_resultado ? notaDaImportacao(notas.ultimo_resultado) : null)
+
+        if (!mostrar) return null
+
+        return (
+          <div
+            className={`mt-4 rounded-2xl px-4 py-3 text-sm border ${CORES_DA_NOTA[mostrar.tipo]}`}
+          >
+            {mostrar.texto}
+          </div>
+        )
+      })()}
     </div>
   )
 }

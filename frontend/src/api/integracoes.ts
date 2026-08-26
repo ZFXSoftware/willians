@@ -64,6 +64,21 @@ export interface NotasFiscais {
   com_pedido: number
   ultima_importacao: string | null
   enviadas_ao_omie: number
+  ultimo_resultado: ResultadoImportacao | null
+}
+
+// A importação roda em fila: o botão recebe "enfileirado" e nada mais. É este
+// registro que permite dizer se deu certo, quantas vieram, ou o que falhou.
+export interface ResultadoImportacao {
+  em: string
+  periodo?: string
+  lidas?: number
+  criadas?: number
+  atualizadas?: number
+  pedidos_criados?: number
+  sem_pedido?: number
+  sem_plataforma?: number
+  erro?: string | null
 }
 
 export async function fetchIntegracoes(): Promise<IntegracoesResponse> {

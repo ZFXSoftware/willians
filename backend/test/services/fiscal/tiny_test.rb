@@ -217,6 +217,42 @@ module Fiscal
       assert_equal 0, Order.where(tenant: tenant).count
     end
 
+    # A importação roda em fila: quem apertou o botão recebe "enfileirado" e
+    # nada mais, e isso é igual para sucesso e para falha. O desfecho fica
+    # gravado na empresa para a tela poder dizer o que aconteceu.
+    test "o desfecho da importação fica registrado na empresa" do
+      tenant = criar_tenant
+      criar_conta(tenant: tenant)
+
+      sincronizar(tenant)
+
+      resultado = tenant.reload.metadata["tiny_ultima_importacao"]
+
+      assert_not_nil resultado
+      assert_equal 3, resultado["lidas"]
+      assert_equal 2, resultado["criadas"]
+      assert_nil resultado["erro"]
+      assert_not_nil resultado["em"]
+    end
+
+    test "falha na leitura também fica registrada, e não some" do
+      tenant = criar_tenant
+
+      quebrado = Object.new
+
+      def quebrado.notas_fiscais(**)
+        raise Fiscal::Tiny::V2Client::AuthError, "token invalido"
+      end
+
+      assert_raises(Fiscal::Tiny::V2Client::AuthError) do
+        T::InvoiceSync.new(tenant: tenant, reader: quebrado).call(start_date: DE, end_date: ATE)
+      end
+
+      resultado = tenant.reload.metadata["tiny_ultima_importacao"]
+
+      assert_includes resultado["erro"], "token invalido"
+    end
+
     test "reprocessar atualiza em vez de duplicar" do
       tenant = criar_tenant
       conta = criar_conta(tenant: tenant)

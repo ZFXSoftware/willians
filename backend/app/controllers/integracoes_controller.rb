@@ -39,7 +39,10 @@ class IntegracoesController < ApplicationController
       total: escopo.count,
       com_pedido: escopo.where.not(order_id: nil).count,
       ultima_importacao: escopo.maximum(:updated_at),
-      enviadas_ao_omie: escopo.where("invoices.metadata->>'omie_codigo_lancamento' IS NOT NULL").count
+      enviadas_ao_omie: escopo.where("invoices.metadata->>'omie_codigo_lancamento' IS NOT NULL").count,
+      # O desfecho da última importação, que roda em fila: sem isto a tela só
+      # sabe dizer "enfileirado", que é igual para sucesso e para falha.
+      ultimo_resultado: current_tenant.metadata["tiny_ultima_importacao"]
     }
   end
 

@@ -42,8 +42,14 @@ module Fiscal
 
           notas.each { |nota| processar(nota, pedidos) }
 
+          registrar_resultado!(start_date, end_date)
+
           resumo
         end
+      rescue StandardError => e
+        registrar_falha!(e)
+
+        raise
       end
 
       private
@@ -51,6 +57,40 @@ module Fiscal
       attr_reader :tenant,
                   :reader,
                   :resumo
+
+      # O desfecho fica gravado na empresa.
+      #
+      # A importação roda em fila: quem apertou o botão recebe "enfileirado" e
+      # nada mais. Sem registrar aqui, a tela não tem como dizer se deu certo,
+      # quantas notas vieram, ou se o Tiny recusou o token — e "enfileirado"
+      # sozinho é indistinguível de sucesso e de falha.
+      def registrar_resultado!(start_date, end_date)
+        gravar(
+          "em" => Time.current,
+          "periodo" => "#{start_date} a #{end_date}",
+          "lidas" => resumo[:lidas],
+          "criadas" => resumo[:criadas],
+          "atualizadas" => resumo[:atualizadas],
+          "pedidos_criados" => resumo[:pedidos_criados],
+          "sem_pedido" => resumo[:sem_pedido],
+          "sem_plataforma" => resumo[:sem_plataforma],
+          "erro" => nil
+        )
+      end
+
+      def registrar_falha!(erro)
+        gravar("em" => Time.current, "erro" => "#{erro.class}: #{erro.message}".truncate(300))
+      rescue StandardError => e
+        # Não deixar o registro do erro esconder o erro de verdade.
+        Rails.logger.error "[InvoiceSync] não consegui gravar a falha: #{e.message}"
+      end
+
+      def gravar(resultado)
+        tenant.update_columns(
+          metadata: tenant.metadata.merge("tiny_ultima_importacao" => resultado.compact),
+          updated_at: Time.current
+        )
+      end
 
       # Uma consulta só para todos os pedidos referenciados nas notas.
       def mapear_pedidos(notas)
