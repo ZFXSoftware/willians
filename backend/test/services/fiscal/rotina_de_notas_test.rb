@@ -83,6 +83,40 @@ module Fiscal
       end
     end
 
+    # Simular a pedido NÃO é estar travado.
+    #
+    # Sem essa distinção, a simulação que o botão faz de propósito voltava
+    # marcada como "escrita bloqueada": a tela dizia que nada foi gravado
+    # porque estava travado — com as duas chaves ligadas — e escondia os
+    # botões de envio, que só aparecem quando não há trava.
+    test "simulação pedida com tudo liberado não se diz bloqueada" do
+      # Com as chaves do OMIE, senão o cliente cai no dublê e o motivo vira
+      # "sem credencial", que é outro caso.
+      configurar(app_key: "K", app_secret: "S", escrita_liberada: "true")
+
+      com_env("OMIE_ALLOW_WRITES" => "true") do
+        _, dry_run, motivo = Financeiro::EscritaNoOmie.preparar(
+          tenant: @tenant, client: nil, dry_run: true
+        )
+
+        assert dry_run, "foi pedido para simular"
+        assert_nil motivo, "mas não por estar travado"
+      end
+    end
+
+    test "simulação forçada pela trava se diz bloqueada" do
+      configurar(app_key: "K", app_secret: "S")
+
+      com_env("OMIE_ALLOW_WRITES" => "true") do
+        _, dry_run, motivo = Financeiro::EscritaNoOmie.preparar(
+          tenant: @tenant, client: nil, dry_run: false
+        )
+
+        assert dry_run, "a trava vence o pedido de gravar"
+        assert_equal :escrita_bloqueada, motivo
+      end
+    end
+
     test "as duas ligadas liberam" do
       configurar(escrita_liberada: "true")
 

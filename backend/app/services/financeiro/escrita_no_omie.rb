@@ -38,10 +38,18 @@ module Financeiro
           dry_run || !liberada
         end
 
+      # O motivo é por que a execução foi simulada CONTRA a vontade de quem
+      # pediu — e não simplesmente que ela foi simulada.
+      #
+      # Sem o `!liberada`, toda simulação pedida de propósito voltava marcada
+      # como "escrita bloqueada". A tela então dizia "nada foi gravado porque
+      # está travado" mesmo com as duas chaves ligadas, e escondia os botões de
+      # envio, que só aparecem quando não há trava. Destravar não mudava nada
+      # na tela, e não havia como descobrir por quê.
       motivo =
         if sem_credencial
           :sem_credencial
-        elsif efetivo
+        elsif efetivo && !liberada
           :escrita_bloqueada
         end
 
