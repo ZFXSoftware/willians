@@ -887,12 +887,18 @@ function EnvioAoOmie({
     setErro(null)
 
     try {
-      setPrevia(await enviarNotasAoOmie(opcoes))
+      const resultado = await enviarNotasAoOmie(opcoes)
+
+      setPrevia(resultado)
+
+      // Recarrega só quando ALGO mudou. Simulação não muda número nenhum, e
+      // pedir recarga à toa é trabalho para o servidor e piscada para o
+      // usuário.
+      if (resultado.enviadas > 0) aoTerminar()
     } catch (e) {
       setErro(errorMessage(e, "Não foi possível falar com o OMIE"))
     } finally {
       setOcupado(false)
-      aoTerminar()
     }
   }
 
