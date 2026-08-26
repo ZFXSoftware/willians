@@ -15,7 +15,13 @@ module Fiscal
       }.freeze
 
       def initialize(client: nil)
-        @client = client || CLIENTES.fetch(Settings.version).constantize.new
+        @client_informado = client
+      end
+
+      # Tardio pelo mesmo motivo do token: `Settings.version` também é por
+      # empresa, e o leitor costuma ser construído antes de o tenant existir.
+      def client
+        @client ||= @client_informado || CLIENTES.fetch(Settings.version).constantize.new
       end
 
       SAIDA = "S".freeze
@@ -46,8 +52,6 @@ module Fiscal
       end
 
       private
-
-      attr_reader :client
 
       def coletar
         notas = []

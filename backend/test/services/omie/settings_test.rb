@@ -56,7 +56,12 @@ module Omie
         end
       end
 
-      assert_includes erro.message, "ListarClientes"
+      # A mensagem mandava "grave em metadata" e citava o nome da chamada da
+      # API. Isso servia enquanto configurar era editar o banco; hoje existe
+      # tela, e o caminho precisa levar a alguém que não tem acesso ao servidor.
+      assert_includes erro.message, "Configurações"
+      assert_includes erro.message, "Integrações"
+      assert_includes erro.message, "omie:opcoes"
     end
   end
 end

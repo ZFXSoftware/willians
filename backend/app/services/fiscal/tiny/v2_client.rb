@@ -36,7 +36,18 @@ module Fiscal
       end
 
       def initialize(token: nil)
-        @token = token || Settings.token
+        @token_informado = token
+      end
+
+      # Resolvido a cada uso, e não na construção — mesma razão do Omie::Client.
+      #
+      # O token vive na tela de Configurações, por EMPRESA, e o cliente costuma
+      # ser montado antes de o tenant do contexto existir. Resolvendo cedo, ele
+      # caía no ambiente (vazio) e o Tiny respondia "token invalido" para quem
+      # tinha o token cadastrado — foi o que aconteceu no `tiny:importar`,
+      # enquanto o `tiny:check`, que define o tenant antes, funcionava.
+      def token
+        @token_informado || Settings.token
       end
 
       # => { itens: [...], pagina:, total_paginas: }
@@ -60,8 +71,6 @@ module Fiscal
       end
 
       private
-
-      attr_reader :token
 
       def vazio(pagina)
         { itens: [], pagina: pagina, total_paginas: 0 }

@@ -27,9 +27,17 @@ namespace :omie do
             "primeiro; quando estiver certo, repita com TUDO=1."
     end
 
-    resumo = Financeiro::EnvioDeNotasAoOmie.new(
-      tenant: tenant, dry_run: !aplicar, limite: limite
-    ).call
+    # Falta de configuração é recado para o usuário, não defeito. Deixar a
+    # exceção subir imprime vinte linhas de backtrace e esconde a única frase
+    # que interessa.
+    resumo =
+      begin
+        Financeiro::EnvioDeNotasAoOmie.new(
+          tenant: tenant, dry_run: !aplicar, limite: limite
+        ).call
+      rescue Financeiro::EnvioDeNotasAoOmie::ConfiguracaoAusente => e
+        abort "FALTA CONFIGURAR: #{e.message}"
+      end
 
     puts "Previstas:        #{resumo[:previstas]}"
     puts "Enviadas:         #{resumo[:enviadas]}"

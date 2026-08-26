@@ -22,9 +22,15 @@ namespace :tiny do
     puts "Isto escreve apenas no banco do Willians. O OMIE não é tocado."
     puts
 
-    resumo = Fiscal::Tiny::InvoiceSync
-               .new(tenant: tenant)
-               .call(start_date: inicio, end_date: fim)
+    resumo =
+      begin
+        Fiscal::Tiny::InvoiceSync
+          .new(tenant: tenant)
+          .call(start_date: inicio, end_date: fim)
+      rescue Fiscal::Tiny::V2Client::AuthError => e
+        abort "O Tiny recusou o token da empresa ##{tenant.id}: #{e.message}\n" \
+              "Confira em Configurações > Tiny. O token é por empresa."
+      end
 
     puts "Notas lidas do Tiny:      #{resumo[:lidas]}"
     puts "Pedidos criados:          #{resumo[:pedidos_criados]}"

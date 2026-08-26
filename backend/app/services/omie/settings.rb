@@ -155,6 +155,16 @@ module Omie
       nil
     end
 
+    # A mensagem manda para a TELA, e não mais para o metadata: dizer "grave em
+    # metadata" a quem não tem acesso ao banco é não dizer nada.
+    def onde_configurar(chave)
+      campo = chave.to_s.delete_prefix("omie_")
+
+      "Preencha em Configurações > OMIE (campo #{campo}), ou por conta de " \
+      "marketplace em Integrações. Rode `./deploy/deploy.sh rake omie:opcoes` " \
+      "para ver os códigos disponíveis no seu OMIE."
+    end
+
     def mensagem_transitoria(chave, direction)
       tipo = direction.to_s == "credit" ? "receita (1.x)" : "despesa (2.x)"
 
@@ -172,8 +182,7 @@ module Omie
           "tenant ##{tenant&.id}"
         end
 
-      "#{key} não configurado para #{alvo}, e #{key.upcase} não está no ambiente. " \
-        "Obtenha o código no OMIE (ListarClientes / ListarContasCorrentes) e grave em metadata."
+      "#{key} não configurado para #{alvo}. #{onde_configurar(key)}"
     end
   end
 end

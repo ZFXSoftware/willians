@@ -5,6 +5,7 @@ import {
   Building2,
   CheckCircle2,
   DownloadCloud,
+  FileText,
   KeyRound,
   Plug,
   RefreshCw,
@@ -18,10 +19,12 @@ import {
   conectar,
   desconectar,
   fetchIntegracoes,
+  importarNotas,
   removerConta,
   salvarCodigosOmie,
   sincronizar,
   type Integracao,
+  type NotasFiscais,
 } from "../../api/integracoes"
 import { errorMessage } from "../../api/client"
 import { useResource } from "../../hooks/useResource"
@@ -307,6 +310,10 @@ export default function Integrations() {
               </h2>
             </div>
           </div>
+
+          {data?.notas_fiscais && (
+            <NotasFiscaisCard notas={data.notas_fiscais} aoTerminar={reload} />
+          )}
 
           {disponiveis.length > 0 && (
             <div className="space-y-4">
@@ -655,6 +662,117 @@ function CodigosDoOmie({
           >
             {salvando ? "Salvando..." : "Salvar"}
           </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// As notas fiscais do Tiny.
+//
+// Não são uma conta de marketplace, mas pertencem a esta tela: respondem à
+// mesma pergunta que ela faz — o que já entrou e o que falta entrar. E isto
+// era uma tarefa de linha de comando, o que só funciona para quem tem acesso
+// ao servidor.
+function NotasFiscaisCard({
+  notas,
+  aoTerminar,
+}: {
+  notas: NotasFiscais
+  aoTerminar: () => void
+}) {
+  const [importando, setImportando] = useState(false)
+  const [aviso, setAviso] = useState<Nota | null>(null)
+
+  async function importar() {
+    setImportando(true)
+    setAviso(null)
+
+    try {
+      await importarNotas(90)
+
+      // O gateway responde 202 e a leitura continua em segundo plano. Sem
+      // dizer isso, um número que não muda na hora parece falha.
+      setAviso({
+        tipo: "espera",
+        texto:
+          "Importação em andamento. São milhares de notas em páginas de 100 — " +
+          "atualize daqui a pouco para ver o total subir.",
+      })
+    } catch (e) {
+      setAviso({
+        tipo: "erro",
+        texto: errorMessage(e, "Não foi possível iniciar a importação"),
+      })
+    } finally {
+      setImportando(false)
+      aoTerminar()
+    }
+  }
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <FileText size={17} />
+            Notas fiscais (Tiny)
+          </h2>
+          <p className="text-sm text-zinc-400 mt-1 max-w-2xl">
+            É a nota que traz o número do pedido do marketplace e o número da NF
+            — a chave que liga o repasse ao título do OMIE. Importar aqui grava
+            só no Willians; enviar ao OMIE é outro passo.
+          </p>
+        </div>
+
+        {notas.configurado ? (
+          <button
+            onClick={importar}
+            disabled={importando}
+            className="flex items-center justify-center gap-2 bg-white text-black hover:opacity-90 transition px-5 py-3 rounded-xl text-sm font-medium disabled:opacity-50 shrink-0"
+          >
+            <DownloadCloud size={15} className={importando ? "animate-pulse" : undefined} />
+            {importando ? "Enfileirando..." : "Importar do Tiny"}
+          </button>
+        ) : (
+          <Link
+            to="/configuracoes"
+            className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 px-5 py-3 rounded-xl text-sm transition shrink-0"
+          >
+            <KeyRound size={15} />
+            Configurar o Tiny
+          </Link>
+        )}
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+        <div>
+          <p className="text-zinc-500 text-xs">Notas importadas</p>
+          <p className="font-medium mt-1">{notas.total}</p>
+        </div>
+        <div>
+          <p className="text-zinc-500 text-xs">Com pedido</p>
+          {/* Sem pedido a corrente não fecha: é o número que decide se a
+              conciliação vai ter como casar com o marketplace. */}
+          <p className="font-medium mt-1">{notas.com_pedido}</p>
+        </div>
+        <div>
+          <p className="text-zinc-500 text-xs">Enviadas ao OMIE</p>
+          <p className="font-medium mt-1">{notas.enviadas_ao_omie}</p>
+        </div>
+        <div>
+          <p className="text-zinc-500 text-xs">Última importação</p>
+          <p className="font-medium mt-1">
+            {notas.ultima_importacao ? desde(notas.ultima_importacao) : "nunca"}
+          </p>
+        </div>
+      </div>
+
+      {aviso && (
+        <div
+          className={`mt-4 rounded-2xl px-4 py-3 text-sm border ${CORES_DA_NOTA[aviso.tipo]}`}
+        >
+          {aviso.texto}
         </div>
       )}
     </div>

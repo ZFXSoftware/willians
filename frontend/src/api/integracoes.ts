@@ -52,6 +52,18 @@ export interface IntegracoesResponse {
     precisam_atencao: number
   }
   plataformas_implementadas: string[]
+  notas_fiscais: NotasFiscais
+}
+
+// As notas do Tiny. Não são uma conta de marketplace, mas respondem à mesma
+// pergunta da tela: o que já entrou e o que falta entrar.
+export interface NotasFiscais {
+  configurado: boolean
+  total: number
+  // Nota sem pedido não amarra a corrente pedido -> NF -> título.
+  com_pedido: number
+  ultima_importacao: string | null
+  enviadas_ao_omie: number
 }
 
 export async function fetchIntegracoes(): Promise<IntegracoesResponse> {
@@ -135,6 +147,23 @@ export async function salvarCodigosOmie(
     `/integracoes/contas/${platformAccountId}/omie`,
     { omie },
   )
+
+  return data
+}
+
+// Importa as notas fiscais do Tiny para o nosso banco.
+//
+// Passa pelo gateway, que responde 202 na hora: são milhares de notas em
+// páginas de 100, e a leitura inteira não cabe no tempo de uma requisição de
+// navegador. NÃO toca no OMIE — isso é outro passo, com trava própria.
+export async function importarNotas(dias = 30): Promise<{ job_id: string }> {
+  const fim = new Date()
+  const inicio = new Date(fim.getTime() - dias * 24 * 60 * 60 * 1000)
+
+  const { data } = await gatewayApi.post("/fiscal/notas/importar", {
+    start_date: inicio.toISOString().slice(0, 10),
+    end_date: fim.toISOString().slice(0, 10),
+  })
 
   return data
 }

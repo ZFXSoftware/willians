@@ -76,5 +76,9 @@ Rails.application.routes.draw do
     delete "desconectar", to: "conexoes#destroy"
   end
 
+  # Notas fiscais do Tiny. Só escreve no nosso banco; levar ao OMIE é outro
+  # passo, com trava própria.
+  post "fiscal/notas/importar", to: "fiscal/notas#importar"
+
   post "/conciliacoes/processar", to: "conciliacoes#processar"
 end
