@@ -103,6 +103,30 @@ namespace :tiny do
     end
     puts
 
+    # O cliente lança o título contra o COMPRADOR, não contra o marketplace.
+    # Então o cadastro do comprador precisa existir no OMIE — e a primeira
+    # pergunta é se a busca de notas do Tiny já traz o que isso exige.
+    puts "Dados do comprador (o título a receber vai contra ele):"
+
+    %i[cliente_nome cliente_documento].each do |campo|
+      preenchidos = notas.count { |n| n[campo].present? }
+
+      puts format("  %-22s %d/%d", campo, preenchidos, notas.size)
+    end
+
+    exemplo = notas.find { |n| n[:cliente_nome].present? }
+
+    if exemplo
+      puts format("  exemplo: %s / %s", exemplo[:cliente_nome], exemplo[:cliente_documento])
+    else
+      puts "  A busca de notas do Tiny NÃO traz o comprador — seria preciso ler nota a nota."
+    end
+
+    compradores = notas.filter_map { |n| n[:cliente_documento] }.uniq.size
+
+    puts "  compradores distintos nesta janela: #{compradores}"
+    puts
+
     # A prova real: o número da NF do Tiny bate com o título no Omie?
     if Omie::Client.configured?
       puts "Conferindo contra os títulos do Omie..."

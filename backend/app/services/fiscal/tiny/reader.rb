@@ -98,8 +98,28 @@ module Fiscal
 
           descricao_situacao: nota["descricao_situacao"].to_s.presence,
 
+          # O comprador. O cliente lança o título a receber contra ELE, e não
+          # contra o marketplace — então é este cadastro que precisa existir no
+          # OMIE. O Tiny usa nomes diferentes conforme o endpoint, daí a lista.
+          cliente_nome: primeiro(nota, %w[nome cliente_nome nome_cliente]),
+
+          cliente_documento: primeiro(nota, %w[cpf_cnpj cnpj_cpf cpf cnpj]),
+
           bruto: nota
         }
+      end
+
+      # O Tiny aninha o cliente em alguns endpoints e o achata em outros.
+      def primeiro(nota, chaves)
+        direto = chaves.filter_map { |chave| nota[chave].to_s.presence }.first
+
+        return direto if direto
+
+        cliente = nota["cliente"]
+
+        return unless cliente.is_a?(Hash)
+
+        chaves.filter_map { |chave| cliente[chave].to_s.presence }.first
       end
 
       def parse_data(valor)
