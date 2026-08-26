@@ -28,6 +28,7 @@ import {
   type NotasFiscais,
   type ResultadoEnvioOmie,
   type ResultadoImportacao,
+  type ResumoSincronizacao,
 } from "../../api/integracoes"
 import { errorMessage } from "../../api/client"
 import { useResource } from "../../hooks/useResource"
@@ -463,6 +464,8 @@ export default function Integrations() {
                         {conta.credencial.erro}
                       </p>
                     )}
+
+                    <ResumoDaSincronizacao resumo={conta.resumo_sincronizacao} />
 
                     {conta.erro_de_sincronizacao &&
                       (conta.status_sincronizacao === "pendente" ? (
@@ -986,5 +989,43 @@ function EnvioAoOmie({
         </div>
       )}
     </>
+  )
+}
+
+// O que a última sincronização fez.
+//
+// Ela roda em FILA: a tela dispara e não recebe resposta nenhuma. Sem isto,
+// "quantos lançamentos entraram" e "quantos pedidos o marketplace tem" só
+// existiam no log do servidor — e essas perguntas são rotina, não diagnóstico.
+function ResumoDaSincronizacao({ resumo }: { resumo: ResumoSincronizacao | null }) {
+  if (!resumo || resumo.status !== "ok") return null
+
+  const linhas = [
+    { rotulo: "Lançamentos novos", valor: resumo.novos },
+    { rotulo: "Já conhecidos", valor: resumo.repetidos },
+    // O número que separa "a conta vende pouco" de "conectamos a conta errada":
+    // vem da API de PEDIDOS do marketplace, independente do extrato do dinheiro.
+    { rotulo: "Pedidos no período", valor: resumo.pedidos },
+    { rotulo: "Ligados ao pedido", valor: resumo.lancamentos_ligados },
+    { rotulo: "Repasses fechados", valor: resumo.repasses_novos },
+  ].filter((l) => l.valor !== undefined && l.valor !== null)
+
+  if (linhas.length === 0) return null
+
+  return (
+    <div className="mt-4 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2">
+      <p className="text-xs text-zinc-500">
+        Última sincronização {resumo.periodo ? `(${resumo.periodo})` : ""}
+      </p>
+
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+        {linhas.map((linha) => (
+          <p key={linha.rotulo} className="text-xs flex justify-between gap-2">
+            <span className="text-zinc-500">{linha.rotulo}</span>
+            <span className="text-zinc-300 font-medium">{linha.valor}</span>
+          </p>
+        ))}
+      </div>
+    </div>
   )
 }

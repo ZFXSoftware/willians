@@ -105,7 +105,21 @@ module Marketplace
 
       # A tentativa vale mesmo quando não trouxe nada: é o que impede o
       # agendador de tentar de novo daqui a cinco minutos.
-      registrar(conta, :ok)
+      #
+      # O resumo vai junto porque a sincronização roda em FILA: a tela dispara
+      # e não recebe resposta nenhuma. Sem isto, "quantos lançamentos entraram,
+      # quantos pedidos foram ligados" só existia no log do servidor — e
+      # perguntar isso é rotina, não diagnóstico.
+      registrar(conta, :ok, resumo: {
+        "recebidos" => resumo[:received].to_i,
+        "novos" => resumo[:created].to_i,
+        "repetidos" => resumo[:skipped].to_i,
+        "recusados" => resumo[:failed].to_i,
+        "pedidos" => vinculos.is_a?(Hash) ? vinculos[:pedidos] : nil,
+        "lancamentos_ligados" => vinculos.is_a?(Hash) ? vinculos[:lancamentos_ligados] : nil,
+        "repasses_novos" => repasses.is_a?(Hash) ? repasses[:criados] : nil,
+        "periodo" => "#{start_date} a #{end_date}"
+      })
 
       log "conta ##{conta.id} (#{conta.platform}): #{resumo[:received].to_i} recebido(s), " \
           "#{resumo[:created].to_i} novo(s), #{resumo[:skipped].to_i} repetido(s), " \
@@ -238,11 +252,19 @@ module Marketplace
 
     # Um único lugar grava o desfecho, para que status e mensagem nunca fiquem
     # contando histórias diferentes.
-    def registrar(conta, status, mensagem = nil)
+    def registrar(conta, status, mensagem = nil, resumo: nil)
+      metadata = conta.metadata.merge(
+        "ultima_sincronizacao" => {
+          "em" => Time.current,
+          "status" => status.to_s
+        }.merge(resumo&.compact || {})
+      )
+
       conta.update_columns(
         last_synced_at: Time.current,
         last_sync_status: status.to_s,
-        last_sync_error: mensagem&.truncate(250)
+        last_sync_error: mensagem&.truncate(250),
+        metadata: metadata
       )
     end
 

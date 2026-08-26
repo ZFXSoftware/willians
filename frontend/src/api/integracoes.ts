@@ -21,10 +21,28 @@ export interface Integracao {
   // "pendente" é o marketplace ainda preparando o dado — nem sucesso nem
   // falha. Nulo nas contas sincronizadas antes da coluna existir.
   status_sincronizacao: "ok" | "pendente" | "falha" | null
+  // O que a última sincronização fez. Ela roda em fila: a tela dispara e não
+  // recebe resposta, então o resultado precisa ficar guardado.
+  resumo_sincronizacao: ResumoSincronizacao | null
   erro_de_sincronizacao: string | null
   lancamentos: number
   precisa_atencao: boolean
   omie: CodigosOmie
+}
+
+export interface ResumoSincronizacao {
+  em: string
+  status: string
+  periodo?: string
+  recebidos?: number
+  novos?: number
+  repetidos?: number
+  recusados?: number
+  // Pedidos que o marketplace devolveu na janela. É o número que separa "a
+  // conta certa vende pouco" de "conectamos a conta errada".
+  pedidos?: number
+  lancamentos_ligados?: number
+  repasses_novos?: number
 }
 
 // Os códigos do OMIE desta conta de marketplace.

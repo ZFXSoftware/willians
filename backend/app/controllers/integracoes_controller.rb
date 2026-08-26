@@ -72,6 +72,10 @@ class IntegracoesController < ApplicationController
       # erro como sucesso, e anunciava importação concluída para uma importação
       # que o marketplace ainda estava preparando.
       status_sincronizacao: conta.last_sync_status,
+      # O que a última sincronização fez. Ela roda em fila, então a tela
+      # dispara e não recebe resposta — sem isto, "quantos entraram" só
+      # existia no log do servidor.
+      resumo_sincronizacao: conta.metadata["ultima_sincronizacao"],
       erro_de_sincronizacao: conta.last_sync_error,
       lancamentos: total_lancamentos,
       precisa_atencao: precisa_atencao?(conta),
