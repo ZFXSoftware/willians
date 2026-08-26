@@ -19,6 +19,8 @@ export interface CampoConfiguracao {
   obrigatorio: boolean
   /** Este valor é só o PADRÃO: cada conta de marketplace pode ter o seu. */
   por_conta: boolean
+  /** Cadastro do OMIE que preenche este campo; habilita a busca pelo nome. */
+  fonte: "clientes" | "contas_correntes" | "categorias" | null
   preenchido: boolean
   origem: OrigemValor
   variavel_de_ambiente: string

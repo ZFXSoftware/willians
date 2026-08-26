@@ -22,6 +22,7 @@ import {
 import { errorMessage } from "../../api/client"
 import { useResource } from "../../hooks/useResource"
 import { Carregando, ErroAoCarregar } from "../../components/Estados"
+import { EscolhaDoOmie } from "../../components/EscolhaDoOmie"
 
 const ORIGENS: Record<string, { texto: string; classe: string }> = {
   configuracao: {
@@ -306,6 +307,12 @@ function Campo({
               </option>
             ))}
           </select>
+        ) : campo.fonte ? (
+          /* O código vem de um cadastro do OMIE: procura pelo NOME em vez de
+             exigir que a pessoa cole um número copiado de um terminal. */
+          <div className="flex-1">
+            <EscolhaDoOmie tipo={campo.fonte} valor={valor} aoEscolher={onChange} />
+          </div>
         ) : (
           <input
             type={campo.secreto && !visivel ? "password" : "text"}

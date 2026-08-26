@@ -98,6 +98,9 @@ module Integracoes
         # marketplace pode ter o seu — é AQUI que a pergunta aparece, olhando
         # um campo único com vários marketplaces para atender.
         por_conta: campo.por_conta?,
+        # Qual cadastro do OMIE preenche este campo. Com isto a tela oferece
+        # busca pelo nome, em vez de um campo onde se cola um código.
+        fonte: campo.fonte,
         preenchido: valor.present?,
         origem: Config.origem(provedor.chave, campo.chave, tenant: current_tenant),
         variavel_de_ambiente: campo.env,

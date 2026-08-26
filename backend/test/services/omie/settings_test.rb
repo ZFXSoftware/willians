@@ -61,7 +61,10 @@ module Omie
       # tela, e o caminho precisa levar a alguém que não tem acesso ao servidor.
       assert_includes erro.message, "Configurações"
       assert_includes erro.message, "Integrações"
-      assert_includes erro.message, "omie:opcoes"
+      # E nem para o terminal: a tela ganhou um "Procurar" ao lado do campo,
+      # que lista os cadastros do OMIE pelo nome.
+      assert_includes erro.message, "Procurar"
+      assert_not_includes erro.message, "rake"
     end
   end
 end

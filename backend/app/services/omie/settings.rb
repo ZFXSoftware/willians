@@ -160,9 +160,10 @@ module Omie
     def onde_configurar(chave)
       campo = chave.to_s.delete_prefix("omie_")
 
-      "Preencha em Configurações > OMIE (campo #{campo}), ou por conta de " \
-      "marketplace em Integrações. Rode `./deploy/deploy.sh rake omie:opcoes` " \
-      "para ver os códigos disponíveis no seu OMIE."
+      # Sem mandar para o terminal: a tela tem um "Procurar" ao lado do campo
+      # que lista os cadastros do OMIE pelo nome.
+      "Preencha em Configurações > OMIE (campo #{campo}) usando o botão Procurar " \
+      "ao lado dele, ou por conta de marketplace em Integrações."
     end
 
     def mensagem_transitoria(chave, direction)

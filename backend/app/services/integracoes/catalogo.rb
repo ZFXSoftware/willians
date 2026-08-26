@@ -7,7 +7,7 @@ module Integracoes
   module Catalogo
     Campo = Struct.new(
       :chave, :env, :rotulo, :ajuda, :tipo, :secreto, :obrigatorio, :opcoes, :padrao,
-      :por_conta, keyword_init: true
+      :por_conta, :fonte, keyword_init: true
     ) do
       def secreto? = !!secreto
 
@@ -19,11 +19,14 @@ module Integracoes
 
     Provedor = Struct.new(:chave, :rotulo, :ajuda, :documentacao, :campos, keyword_init: true)
 
+    # `fonte` é o cadastro do OMIE que preenche este campo. Com ela a tela
+    # oferece uma busca pelo NOME em vez de um campo onde se cola um código —
+    # que era o que sobrava para quem não tem acesso ao servidor.
     def self.campo(chave, env:, rotulo:, ajuda: nil, tipo: :texto, secreto: false,
-                   obrigatorio: false, opcoes: nil, padrao: nil, por_conta: false)
+                   obrigatorio: false, opcoes: nil, padrao: nil, por_conta: false, fonte: nil)
       Campo.new(chave: chave.to_s, env: env, rotulo: rotulo, ajuda: ajuda, tipo: tipo,
                 secreto: secreto, obrigatorio: obrigatorio, opcoes: opcoes, padrao: padrao,
-                por_conta: por_conta)
+                por_conta: por_conta, fonte: fonte)
     end
 
     PROVEDORES = {
@@ -52,24 +55,28 @@ module Integracoes
           # A tela só não dizia isso, e parecia obrigar a escolha única.
           campo(:cliente_fornecedor_id, env: "OMIE_CLIENTE_FORNECEDOR_ID",
                 rotulo: "Código do cliente/fornecedor",
-                por_conta: true,
-                ajuda: "Quem aparece como cliente nos títulos que criamos — normalmente o " \
-                       "próprio marketplace. Este campo é o PADRÃO da empresa."),
+                por_conta: true, fonte: :clientes,
+                ajuda: "Quem aparece como cliente nas taxas e ajustes que lançamos — " \
+                       "normalmente o próprio marketplace. Não vale para as vendas: nelas o " \
+                       "cliente é o comprador da nota. Este campo é o PADRÃO da empresa."),
           campo(:conta_corrente_id, env: "OMIE_CONTA_CORRENTE_ID",
                 rotulo: "Conta corrente",
-                por_conta: true,
+                por_conta: true, fonte: :contas_correntes,
                 ajuda: "Onde as baixas caem — em geral a conta virtual do marketplace. " \
                        "Este campo é o PADRÃO da empresa."),
           campo(:conta_corrente_destino_id, env: "OMIE_CONTA_CORRENTE_DESTINO_ID",
                 rotulo: "Conta corrente de destino",
+                fonte: :contas_correntes,
                 ajuda: "Conta bancária para onde o marketplace deposita o saque. É o destino " \
                        "das transferências. Padrão da empresa."),
           campo(:categoria_transitoria_receita, env: "OMIE_CATEGORIA_TRANSITORIA_RECEITA",
                 rotulo: "Categoria transitória de receita",
+                fonte: :categorias,
                 ajuda: "Onde entram os créditos sem vínculo com pedido ou nota fiscal. " \
                        "Uma categoria 1.x do seu plano de contas. Padrão da empresa."),
           campo(:categoria_transitoria_despesa, env: "OMIE_CATEGORIA_TRANSITORIA_DESPESA",
                 rotulo: "Categoria transitória de despesa",
+                fonte: :categorias,
                 ajuda: "Onde entram os débitos sem vínculo com pedido ou nota fiscal. " \
                        "Uma categoria 2.x do seu plano de contas. Padrão da empresa."),
 
