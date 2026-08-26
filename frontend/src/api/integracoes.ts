@@ -182,3 +182,48 @@ export async function importarNotas(dias = 30): Promise<{ job_id: string }> {
 
   return data
 }
+
+// Os cadastros do OMIE, para a tela oferecer uma LISTA em vez de um campo onde
+// se cola um código copiado de um terminal.
+export type TipoOpcaoOmie = "clientes" | "contas_correntes" | "categorias"
+
+export interface OpcaoOmie {
+  codigo: string
+  nome: string
+}
+
+export async function opcoesOmie(
+  tipo: TipoOpcaoOmie,
+  busca?: string,
+): Promise<OpcaoOmie[]> {
+  const { data } = await api.get<{ items: OpcaoOmie[] }>("/integracoes/omie/opcoes", {
+    params: { tipo, busca },
+  })
+
+  return data.items
+}
+
+export interface ResultadoEnvioOmie {
+  simulado: boolean
+  previstas: number
+  enviadas: number
+  sem_comprador: number
+  falhas: number
+  amostra?: Array<{ nf: string; comprador: string; valor: number }>
+  erros?: string[]
+  aviso?: string
+  motivo_da_simulacao?: string
+}
+
+// Simula por padrão. Só grava com `aplicar` explícito — e ainda assim a trava
+// OMIE_ALLOW_WRITES vale por baixo.
+export async function enviarNotasAoOmie(
+  opcoes: { aplicar?: boolean; limite?: number } = {},
+): Promise<ResultadoEnvioOmie> {
+  const { data } = await api.post("/fiscal/notas/enviar-ao-omie", {
+    aplicar: opcoes.aplicar ?? false,
+    limite: opcoes.limite,
+  })
+
+  return data
+}

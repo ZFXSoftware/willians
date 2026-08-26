@@ -68,6 +68,10 @@ Rails.application.routes.draw do
     # diferentes no OMIE — um campo único na tela da empresa não dá conta.
     put    "contas/:id/omie", to: "contas#omie"
 
+    # Cadastros do OMIE para a tela escolher de uma lista, em vez de o usuário
+    # copiar um código de um terminal.
+    get    "omie/opcoes", to: "omie#opcoes"
+
     get    "configuracoes", to: "configuracoes#index"
     put    "configuracoes/:provedor", to: "configuracoes#update"
     delete "configuracoes/:provedor/:chave", to: "configuracoes#destroy"
@@ -79,6 +83,10 @@ Rails.application.routes.draw do
   # Notas fiscais do Tiny. Só escreve no nosso banco; levar ao OMIE é outro
   # passo, com trava própria.
   post "fiscal/notas/importar", to: "fiscal/notas#importar"
+
+  # Simula por padrão: só grava com `aplicar` explícito, e ainda assim depende
+  # da trava OMIE_ALLOW_WRITES.
+  post "fiscal/notas/enviar-ao-omie", to: "fiscal/notas#enviar_ao_omie"
 
   post "/conciliacoes/processar", to: "conciliacoes#processar"
 end

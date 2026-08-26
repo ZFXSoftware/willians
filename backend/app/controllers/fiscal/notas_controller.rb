@@ -31,7 +31,30 @@ module Fiscal
       render json: { status: "error", error: e.message }, status: :bad_request
     end
 
+    # Leva as notas ao OMIE como títulos a receber.
+    #
+    # `simular` é o padrão de propósito: são milhares de títulos entrando na
+    # contabilidade de alguém, e a tela precisa poder mostrar o que ACONTECERIA
+    # antes de acontecer. A trava OMIE_ALLOW_WRITES continua valendo por baixo.
+    def enviar_ao_omie
+      resumo = Financeiro::EnvioDeNotasAoOmie.new(
+        tenant: current_tenant,
+        dry_run: simular?,
+        limite: params[:limite].presence&.to_i
+      ).call
+
+      render json: resumo.merge(status: "ok", simulado: simular?)
+    rescue Financeiro::EnvioDeNotasAoOmie::ConfiguracaoAusente => e
+      render json: { status: "error", error: e.message }, status: :unprocessable_content
+    end
+
     private
+
+    # Só envia de verdade com pedido EXPLÍCITO. Um parâmetro ausente nunca
+    # pode significar "pode gravar no ERP do cliente".
+    def simular?
+      !ActiveModel::Type::Boolean.new.cast(params[:aplicar])
+    end
 
     def fim
       @fim ||= parse_date(params[:end_date]) || Date.current

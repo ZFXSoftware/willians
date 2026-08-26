@@ -18,6 +18,7 @@ import {
   arquivarConta,
   conectar,
   desconectar,
+  enviarNotasAoOmie,
   fetchIntegracoes,
   importarNotas,
   removerConta,
@@ -25,12 +26,14 @@ import {
   sincronizar,
   type Integracao,
   type NotasFiscais,
+  type ResultadoEnvioOmie,
   type ResultadoImportacao,
 } from "../../api/integracoes"
 import { errorMessage } from "../../api/client"
 import { useResource } from "../../hooks/useResource"
 import { dataHoraBR, desde, rotulo } from "../../lib/format"
 import { Carregando, ErroAoCarregar, Selo, Vazio } from "../../components/Estados"
+import { EscolhaDoOmie } from "../../components/EscolhaDoOmie"
 
 const ICONES: Record<string, typeof ShoppingBag> = {
   mercado_livre: ShoppingBag,
@@ -636,22 +639,26 @@ function CodigosDoOmie({
 
           <div>
             <label className="text-xs text-zinc-400">Cliente/fornecedor</label>
-            <input
-              value={cliente}
-              onChange={(e) => setCliente(e.target.value)}
-              placeholder={String(conta.omie.efetivo.cliente_fornecedor_id ?? "")}
-              className="mt-1 w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm"
-            />
+            <div className="mt-1">
+              <EscolhaDoOmie
+                tipo="clientes"
+                valor={cliente}
+                placeholder={String(conta.omie.efetivo.cliente_fornecedor_id ?? "")}
+                aoEscolher={setCliente}
+              />
+            </div>
           </div>
 
           <div>
             <label className="text-xs text-zinc-400">Conta corrente</label>
-            <input
-              value={contaCorrente}
-              onChange={(e) => setContaCorrente(e.target.value)}
-              placeholder={String(conta.omie.efetivo.conta_corrente_id ?? "")}
-              className="mt-1 w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm"
-            />
+            <div className="mt-1">
+              <EscolhaDoOmie
+                tipo="contas_correntes"
+                valor={contaCorrente}
+                placeholder={String(conta.omie.efetivo.conta_corrente_id ?? "")}
+                aoEscolher={setContaCorrente}
+              />
+            </div>
           </div>
 
           {erro && <p className="text-xs text-red-400">{erro}</p>}
@@ -789,14 +796,21 @@ function NotasFiscaisCard({
         </div>
 
         {notas.configurado ? (
-          <button
-            onClick={importar}
-            disabled={importando}
-            className="flex items-center justify-center gap-2 bg-white text-black hover:opacity-90 transition px-5 py-3 rounded-xl text-sm font-medium disabled:opacity-50 shrink-0"
-          >
-            <DownloadCloud size={15} className={importando ? "animate-pulse" : undefined} />
-            {importando ? "Enfileirando..." : "Importar do Tiny"}
-          </button>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button
+              onClick={importar}
+              disabled={importando}
+              className="flex items-center justify-center gap-2 bg-white text-black hover:opacity-90 transition px-5 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
+            >
+              <DownloadCloud size={15} className={importando ? "animate-pulse" : undefined} />
+              {importando ? "Enfileirando..." : "Importar do Tiny"}
+            </button>
+
+            <EnvioAoOmie
+              pendentes={notas.total - notas.enviadas_ao_omie}
+              aoTerminar={aoTerminar}
+            />
+          </div>
         ) : (
           <Link
             to="/configuracoes"
@@ -848,5 +862,123 @@ function NotasFiscaisCard({
         )
       })()}
     </div>
+  )
+}
+
+// Envia as notas ao OMIE como títulos a receber.
+//
+// Este passo só existia como tarefa de linha de comando, o que não se sustenta
+// com vários clientes. Mas ele grava na CONTABILIDADE de alguém, então o botão
+// não pode ser um botão comum: simula primeiro, mostra o que aconteceria, e só
+// então oferece o envio — uma nota, depois o lote.
+function EnvioAoOmie({
+  pendentes,
+  aoTerminar,
+}: {
+  pendentes: number
+  aoTerminar: () => void
+}) {
+  const [ocupado, setOcupado] = useState(false)
+  const [previa, setPrevia] = useState<ResultadoEnvioOmie | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+
+  async function executar(opcoes: { aplicar?: boolean; limite?: number }) {
+    setOcupado(true)
+    setErro(null)
+
+    try {
+      setPrevia(await enviarNotasAoOmie(opcoes))
+    } catch (e) {
+      setErro(errorMessage(e, "Não foi possível falar com o OMIE"))
+    } finally {
+      setOcupado(false)
+      aoTerminar()
+    }
+  }
+
+  if (pendentes <= 0 && !previa) {
+    return (
+      <span className="flex items-center px-4 py-3 text-sm text-zinc-500">
+        Nada pendente para o OMIE
+      </span>
+    )
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => executar({})}
+        disabled={ocupado}
+        className="flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 transition px-5 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
+        title="Simula primeiro: nada é gravado no OMIE"
+      >
+        <Building2 size={15} />
+        {ocupado ? "Consultando..." : `Enviar ao OMIE (${pendentes})`}
+      </button>
+
+      {(previa || erro) && (
+        <div className="w-full mt-3 bg-zinc-950 border border-zinc-800 rounded-2xl p-4 text-sm space-y-3">
+          {erro && <p className="text-red-400">{erro}</p>}
+
+          {previa && (
+            <>
+              <p className={previa.simulado ? "text-sky-300" : "text-emerald-300"}>
+                {previa.simulado
+                  ? `Simulação: ${previa.previstas} título(s) seriam criados no OMIE.`
+                  : `${previa.enviadas} título(s) criados no OMIE.`}
+              </p>
+
+              {previa.sem_comprador > 0 && (
+                <p className="text-yellow-300 text-xs">
+                  {previa.sem_comprador} nota(s) sem CPF/CNPJ do comprador ficam de
+                  fora — cadastro sem identificação é pior do que nota faltando.
+                </p>
+              )}
+
+              {previa.amostra && previa.amostra.length > 0 && (
+                <div className="text-xs text-zinc-400 space-y-1">
+                  {previa.amostra.map((item) => (
+                    <p key={item.nf}>
+                      NF {item.nf} · {item.comprador} · R$ {item.valor}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {previa.aviso && <p className="text-yellow-300 text-xs">{previa.aviso}</p>}
+
+              {previa.motivo_da_simulacao === "escrita_bloqueada" && (
+                <p className="text-xs text-zinc-500">
+                  A gravação no OMIE está travada neste servidor
+                  (OMIE_ALLOW_WRITES). Nada foi gravado.
+                </p>
+              )}
+
+              {/* Uma nota antes do lote. Conferir um título no OMIE custa um
+                  minuto; desfazer quatro mil custa um dia. */}
+              {previa.simulado && previa.previstas > 0 && !previa.motivo_da_simulacao && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    onClick={() => executar({ aplicar: true, limite: 1 })}
+                    disabled={ocupado}
+                    className="bg-white text-black hover:opacity-90 transition px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-50"
+                  >
+                    Enviar 1 para conferir
+                  </button>
+
+                  <button
+                    onClick={() => executar({ aplicar: true })}
+                    disabled={ocupado}
+                    className="bg-zinc-800 hover:bg-zinc-700 transition px-4 py-2 rounded-xl text-sm disabled:opacity-50"
+                  >
+                    Enviar todas ({previa.previstas})
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </>
   )
 }
