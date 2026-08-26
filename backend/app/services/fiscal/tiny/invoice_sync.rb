@@ -175,8 +175,13 @@ module Fiscal
             "origem" => "tiny",
             "numero_ecommerce" => nota[:numero_ecommerce],
             "situacao_tiny" => nota[:descricao_situacao],
+            # O comprador vem junto porque é contra ELE que o título a receber
+            # é lançado no OMIE — não contra o marketplace. Sem guardar aqui,
+            # criar o título exigiria reler a nota no Tiny.
+            "comprador_nome" => nota[:cliente_nome],
+            "comprador_documento" => nota[:cliente_documento],
             "sincronizado_em" => Time.current
-          )
+          ).compact
         )
 
         invoice.save!
