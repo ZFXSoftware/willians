@@ -48,6 +48,14 @@ module Marketplace
       # => [{ external_id:, pagamentos: [ids], status:, total:, criado_em:,
       #       comprador: }]
       def orders(start_date:, end_date:)
+        # Sem o id do vendedor a consulta sai perguntando "os pedidos de quem?"
+        # e volta 403 — que é indistinguível de falta de permissão.
+        if seller_id.blank?
+          raise Error,
+                "A conta de marketplace não tem o id do vendedor no Mercado Livre. " \
+                "Reconecte a conta em Integrações: é o OAuth que traz esse id."
+        end
+
         coletados = []
 
         offset = 0
@@ -147,10 +155,28 @@ module Marketplace
         http.request(requisicao)
       end
 
+      # 401 e 403 têm causas diferentes aqui, e chamar as duas de "token
+      # inválido ou expirado" mandou a investigação para o lado errado: o mesmo
+      # token estava funcionando no relatório de liberações, que é outra API
+      # (api.mercadopago.com) e não depende de escopo de leitura de pedidos.
+      #
+      # 401 é o token não valer mais. 403 costuma ser o app não ter permissão
+      # de LEITURA, ou o `seller` da consulta não ser o dono do token. As duas
+      # se resolvem reconectando — mas por motivos diferentes, e quem lê
+      # precisa saber qual conferir.
       def parse!(resposta)
         codigo = resposta.code.to_i
 
-        raise AuthError, "Token do Mercado Livre inválido ou expirado" if [ 401, 403 ].include?(codigo)
+        detalhe = resposta.body.to_s.strip.truncate(200)
+
+        raise AuthError, "O Mercado Livre não valeu mais o token (401): #{detalhe}" if codigo == 401
+
+        if codigo == 403
+          raise AuthError,
+                "O Mercado Livre recusou a leitura dos pedidos do vendedor #{seller_id} (403). " \
+                "Costuma ser o aplicativo sem permissão de leitura, ou a conta conectada não " \
+                "ser a dona desses pedidos. Resposta: #{detalhe}"
+        end
 
         unless resposta.is_a?(Net::HTTPSuccess)
           raise Error, "Pedidos do Mercado Livre responderam HTTP #{codigo}: " \

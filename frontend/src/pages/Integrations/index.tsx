@@ -1010,13 +1010,23 @@ function ResumoDaSincronizacao({ resumo }: { resumo: ResumoSincronizacao | null 
     { rotulo: "Repasses fechados", valor: resumo.repasses_novos },
   ].filter((l) => l.valor !== undefined && l.valor !== null)
 
-  if (linhas.length === 0) return null
+  if (linhas.length === 0 && !resumo.vinculo_erro) return null
 
   return (
     <div className="mt-4 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2">
       <p className="text-xs text-zinc-500">
         Última sincronização {resumo.periodo ? `(${resumo.periodo})` : ""}
       </p>
+
+      {/* Os lançamentos entraram, mas sem os pedidos nada liga o dinheiro à
+          nota fiscal — e a conciliação contra o OMIE fica sem chave. Isso
+          precisa aparecer, mesmo com a importação tendo funcionado. */}
+      {resumo.vinculo_erro && (
+        <p className="mt-2 text-xs text-yellow-300 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-2 py-1.5">
+          Os lançamentos entraram, mas não foi possível ligá-los aos pedidos:{" "}
+          {resumo.vinculo_erro}
+        </p>
+      )}
 
       <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
         {linhas.map((linha) => (

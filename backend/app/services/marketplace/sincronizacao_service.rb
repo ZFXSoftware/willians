@@ -117,6 +117,10 @@ module Marketplace
         "recusados" => resumo[:failed].to_i,
         "pedidos" => vinculos.is_a?(Hash) ? vinculos[:pedidos] : nil,
         "lancamentos_ligados" => vinculos.is_a?(Hash) ? vinculos[:lancamentos_ligados] : nil,
+        # A ingestão pode dar certo e o vínculo falhar — foi o que aconteceu, e
+        # a tela dizia apenas "concluída". Sem os pedidos, nada liga o dinheiro
+        # à nota fiscal, e isso não pode ficar só no log.
+        "vinculo_erro" => vinculos.is_a?(Hash) ? vinculos[:erro] : nil,
         "repasses_novos" => repasses.is_a?(Hash) ? repasses[:criados] : nil,
         "periodo" => "#{start_date} a #{end_date}"
       })

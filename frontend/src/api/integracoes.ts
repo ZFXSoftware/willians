@@ -43,6 +43,9 @@ export interface ResumoSincronizacao {
   pedidos?: number
   lancamentos_ligados?: number
   repasses_novos?: number
+  // A ingestão pode dar certo e o vínculo com os pedidos falhar. Sem eles nada
+  // liga o dinheiro à nota fiscal, e a tela dizia só "concluída".
+  vinculo_erro?: string | null
 }
 
 // Os códigos do OMIE desta conta de marketplace.
