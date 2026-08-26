@@ -16,6 +16,7 @@ task estado: :environment do
     puts "=" * 72
 
     imprimir_membros(tenant)
+    imprimir_omie(tenant)
     imprimir_chaves(tenant)
     imprimir_contas(tenant)
   end
@@ -41,9 +42,10 @@ def imprimir_ambiente
   linha "Callback do ML:", callback_do_ml
   puts "  #{' ' * 28}^ idêntica à cadastrada no painel do Mercado Livre?"
 
-  linha "OMIE configurado:", sim_nao(Omie::Client.configured?)
-  linha "Escrita no OMIE:",
-        Omie::Client.writes_enabled? ? "HABILITADA (cuidado!)" : "bloqueada"
+  # A chave GERAL. A da empresa é mostrada por empresa, adiante: dizer só esta
+  # fazia parecer que a escrita estava liberada quando ainda faltava a outra.
+  linha "OMIE_ALLOW_WRITES:",
+        Omie::Client.writes_enabled?(tenant: nil) ? "LIGADA (chave geral)" : "desligada"
 
   # Se a simulação estiver ligada e uma conta cair no provider falso, entram
   # lançamentos fictícios no razão com cara de reais. Merece destaque.
@@ -59,6 +61,27 @@ def imprimir_membros(tenant)
   puts "  Membros (#{membros.size}):"
 
   membros.each { |m| puts format("    %-44s %s", m.user&.email, m.role) }
+end
+
+# Gravar no OMIE exige DUAS chaves ligadas, e é preciso ver as duas para saber
+# qual está faltando. Só a geral fazia parecer que estava tudo liberado.
+def imprimir_omie(tenant)
+  Current.with_tenant(tenant) do
+    geral = Omie::Client.writes_enabled?(tenant: nil)
+
+    da_empresa = Integracoes::Config.bool("omie", :escrita_liberada, tenant: tenant)
+
+    puts
+    puts "  Gravação no OMIE:"
+    puts "    chave do servidor (OMIE_ALLOW_WRITES): #{geral ? 'ligada' : 'DESLIGADA'}"
+    puts "    chave desta empresa:                   #{da_empresa ? 'ligada' : 'DESLIGADA'}"
+    puts "    resultado:                             " \
+         "#{Omie::Client.writes_enabled?(tenant: tenant) ? 'GRAVA de verdade' : 'apenas simula'}"
+
+    marco = Integracoes::Config.get("omie", :envio_a_partir_de, tenant: tenant).presence
+
+    puts "    enviar notas a partir de:              #{marco || 'NÃO definido'}"
+  end
 end
 
 def imprimir_chaves(tenant)
