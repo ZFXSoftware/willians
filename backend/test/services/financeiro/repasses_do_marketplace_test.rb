@@ -233,6 +233,32 @@ module Financeiro
       assert_equal ConciliacaoRegistro.where(payout_batch_id: lote.id).maximum(:id), atuais.first.id
     end
 
+    # Sem isto, "Título não encontrado" ficava aberta para sempre: o título
+    # aparece no OMIE, o repasse passa a conferir, e a tela continua acusando
+    # divergências que já não existem.
+    test "divergência se fecha sozinha quando o repasse volta a bater" do
+      venda_com_taxa(bruto: 150, taxa: 15)
+      repasse
+
+      pedido = criar_pedido(tenant: @tenant, conta: @conta, external_id: "2000000111")
+      nota = criar_nota(tenant: @tenant, pedido: pedido, numero: "12345", valor: 150)
+
+      fechar
+
+      # Primeira rodada: o OMIE está vazio, e abre a divergência.
+      conciliar([])
+
+      assert_equal 1, DivergenceReport.where(tenant: @tenant, status: :open).count
+
+      # O título chega ao OMIE e o recebível ganha a nota.
+      ReceivableUnit.find_by(tenant: @tenant).update!(invoice: nota, order: pedido)
+
+      conciliar([ { "numero_documento_fiscal" => "12345", "valor_documento" => "150.00" } ])
+
+      assert_equal 0, DivergenceReport.where(tenant: @tenant, status: :open).count
+      assert_equal 1, DivergenceReport.where(tenant: @tenant, status: :resolved).count
+    end
+
     test "sem nota fiscal do nosso lado, o título do OMIE não é encontrado" do
       venda_com_taxa(bruto: 150, taxa: 15)
       repasse

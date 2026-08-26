@@ -56,6 +56,12 @@ export default function Divergences() {
       titulo: "Valor em disputa",
       valor: brl(resumo?.valor_em_disputa),
       tom: "text-white",
+      // Em "título não encontrado" não houve comparação, e a diferença gravada
+      // é o repasse inteiro. Somar isso inflava o número com dinheiro que
+      // ninguém está disputando — agora esses casos são contados à parte.
+      nota: resumo?.sem_comparacao
+        ? `${resumo.sem_comparacao} sem título no OMIE para comparar`
+        : undefined,
     },
   ]
 
@@ -97,6 +103,7 @@ export default function Divergences() {
           >
             <p className="text-sm text-zinc-400">{item.titulo}</p>
             <h2 className={`text-2xl font-bold mt-3 ${item.tom}`}>{item.valor}</h2>
+            {item.nota && <p className="text-xs text-zinc-500 mt-2">{item.nota}</p>}
           </div>
         ))}
       </div>
@@ -142,6 +149,11 @@ export default function Divergences() {
                 {data?.items.map((original) => {
                   const row = alteradas[original.id] ?? original
                   const Icone = ICONES[row.status] ?? AlertTriangle
+                  // Sem o lado do OMIE não existe diferença: o que vem é o
+                  // repasse inteiro. Mostrar isso como "Diferença" — e em
+                  // VERDE, como se fosse ganho — faz uma comparação que não
+                  // aconteceu parecer saldo a favor.
+                  const comparado = row.valor_esperado != null
                   const dif = Number(row.diferenca ?? 0)
                   const aberta = contestando === row.id
 
@@ -172,10 +184,19 @@ export default function Divergences() {
                       </td>
                       <td
                         className={`px-4 py-3 text-right font-medium ${
-                          dif > 0 ? "text-emerald-400" : "text-red-400"
+                          !comparado
+                            ? "text-zinc-600"
+                            : dif === 0
+                              ? "text-emerald-400"
+                              : "text-red-400"
                         }`}
+                        title={
+                          comparado
+                            ? undefined
+                            : "Não houve comparação: nenhum título do OMIE foi encontrado."
+                        }
                       >
-                        {brl(row.diferenca)}
+                        {comparado ? brl(row.diferenca) : "—"}
                       </td>
                       <td className="px-4 py-3 text-zinc-400">{dataBR(row.data)}</td>
                       <td className="px-4 py-3 text-right">

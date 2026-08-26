@@ -42,7 +42,9 @@ export interface Contestacao {
 export interface ResumoDivergencias {
   por_status: Record<string, number>
   por_tipo: Record<string, number>
+  // Só o que foi de fato comparado: "título não encontrado" não é disputa.
   valor_em_disputa: string
+  sem_comparacao: number
   resolvidas_no_mes: number
 }
 

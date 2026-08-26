@@ -136,6 +136,8 @@ module Conciliacao
 
         counters[:com_nf] += 1 if notas_fiscais_for(payout).any?
 
+        resolvidos << payout.financial_entry_id if resultado.ok? && payout.financial_entry_id
+
         registros << registro_row(payout, resultado)
 
         divergencia = divergencia_row(payout, resultado)
@@ -148,6 +150,36 @@ module Conciliacao
       end
 
       flush!(registros, divergencias)
+
+      fechar_resolvidas!
+    end
+
+    # Divergência que voltou a bater se resolve sozinha.
+    #
+    # Sem isto, "Título não encontrado" ficava aberta para sempre: o título
+    # aparece no OMIE, o repasse passa a conferir, e a tela continua acusando
+    # sete divergências que já não existem. A conciliação de SALDO já fazia
+    # isso; a de repasses, não.
+    def fechar_resolvidas!
+      return if resolvidos.empty?
+
+      fechadas =
+        DivergenceReport
+          .where(tenant_id: tenant.id, status: :open, financial_entry_id: resolvidos.to_a)
+          .update_all(
+            status: "resolved",
+            resolved_at: Time.current,
+            resolution_notes: "Passou a conferir com o OMIE na execução de #{Date.current}.",
+            updated_at: Time.current
+          )
+
+      counters[:divergencias_fechadas] += fechadas
+
+      resolvidos.clear
+    end
+
+    def resolvidos
+      @resolvidos ||= Set.new
     end
 
     def flush!(registros, divergencias)
@@ -372,7 +404,8 @@ module Conciliacao
         "#{LOG_PREFIX} conta ##{platform_account.id}: " \
         "#{omie_totals.size} título(s) no OMIE entre #{start_date} e #{end_date}, " \
         "#{counters[:total]} repasse(s), #{counters[:com_nf]} com nota fiscal nossa, " \
-        "#{counters[:ok]} conferido(s), #{counters[:nao_encontrado]} sem título correspondente"
+        "#{counters[:ok]} conferido(s), #{counters[:nao_encontrado]} sem título correspondente, " \
+        "#{counters[:divergencias_fechadas]} divergência(s) fechada(s)"
       )
     end
 

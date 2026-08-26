@@ -106,7 +106,17 @@ class DivergenciasController < ApplicationController
     {
       por_status: base.group(:status).count,
       por_tipo: base.group(:divergence_type).count,
-      valor_em_disputa: base.where(status: :open).sum(:difference_amount).abs,
+      # Só o que foi de fato COMPARADO.
+      #
+      # Em "título não encontrado" não houve comparação: a diferença gravada é
+      # o repasse inteiro, porque o outro lado é nulo. Somar isso como "valor
+      # em disputa" inflava o número com dinheiro que ninguém está disputando —
+      # e é justamente o caso mais comum enquanto o OMIE está sendo populado.
+      valor_em_disputa: base.where(status: :open)
+                            .where.not(expected_amount: nil)
+                            .sum(:difference_amount).abs,
+      # Contados à parte: não são disputa, são conciliação que não aconteceu.
+      sem_comparacao: base.where(status: :open, expected_amount: nil).count,
       resolvidas_no_mes: base.where(status: :resolved)
                              .where(resolved_at: Time.current.beginning_of_month..)
                              .count
