@@ -1041,11 +1041,31 @@ function EnvioAoOmie({
 
               {previa.aviso && <p className="text-yellow-300 text-xs">{previa.aviso}</p>}
 
+              {/* São DUAS chaves, e a mensagem só citava uma — quem lia
+                  destravava o servidor, via que nada mudava, e não tinha como
+                  saber que faltava a da empresa. */}
               {previa.motivo_da_simulacao === "escrita_bloqueada" && (
-                <p className="text-xs text-zinc-500">
-                  A gravação no OMIE está travada neste servidor
-                  (OMIE_ALLOW_WRITES). Nada foi gravado.
-                </p>
+                <div className="text-xs text-zinc-400 space-y-1">
+                  <p className="text-zinc-300">
+                    Nada foi gravado: a gravação no OMIE está travada. Para
+                    liberar, as duas precisam estar ligadas:
+                  </p>
+                  <p>
+                    1. No servidor, <code className="text-zinc-300">OMIE_ALLOW_WRITES=true</code>{" "}
+                    no .env.production (e subir a stack).
+                  </p>
+                  <p>
+                    2. Em{" "}
+                    <Link to="/configuracoes" className="underline hover:text-zinc-200">
+                      Configurações &gt; OMIE
+                    </Link>
+                    , ligue <em>Gravar no OMIE desta empresa</em>.
+                  </p>
+                  <p className="text-zinc-500">
+                    Depois volte aqui e clique em Enviar ao OMIE de novo: os botões
+                    de envio aparecem embaixo desta simulação.
+                  </p>
+                </div>
               )}
 
               {/* Uma nota antes do lote. Conferir um título no OMIE custa um
