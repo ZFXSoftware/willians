@@ -22,10 +22,21 @@ module Financeiro
     # Sem pausa, um lote de milhares vira bloqueio no meio do caminho.
     PAUSA_PADRAO = 1.0
 
+    # Falhas seguidas param o ciclo automático.
+    #
+    # Se o OMIE está recusando, insistir de hora em hora não conserta nada e
+    # ainda enche a contabilidade de tentativa. Melhor parar e avisar do que
+    # martelar em silêncio.
+    LIMITE_DE_FALHAS = 3
+
     class ConfiguracaoAusente < StandardError; end
 
+    class SemMarcoInicial < StandardError; end
+
+    class MuitasFalhas < StandardError; end
+
     def initialize(tenant:, platform_account: nil, client: nil, dry_run: nil,
-                   limite: nil, pausa: PAUSA_PADRAO)
+                   limite: nil, pausa: PAUSA_PADRAO, automatico: false)
       @tenant = tenant
 
       @platform_account = platform_account
@@ -33,6 +44,8 @@ module Financeiro
       @limite = limite
 
       @pausa = pausa
+
+      @automatico = automatico
 
       @client, @dry_run, @motivo_da_simulacao =
         EscritaNoOmie.preparar(tenant: tenant, client: client, dry_run: dry_run)
@@ -45,6 +58,10 @@ module Financeiro
 
       Current.with_tenant(tenant) do
         exigir_configuracao!
+
+        exigir_marco_inicial! if automatico
+
+        recusar_se_travado! if automatico
 
         notas.each do |nota|
           processar(nota, resumo)
@@ -64,12 +81,66 @@ module Financeiro
 
       EscritaNoOmie.anotar!(resumo, @motivo_da_simulacao)
 
+      registrar_saude!(resumo) unless dry_run
+
       resumo
     end
 
     private
 
-    attr_reader :tenant, :platform_account, :client, :dry_run, :limite, :pausa
+    attr_reader :tenant, :platform_account, :client, :dry_run, :limite, :pausa, :automatico
+
+    # Marco inicial: onde começa a nossa responsabilidade.
+    #
+    # Sem isto, o primeiro ciclo de um cliente novo tentaria mandar o histórico
+    # inteiro dele para o OMIE — inclusive o que o sistema antigo já lançou.
+    def marco
+      @marco ||= Integracoes::Config.get("omie", :envio_a_partir_de, tenant: tenant).presence&.to_date
+    rescue Date::Error
+      nil
+    end
+
+    def exigir_marco_inicial!
+      return if marco
+
+      raise SemMarcoInicial,
+            "Defina 'Enviar notas emitidas a partir de' em Configurações > OMIE. " \
+            "Sem essa data, o envio automático tentaria mandar todo o histórico da empresa."
+    end
+
+    # Contagem de falhas SEGUIDAS, e não total: uma nota problemática no meio
+    # de mil não pode parar o ciclo, mas três execuções seguidas falhando
+    # significa que alguma coisa mudou e insistir não resolve.
+    def saude
+      tenant.metadata["omie_envio_saude"] || {}
+    end
+
+    def recusar_se_travado!
+      return if saude["falhas_seguidas"].to_i < LIMITE_DE_FALHAS
+
+      raise MuitasFalhas,
+            "O envio automático está parado depois de #{saude['falhas_seguidas']} execuções " \
+            "seguidas com falha (última: #{saude['ultimo_erro']}). Resolva e envie uma nota " \
+            "pela tela para destravar."
+    end
+
+    def registrar_saude!(resumo)
+      falhou = resumo[:falhas].to_i.positive?
+
+      seguidas = falhou ? saude["falhas_seguidas"].to_i + 1 : 0
+
+      tenant.update_columns(
+        metadata: tenant.metadata.merge(
+          "omie_envio_saude" => {
+            "em" => Time.current,
+            "enviadas" => resumo[:enviadas],
+            "falhas_seguidas" => seguidas,
+            "ultimo_erro" => falhou ? Array(resumo[:erros]).first : nil
+          }.compact
+        ),
+        updated_at: Time.current
+      )
+    end
 
     def processar(nota, resumo)
       mapper = Omie::Mappers::InvoiceMapper.new(invoice: nota, settings: settings_de(nota))
@@ -121,6 +192,8 @@ module Financeiro
                  .where("invoices.metadata->>'omie_codigo_lancamento' IS NULL")
                  .includes(:order)
                  .order(:issued_at, :id)
+
+      escopo = escopo.where(issued_at: marco..) if marco
 
       if platform_account
         escopo = escopo.joins(:order).where(orders: { platform_account_id: platform_account.id })

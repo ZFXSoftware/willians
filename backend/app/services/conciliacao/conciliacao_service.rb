@@ -48,9 +48,16 @@ module Conciliacao
 
       simulacoes = []
 
+      rotinas = {}
+
       resultados = grupos.flat_map do |empresa, contas|
         Current.with_tenant(empresa) do
           simulacoes << empresa.name unless credenciais_reais?
+
+          # ANTES de conciliar: a conciliação compara o repasse com os títulos
+          # do OMIE, e é esta rotina que põe os títulos lá. Conciliar primeiro
+          # seria comparar com o que ainda não chegou.
+          rotinas[empresa.id] = rotina_fiscal(empresa)
 
           # Uma leitura só do OMIE para todas as contas da empresa.
           totais = carregar_totais_omie(contas)
@@ -67,6 +74,7 @@ module Conciliacao
         simulacao: simulacoes.any?,
         empresas_em_simulacao: simulacoes,
         sincronizacao: sincronizacao,
+        rotina_fiscal: rotinas,
         runs: resultados
       }
     end
@@ -95,6 +103,18 @@ module Conciliacao
       ).call
     rescue StandardError => e
       Rails.logger.error "#{LOG_PREFIX} ingestão falhou por inteiro: #{e.class} #{e.message}"
+
+      { erro: e.message }
+    end
+
+    # Trazer as notas do Tiny e levá-las ao OMIE é FUNÇÃO do sistema, não
+    # migração de uma vez — então roda no ciclo, e não quando alguém lembra de
+    # clicar. Nunca derruba a conciliação: sem títulos novos, o que já está lá
+    # continua valendo a pena conferir.
+    def rotina_fiscal(empresa)
+      Fiscal::RotinaDeNotas.new(tenant: empresa).call
+    rescue StandardError => e
+      Rails.logger.error "#{LOG_PREFIX} rotina fiscal da empresa ##{empresa.id}: #{e.message}"
 
       { erro: e.message }
     end

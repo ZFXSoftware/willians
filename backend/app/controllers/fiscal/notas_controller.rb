@@ -43,9 +43,18 @@ module Fiscal
         limite: params[:limite].presence&.to_i
       ).call
 
-      render json: resumo.merge(status: "ok", simulado: simular?)
-    rescue Financeiro::EnvioDeNotasAoOmie::ConfiguracaoAusente => e
+      render json: resumo.merge(status: "ok", simulado: resumo[:motivo_da_simulacao].present? || simular?)
+    rescue Financeiro::EnvioDeNotasAoOmie::ConfiguracaoAusente,
+           Financeiro::EnvioDeNotasAoOmie::MuitasFalhas => e
       render json: { status: "error", error: e.message }, status: :unprocessable_content
+    end
+
+    # O ciclo automático de uma empresa, sob demanda. É o que o agendador
+    # chama; existe como rota para o gateway poder enfileirá-lo.
+    def rotina
+      resumo = Fiscal::RotinaDeNotas.new(tenant: current_tenant).call
+
+      render json: resumo.merge(status: "ok")
     end
 
     private

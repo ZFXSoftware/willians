@@ -82,8 +82,21 @@ module Omie
     # no ERP do cliente justamente quem tentou desligá-la.
     WRITE_ENABLED_VALUES = %w[true 1].freeze
 
-    def self.writes_enabled?
-      WRITE_ENABLED_VALUES.include?(ENV["OMIE_ALLOW_WRITES"].to_s.strip.downcase)
+    # DUAS chaves, e as duas precisam estar ligadas.
+    #
+    # OMIE_ALLOW_WRITES é a chave geral do servidor, e continua o que sempre
+    # foi. `escrita_liberada` é por EMPRESA, e existe porque a trava única não
+    # se sustenta com vários clientes: ligá-la para validar um liberaria a
+    # gravação na contabilidade de todos os outros ao mesmo tempo.
+    #
+    # Sem tenant no contexto (tarefa de manutenção, console) só a chave geral
+    # vale — quem roda ali sabe o que está fazendo.
+    def self.writes_enabled?(tenant: Current.tenant)
+      return false unless WRITE_ENABLED_VALUES.include?(ENV["OMIE_ALLOW_WRITES"].to_s.strip.downcase)
+
+      return true if tenant.blank?
+
+      Integracoes::Config.bool(PROVEDOR, :escrita_liberada, tenant: tenant)
     end
 
     def self.read_only_call?(call)
@@ -147,11 +160,14 @@ module Omie
     def guard_write!(call)
       return if self.class.read_only_call?(call)
 
-      return if self.class.writes_enabled?
+      # O tenant do CLIENTE, e não o do contexto da requisição: o ciclo
+      # automático roda sem requisição, e é justamente ele que precisa
+      # respeitar a liberação de cada empresa.
+      return if self.class.writes_enabled?(tenant: tenant_efetivo)
 
       raise WriteBlocked,
-            "Chamada de escrita '#{call}' bloqueada. Defina OMIE_ALLOW_WRITES=true " \
-            "para permitir gravação no OMIE do cliente."
+            "Chamada de escrita '#{call}' bloqueada. Ligue 'Gravar no OMIE desta empresa' " \
+            "em Configurações > OMIE, e confirme que OMIE_ALLOW_WRITES=true no servidor."
     end
 
     def uri_for(endpoint)

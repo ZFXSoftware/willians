@@ -20,13 +20,22 @@ module Financeiro
       # está fazendo, e é assim que a suíte verifica o caminho de escrita.
       sem_credencial = real.is_a?(Omie::FakeOmieClient)
 
+      liberada = Omie::Client.writes_enabled?(tenant: tenant)
+
       efetivo =
         if sem_credencial
           true
         elsif dry_run.nil?
-          !Omie::Client.writes_enabled?
-        else
+          !liberada
+        elsif client
+          # Cliente injetado decide sozinho: não é o OMIE de ninguém, é dublê
+          # de teste ou chamador que trouxe o próprio.
           dry_run
+        else
+          # Pedido explícito de gravar NÃO vence a trava. Quem decide se o
+          # sistema pode escrever na contabilidade é a configuração da empresa,
+          # não o parâmetro que veio da tela.
+          dry_run || !liberada
         end
 
       motivo =

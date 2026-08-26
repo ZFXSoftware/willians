@@ -29,6 +29,14 @@ module Financeiro
       Integracoes::Config.limpar_cache
     end
 
+    def liberar_escrita_da_empresa
+      IntegrationSetting.create!(
+        tenant: @tenant, provider: "omie", key: "escrita_liberada", value: "true"
+      )
+
+      Integracoes::Config.limpar_cache
+    end
+
     def saque
       criar_lancamento(tenant: @tenant, conta: @conta, tipo: :settlement, direcao: :debit,
                        valor: 1000, ocorrido_em: 2.days.ago)
@@ -52,6 +60,10 @@ module Financeiro
     test "com a credencial preenchida na tela, a escrita deixa de ser simulada" do
       saque
       credencial_pela_tela
+      # A liberação passou a ser POR EMPRESA: ter credencial não basta mais.
+      # Ligar a chave do servidor para validar um cliente não pode liberar a
+      # gravação na contabilidade de todos os outros.
+      liberar_escrita_da_empresa
 
       espiao = OmieEspiao.new
 

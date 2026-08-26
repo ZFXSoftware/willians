@@ -71,7 +71,26 @@ module Integracoes
           campo(:categoria_transitoria_despesa, env: "OMIE_CATEGORIA_TRANSITORIA_DESPESA",
                 rotulo: "Categoria transitória de despesa",
                 ajuda: "Onde entram os débitos sem vínculo com pedido ou nota fiscal. " \
-                       "Uma categoria 2.x do seu plano de contas. Padrão da empresa.")
+                       "Uma categoria 2.x do seu plano de contas. Padrão da empresa."),
+
+          # A liberação da escrita era do SERVIDOR inteiro. Num sistema com
+          # vários clientes isso é perigoso: um cliente novo entra e o sistema
+          # começa a gravar na contabilidade dele sem ninguém ter decidido.
+          # Agora cada empresa é liberada — e a trava do servidor continua
+          # valendo por cima, como chave geral.
+          campo(:escrita_liberada, env: "OMIE_ESCRITA_LIBERADA", tipo: :booleano,
+                rotulo: "Gravar no OMIE desta empresa",
+                ajuda: "Enquanto estiver desligado, o sistema apenas SIMULA e mostra o que " \
+                       "faria. Ligue depois de conferir, no OMIE, um título criado pelo " \
+                       "sistema."),
+
+          # Sem isto, o primeiro ciclo automático de um cliente novo tentaria
+          # mandar todo o histórico dele de uma vez.
+          campo(:envio_a_partir_de, env: "OMIE_ENVIO_A_PARTIR_DE", tipo: :data,
+                rotulo: "Enviar notas emitidas a partir de",
+                ajuda: "Notas anteriores a esta data ficam de fora do envio automático. " \
+                       "É a fronteira entre o que o sistema antigo já lançou e o que passa " \
+                       "a ser nosso.")
         ]
       ),
 

@@ -1,6 +1,6 @@
 import { api } from "./client"
 
-export type TipoCampo = "texto" | "booleano" | "opcao"
+export type TipoCampo = "texto" | "booleano" | "opcao" | "data"
 
 export type OrigemValor = "configuracao" | "ambiente" | "padrao" | "faltando"
 
