@@ -75,7 +75,17 @@ module Financeiro
     def call
       resumo = Hash.new(0)
 
+      # Criadas na mão, e não com `||=`, porque o padrão do hash é ZERO: para
+      # uma chave ausente, `resumo[:erros] ||= []` encontra 0, considera
+      # preenchido e não atribui nada. Depois `0.size` devolve 8, a guarda
+      # `< 5` reprova, e nenhuma mensagem entra na lista.
+      #
+      # Resultado: a tela mostrava "1 nota recusada pelo OMIE" e nenhuma
+      # palavra sobre o motivo — o defeito mais caro possível numa lista de
+      # erros, que é ela estar sempre vazia.
       resumo[:amostra] = []
+
+      resumo[:erros] = []
 
       Current.with_tenant(tenant) do
         exigir_configuracao!
@@ -95,7 +105,6 @@ module Financeiro
 
           Rails.logger.error "[EnvioDeNotas] nota ##{nota.id}: #{e.class} #{e.message}"
 
-          resumo[:erros] ||= []
           resumo[:erros] << "NF #{nota.number}: #{e.message}" if resumo[:erros].size < 5
         end
       end

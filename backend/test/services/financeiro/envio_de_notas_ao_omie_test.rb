@@ -167,6 +167,31 @@ module Financeiro
       assert_empty espiao.chamadas
     end
 
+    # A lista de erros vinha SEMPRE vazia: o resumo é um Hash com padrão zero,
+    # e `resumo[:erros] ||= []` encontrava 0, achava que estava preenchido e
+    # não atribuía nada. A tela dizia "1 nota recusada pelo OMIE" e nenhuma
+    # palavra sobre o motivo.
+    test "a recusa do OMIE chega junto com o motivo" do
+      criar_nota_do_tiny(numero: "850512")
+
+      recusa = Object.new
+
+      def recusa.request(_endpoint, call, _params = {})
+        raise Omie::Client::ApiError, "ERROR: Cliente já cadastrado" if call == "ConsultarCliente"
+
+        {}
+      end
+
+      resumo = EnvioDeNotasAoOmie.new(
+        tenant: @tenant, client: recusa, dry_run: false, pausa: 0
+      ).call
+
+      assert_equal 1, resumo[:falhas]
+      assert_equal 1, resumo[:erros].size, "contar a falha sem dizer o motivo não ajuda ninguém"
+      assert_includes resumo[:erros].first, "850512"
+      assert_includes resumo[:erros].first, "Cliente já cadastrado"
+    end
+
     test "uma nota falha sem derrubar as outras" do
       criar_nota_do_tiny(numero: "1", documento: "")
       criar_nota_do_tiny(numero: "2")
