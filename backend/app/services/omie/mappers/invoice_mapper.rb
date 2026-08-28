@@ -76,6 +76,11 @@ module Omie
 
       def documento = metadata["comprador_documento"].to_s.gsub(/\D/, "")
 
+      # Como veio do Tiny, com pontuação. O OMIE guarda nesse formato — a
+      # própria mensagem de erro dele devolve "557.886.962-91" —, e o filtro de
+      # busca pode não normalizar.
+      def documento_original = metadata["comprador_documento"].to_s.strip
+
       private
 
       attr_reader :invoice, :settings

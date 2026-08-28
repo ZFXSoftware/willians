@@ -16,7 +16,13 @@ module Financeiro
   class EnvioDeNotasAoOmie
     CLIENTE = { endpoint: "geral/clientes/", call: "IncluirCliente" }.freeze
 
-    CONSULTA_CLIENTE = { endpoint: "geral/clientes/", call: "ConsultarCliente" }.freeze
+    # Busca por CPF/CNPJ é LISTAGEM COM FILTRO, e não consulta.
+    #
+    # `ConsultarCliente` só aceita a chave do cadastro — código do OMIE ou
+    # código de integração —, e devolve "Tag [CNPJ_CPF] não faz parte da
+    # estrutura do tipo complexo [clientes_cadastro_chave]". Que é justamente o
+    # que não temos: o cadastro veio do sistema antigo, com integração vazia.
+    BUSCA_CLIENTE = { endpoint: "geral/clientes/", call: "ListarClientes" }.freeze
 
     # Como o OMIE diz "esse CPF não está cadastrado". Não há código próprio na
     # resposta: sobra reconhecer o texto.
@@ -191,7 +197,7 @@ module Financeiro
 
       return if dry_run
 
-      codigo = resolver_cliente!(mapper.documento, cliente)
+      codigo = resolver_cliente!(mapper, cliente)
 
       resposta = client.request(TITULO[:endpoint], TITULO[:call], mapper.titulo(codigo_cliente: codigo))
 
@@ -212,20 +218,36 @@ module Financeiro
     # O cache vale por execução: dentro de um lote o mesmo comprador pode
     # aparecer em várias notas, e consultar de novo é chamada jogada fora — e o
     # OMIE bloqueia repetição em sequência.
-    def resolver_cliente!(documento, payload)
-      cache[documento] ||= consultar_cliente(documento) || incluir_cliente!(payload)
+    def resolver_cliente!(mapper, payload)
+      cache[mapper.documento] ||= procurar_cliente(mapper) || incluir_cliente!(payload)
     end
 
     def cache = @cache ||= {}
 
-    def consultar_cliente(documento)
-      resposta = client.request(CONSULTA_CLIENTE[:endpoint], CONSULTA_CLIENTE[:call],
-                                cnpj_cpf: documento)
+    # Tenta sem pontuação e, se não achar, com — o OMIE guarda formatado, e não
+    # dá para saber se o filtro normaliza. A segunda tentativa só acontece no
+    # caminho em que criaríamos o cadastro de qualquer forma.
+    def procurar_cliente(mapper)
+      [ mapper.documento, mapper.documento_original ].compact_blank.uniq.each do |busca|
+        codigo = buscar_por_documento(busca)
+
+        return codigo if codigo
+      end
+
+      nil
+    end
+
+    def buscar_por_documento(documento)
+      resposta = client.request(
+        BUSCA_CLIENTE[:endpoint], BUSCA_CLIENTE[:call],
+        pagina: 1, registros_por_pagina: 1, clientesFiltro: { cnpj_cpf: documento }
+      )
 
       dormir
 
-      resposta["codigo_cliente_omie"]
+      resposta.dig("clientes_cadastro", 0, "codigo_cliente_omie")
     rescue Omie::Client::ApiError => e
+      # "Não existem registros" é resposta, não falha.
       raise unless e.message.match?(NAO_CADASTRADO)
 
       dormir

@@ -54,8 +54,8 @@ module Financeiro
         @chamadas << [ call, params ]
 
         case call
-        when "ConsultarCliente"
-          return { "codigo_cliente_omie" => @cliente_existente } if @cliente_existente
+        when "ListarClientes"
+          return { "clientes_cadastro" => [ { "codigo_cliente_omie" => @cliente_existente } ] } if @cliente_existente
 
           raise Omie::Client::ApiError, "ERROR: Não existem registros para a consulta"
         when "IncluirCliente"
@@ -94,7 +94,11 @@ module Financeiro
     # A base do cliente JÁ TEM os compradores, com código de integração vazio.
     # Criar às cegas fazia o OMIE recusar pelo CPF repetido — "Cliente já
     # cadastrado ... com o Id [X] e código de integração []" — e nenhum título
-    # nascia. Consultar primeiro é o que destrava.
+    # nascia.
+    #
+    # A busca é LISTAGEM COM FILTRO e não consulta: `ConsultarCliente` só
+    # aceita a chave do cadastro, e responde "Tag [CNPJ_CPF] não faz parte da
+    # estrutura" — justamente a chave que não temos.
     test "comprador que já existe no OMIE é reaproveitado, não recriado" do
       criar_nota_do_tiny
 
@@ -114,16 +118,21 @@ module Financeiro
 
     # Dentro de um lote o mesmo comprador aparece em várias notas, e o OMIE
     # bloqueia repetição da mesma chamada em sequência.
-    test "o mesmo comprador é consultado uma vez só por execução" do
+    test "o mesmo comprador é resolvido uma vez só por execução" do
       criar_nota_do_tiny(numero: "1")
       criar_nota_do_tiny(numero: "2")
 
       _, espiao = enviar
 
-      consultas = espiao.chamadas.count { |call, _| call == "ConsultarCliente" }
-
-      assert_equal 1, consultas
+      assert_equal 1, espiao.chamadas.count { |call, _| call == "IncluirCliente" },
+                   "o segundo título usa o cadastro já resolvido"
       assert_equal 2, espiao.chamadas.count { |call, _| call == "IncluirContaReceber" }
+
+      # Duas buscas para o MESMO comprador na primeira nota: sem pontuação e
+      # com. O OMIE guarda formatado e não dá para saber se o filtro normaliza;
+      # a segunda tentativa só acontece quando a primeira não achou, que é o
+      # caminho em que o cadastro seria criado de qualquer forma.
+      assert_equal 2, espiao.chamadas.count { |call, _| call == "ListarClientes" }
     end
 
     # É por este campo que o título encontra o repasse do marketplace: o
@@ -177,7 +186,7 @@ module Financeiro
       recusa = Object.new
 
       def recusa.request(_endpoint, call, _params = {})
-        raise Omie::Client::ApiError, "ERROR: Cliente já cadastrado" if call == "ConsultarCliente"
+        raise Omie::Client::ApiError, "ERROR: Cliente já cadastrado" if call == "ListarClientes"
 
         {}
       end
