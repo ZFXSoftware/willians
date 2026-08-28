@@ -43,6 +43,20 @@ module Fiscal
         limite: params[:limite].presence&.to_i
       ).call
 
+      # Uma linha por execução, sempre.
+      #
+      # Um clique que "pisca e volta ao que estava" não deixava rastro nenhum:
+      # nem no log, nem na tela. Sem saber se ele pediu para gravar, se algo
+      # foi recusado ou se simplesmente não havia nota, não há o que
+      # investigar.
+      Rails.logger.info(
+        "[EnvioDeNotas] empresa ##{current_tenant.id}: pedido aplicar=#{!simular?} " \
+        "limite=#{params[:limite].presence || 'lote'} -> previstas=#{resumo[:previstas].to_i} " \
+        "enviadas=#{resumo[:enviadas].to_i} falhas=#{resumo[:falhas].to_i} " \
+        "sem_comprador=#{resumo[:sem_comprador].to_i} pendentes=#{resumo[:pendentes].to_i} " \
+        "simulacao=#{resumo[:motivo_da_simulacao] || 'não'}"
+      )
+
       render json: resumo.merge(status: "ok", simulado: resumo[:motivo_da_simulacao].present? || simular?)
     rescue Financeiro::EnvioDeNotasAoOmie::ConfiguracaoAusente,
            Financeiro::EnvioDeNotasAoOmie::MuitasFalhas => e

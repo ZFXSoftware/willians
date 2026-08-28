@@ -1074,6 +1074,16 @@ function EnvioAoOmie({
                       : ". Não falta nenhuma.")}
               </p>
 
+              {/* Zero previstas é um desfecho, não a ausência de um.
+                  Sem dizê-lo, o clique "pisca e volta ao que estava" — que é
+                  exatamente como um botão quebrado se parece. */}
+              {previa.previstas === 0 && previa.enviadas === 0 && previa.falhas === 0 && (
+                <p className="text-zinc-400">
+                  Nenhuma nota pendente de envio. Ou todas já foram, ou são
+                  anteriores à data de corte em Configurações &gt; OMIE.
+                </p>
+              )}
+
               {/* O painel mostrava só o que deu certo.
                   100 notas recusadas pelo OMIE e a tela dizia "0 título(s)
                   criados" — sem uma palavra sobre o porquê. Falha em escrita
