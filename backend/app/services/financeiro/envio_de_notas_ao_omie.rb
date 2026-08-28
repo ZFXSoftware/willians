@@ -31,7 +31,9 @@ module Financeiro
     #
     # Com o lote, cada execução termina rápido e o progresso é visível. O que
     # sobra vai na próxima — pela tela ou pelo ciclo automático.
-    LOTE_PADRAO = 100
+    # 60 e não 100: o proxy corta em 5 minutos, e 100 notas levam uns 3,3 —
+    # folga pequena demais para quando o OMIE fica lento.
+    LOTE_PADRAO = 60
 
     # Falhas seguidas param o ciclo automático.
     #

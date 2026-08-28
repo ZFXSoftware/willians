@@ -1014,6 +1014,9 @@ function EnvioAoOmie({
 
         setPrevia({ ...resultado, enviadas })
 
+        // Parar ao primeiro lote que não enviou nada é deliberado: se o OMIE
+        // está recusando, insistir por 37 lotes só multiplica a recusa e
+        // esconde a mensagem que interessa.
         if (resultado.enviadas === 0 || resultado.pendentes === 0) break
       }
 
@@ -1070,6 +1073,24 @@ function EnvioAoOmie({
                       ? `. Faltam ${previa.pendentes} — o envio vai em lotes.`
                       : ". Não falta nenhuma.")}
               </p>
+
+              {/* O painel mostrava só o que deu certo.
+                  100 notas recusadas pelo OMIE e a tela dizia "0 título(s)
+                  criados" — sem uma palavra sobre o porquê. Falha em escrita
+                  na contabilidade é a última coisa que pode ficar calada. */}
+              {previa.falhas > 0 && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 space-y-1">
+                  <p className="text-red-300">
+                    {previa.falhas} nota(s) recusada(s) pelo OMIE. Nada foi criado para elas.
+                  </p>
+
+                  {previa.erros?.map((erro, i) => (
+                    <p key={i} className="text-red-200/80 text-xs">
+                      {erro}
+                    </p>
+                  ))}
+                </div>
+              )}
 
               {previa.sem_comprador > 0 && (
                 <p className="text-yellow-300 text-xs">
