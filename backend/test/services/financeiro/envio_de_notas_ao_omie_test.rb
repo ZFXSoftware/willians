@@ -165,6 +165,18 @@ module Financeiro
       assert_equal 1, resumo[:amostra].size
     end
 
+    # Cada nota são duas chamadas ao OMIE com pausa entre elas; milhares dão
+    # horas. Sem teto, a requisição do navegador caía no meio e deixava o envio
+    # pela metade — sem ninguém saber quantas foram.
+    test "sem limite pedido, a execução é limitada a um lote" do
+      (EnvioDeNotasAoOmie::LOTE_PADRAO + 5).times { |i| criar_nota_do_tiny(numero: "N#{i}") }
+
+      resumo, _ = enviar
+
+      assert_equal EnvioDeNotasAoOmie::LOTE_PADRAO, resumo[:previstas]
+      assert_equal 5, resumo[:pendentes], "o que sobra precisa ser dito, para continuar depois"
+    end
+
     test "limite permite provar com uma nota antes do lote" do
       criar_nota_do_tiny(numero: "1")
       criar_nota_do_tiny(numero: "2")

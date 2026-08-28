@@ -990,6 +990,45 @@ function EnvioAoOmie({
     }
   }
 
+  // Envia em LOTES, e não numa requisição só.
+  //
+  // Cada nota são duas chamadas ao OMIE com pausa entre elas; 3672 notas dão
+  // umas duas horas. A tentativa anterior era uma requisição única: ela caía
+  // no meio, deixava o envio pela metade, e a tela voltava para a prévia como
+  // se nada tivesse acontecido — sem dizer quantas foram.
+  //
+  // Cada lote é uma requisição curta, o número na tela sobe, e parar no meio
+  // não perde nada: as que já foram ficam marcadas e o próximo clique (ou o
+  // ciclo automático) segue de onde parou.
+  async function enviarTudo() {
+    setOcupado(true)
+    setErro(null)
+
+    let enviadas = 0
+
+    try {
+      for (;;) {
+        const resultado = await enviarNotasAoOmie({ aplicar: true })
+
+        enviadas += resultado.enviadas
+
+        setPrevia({ ...resultado, enviadas })
+
+        if (resultado.enviadas === 0 || resultado.pendentes === 0) break
+      }
+
+      aoTerminar()
+    } catch (e) {
+      setErro(
+        `${errorMessage(e, "Não foi possível falar com o OMIE")} — ${enviadas} nota(s) já ` +
+          "foram enviadas e não serão repetidas.",
+      )
+      aoTerminar()
+    } finally {
+      setOcupado(false)
+    }
+  }
+
   if (pendentes <= 0 && !previa) {
     return (
       <span className="flex items-center px-4 py-3 text-sm text-zinc-500">
@@ -1026,7 +1065,10 @@ function EnvioAoOmie({
                 {previa.simulado
                   ? `Prévia — NADA foi gravado ainda. ${previa.previstas} título(s) seriam ` +
                     "criados no OMIE:"
-                  : `Pronto: ${previa.enviadas} título(s) criados no OMIE.`}
+                  : `${previa.enviadas} título(s) criados no OMIE` +
+                    (previa.pendentes > 0
+                      ? `. Faltam ${previa.pendentes} — o envio vai em lotes.`
+                      : ". Não falta nenhuma.")}
               </p>
 
               {previa.sem_comprador > 0 && (
@@ -1088,11 +1130,11 @@ function EnvioAoOmie({
                   </button>
 
                   <button
-                    onClick={() => executar({ aplicar: true })}
+                    onClick={enviarTudo}
                     disabled={ocupado}
                     className="bg-zinc-800 hover:bg-zinc-700 transition px-4 py-2 rounded-xl text-sm disabled:opacity-50"
                   >
-                    Enviar todas ({previa.previstas})
+                    {ocupado ? "Enviando..." : `Enviar todas (${pendentes})`}
                   </button>
                 </div>
               )}

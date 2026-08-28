@@ -22,6 +22,17 @@ module Financeiro
     # Sem pausa, um lote de milhares vira bloqueio no meio do caminho.
     PAUSA_PADRAO = 1.0
 
+    # Quantas notas cabem numa execução.
+    #
+    # Cada nota são DUAS chamadas ao OMIE com pausa entre elas — o OMIE bloqueia
+    # repetição em sequência. Dá uns dois segundos por nota, e 3672 notas viram
+    # duas horas: muito além de qualquer requisição de navegador, que cai no
+    # meio e deixa o envio pela metade sem ninguém saber quanto foi.
+    #
+    # Com o lote, cada execução termina rápido e o progresso é visível. O que
+    # sobra vai na próxima — pela tela ou pelo ciclo automático.
+    LOTE_PADRAO = 100
+
     # Falhas seguidas param o ciclo automático.
     #
     # Se o OMIE está recusando, insistir de hora em hora não conserta nada e
@@ -82,6 +93,11 @@ module Financeiro
       EscritaNoOmie.anotar!(resumo, @motivo_da_simulacao)
 
       registrar_saude!(resumo) unless dry_run
+
+      # Quantas ainda faltam DEPOIS desta execução. É o que permite a tela
+      # continuar de onde parou e mostrar progresso, em vez de sumir por duas
+      # horas e voltar sem dizer o que fez.
+      resumo[:pendentes] = [ @pendentes_total.to_i - resumo[:enviadas].to_i, 0 ].max
 
       resumo
     end
@@ -195,13 +211,15 @@ module Financeiro
 
       escopo = escopo.where(issued_at: marco..) if marco
 
+      @pendentes_total = escopo.count
+
       if platform_account
         escopo = escopo.joins(:order).where(orders: { platform_account_id: platform_account.id })
       end
 
-      escopo = escopo.limit(limite) if limite
-
-      escopo
+      # Sempre limitado: sem teto, uma execução com milhares de notas não
+      # termina dentro de nenhuma requisição, e cai no meio.
+      escopo.limit(limite || LOTE_PADRAO)
     end
 
     def settings_de(nota)

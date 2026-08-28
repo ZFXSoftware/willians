@@ -238,6 +238,10 @@ export interface ResultadoEnvioOmie {
   simulado: boolean
   previstas: number
   enviadas: number
+  // Quantas ainda faltam depois desta execução. O envio vai em lotes: cada
+  // nota são duas chamadas ao OMIE com pausa entre elas, e milhares não cabem
+  // numa requisição só.
+  pendentes: number
   sem_comprador: number
   falhas: number
   amostra?: Array<{ nf: string; comprador: string; valor: number }>
