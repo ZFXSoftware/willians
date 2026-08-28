@@ -1004,10 +1004,13 @@ function EnvioAoOmie({
         onClick={() => executar({})}
         disabled={ocupado}
         className="flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 transition px-5 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
-        title="Simula primeiro: nada é gravado no OMIE"
+        title="Mostra o que seria criado no OMIE; nada é gravado"
       >
         <Building2 size={15} />
-        {ocupado ? "Consultando..." : `Enviar ao OMIE (${pendentes})`}
+        {/* O rótulo tem que dizer o que o clique FAZ. "Enviar ao OMIE" num
+            botão que só simula manda a pessoa procurar no OMIE um título que
+            nunca foi criado — e concluir que o sistema está quebrado. */}
+        {ocupado ? "Consultando..." : `Conferir ${pendentes} nota(s) antes de enviar`}
       </button>
 
       {(previa || erro) && (
@@ -1017,9 +1020,13 @@ function EnvioAoOmie({
           {previa && (
             <>
               <p className={previa.simulado ? "text-sky-300" : "text-emerald-300"}>
+                {/* "Simulação" sozinho não diz que nada foi gravado — e a
+                    diferença entre "seriam criados" e "criados" é uma palavra
+                    fácil de não ver. */}
                 {previa.simulado
-                  ? `Simulação: ${previa.previstas} título(s) seriam criados no OMIE.`
-                  : `${previa.enviadas} título(s) criados no OMIE.`}
+                  ? `Prévia — NADA foi gravado ainda. ${previa.previstas} título(s) seriam ` +
+                    "criados no OMIE:"
+                  : `Pronto: ${previa.enviadas} título(s) criados no OMIE.`}
               </p>
 
               {previa.sem_comprador > 0 && (
