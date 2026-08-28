@@ -39,15 +39,30 @@ module Financeiro
     end
 
     # Grava as chamadas em vez de fazê-las: o que importa é o payload.
+    #
+    # `cliente_existente` simula a base real do cliente, onde os compradores já
+    # estão cadastrados — foi por não considerar isso que nenhum título nascia.
     class OmieEspiao
       attr_reader :chamadas
 
-      def initialize = @chamadas = []
+      def initialize(cliente_existente: nil)
+        @chamadas = []
+        @cliente_existente = cliente_existente
+      end
 
       def request(endpoint, call, params = {})
         @chamadas << [ call, params ]
 
-        { "codigo_lancamento_omie" => 4242 }
+        case call
+        when "ConsultarCliente"
+          return { "codigo_cliente_omie" => @cliente_existente } if @cliente_existente
+
+          raise Omie::Client::ApiError, "ERROR: Não existem registros para a consulta"
+        when "IncluirCliente"
+          { "codigo_cliente_omie" => 777 }
+        else
+          { "codigo_lancamento_omie" => 4242 }
+        end
       end
     end
 
@@ -68,12 +83,47 @@ module Financeiro
 
       _, espiao = enviar
 
-      cliente = espiao.chamadas.find { |call, _| call == "UpsertCliente" }&.last
+      cliente = espiao.chamadas.find { |call, _| call == "IncluirCliente" }&.last
 
       assert_not_nil cliente
       assert_equal "Sirley Ribeiro Garcia", cliente[:razao_social]
       assert_equal "55788696291", cliente[:cnpj_cpf], "sem pontuação, como o OMIE espera"
       assert_equal "S", cliente[:pessoa_fisica]
+    end
+
+    # A base do cliente JÁ TEM os compradores, com código de integração vazio.
+    # Criar às cegas fazia o OMIE recusar pelo CPF repetido — "Cliente já
+    # cadastrado ... com o Id [X] e código de integração []" — e nenhum título
+    # nascia. Consultar primeiro é o que destrava.
+    test "comprador que já existe no OMIE é reaproveitado, não recriado" do
+      criar_nota_do_tiny
+
+      espiao = OmieEspiao.new(cliente_existente: 11_093_488_363)
+
+      EnvioDeNotasAoOmie.new(
+        tenant: @tenant, client: espiao, dry_run: false, pausa: 0
+      ).call
+
+      assert_nil espiao.chamadas.find { |call, _| call == "IncluirCliente" },
+                 "não pode tentar criar quem já está lá"
+
+      titulo = espiao.chamadas.find { |call, _| call == "IncluirContaReceber" }&.last
+
+      assert_equal 11_093_488_363, titulo[:codigo_cliente_fornecedor]
+    end
+
+    # Dentro de um lote o mesmo comprador aparece em várias notas, e o OMIE
+    # bloqueia repetição da mesma chamada em sequência.
+    test "o mesmo comprador é consultado uma vez só por execução" do
+      criar_nota_do_tiny(numero: "1")
+      criar_nota_do_tiny(numero: "2")
+
+      _, espiao = enviar
+
+      consultas = espiao.chamadas.count { |call, _| call == "ConsultarCliente" }
+
+      assert_equal 1, consultas
+      assert_equal 2, espiao.chamadas.count { |call, _| call == "IncluirContaReceber" }
     end
 
     # É por este campo que o título encontra o repasse do marketplace: o

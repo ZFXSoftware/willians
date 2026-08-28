@@ -35,7 +35,14 @@ module Omie
         }
       end
 
-      def titulo
+      # `codigo_cliente` é o id do cliente NO OMIE, resolvido antes por quem
+      # chama — consultando pelo CPF/CNPJ e só criando quando não existe.
+      #
+      # Antes o título vinha com o nosso `codigo_cliente_integracao`, que só
+      # funcionaria se o cadastro tivesse nascido aqui. A base do cliente já
+      # tem os compradores, com código de integração vazio: o OMIE recusava a
+      # inclusão pelo CPF repetido, e nenhum título era criado.
+      def titulo(codigo_cliente:)
         exigir_comprador!
 
         {
@@ -43,7 +50,7 @@ module Omie
           # reencontrar o título sem depender de valor ou data.
           codigo_lancamento_integracao: "#{PREFIX}-NF-#{invoice.id}",
 
-          codigo_cliente_integracao: codigo_cliente,
+          codigo_cliente_fornecedor: codigo_cliente,
 
           # A CHAVE da conciliação. É por ela que o título encontra o repasse
           # do marketplace, e é o único identificador presente em títulos de
@@ -67,6 +74,8 @@ module Omie
         }.compact
       end
 
+      def documento = metadata["comprador_documento"].to_s.gsub(/\D/, "")
+
       private
 
       attr_reader :invoice, :settings
@@ -74,8 +83,6 @@ module Omie
       def metadata = invoice.metadata || {}
 
       def nome = metadata["comprador_nome"].to_s.strip
-
-      def documento = metadata["comprador_documento"].to_s.gsub(/\D/, "")
 
       def pedido = invoice.order&.external_id || metadata["numero_ecommerce"]
 

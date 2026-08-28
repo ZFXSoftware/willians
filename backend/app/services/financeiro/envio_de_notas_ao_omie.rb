@@ -14,7 +14,13 @@ module Financeiro
   # Simula por padrão: sem OMIE_ALLOW_WRITES nada é gravado, e o resumo mostra
   # o que seria enviado.
   class EnvioDeNotasAoOmie
-    CLIENTE = { endpoint: "geral/clientes/", call: "UpsertCliente" }.freeze
+    CLIENTE = { endpoint: "geral/clientes/", call: "IncluirCliente" }.freeze
+
+    CONSULTA_CLIENTE = { endpoint: "geral/clientes/", call: "ConsultarCliente" }.freeze
+
+    # Como o OMIE diz "esse CPF não está cadastrado". Não há código próprio na
+    # resposta: sobra reconhecer o texto.
+    NAO_CADASTRADO = /não (existe|foi encontrado)|nao (existe|encontrado)|not found/i
 
     TITULO = { endpoint: "financas/contareceber/", call: "IncluirContaReceber" }.freeze
 
@@ -31,9 +37,11 @@ module Financeiro
     #
     # Com o lote, cada execução termina rápido e o progresso é visível. O que
     # sobra vai na próxima — pela tela ou pelo ciclo automático.
-    # 60 e não 100: o proxy corta em 5 minutos, e 100 notas levam uns 3,3 —
-    # folga pequena demais para quando o OMIE fica lento.
-    LOTE_PADRAO = 60
+    # O proxy corta em 5 minutos. Cada nota são até três chamadas ao OMIE
+    # (consultar o comprador, criá-lo se não existir, criar o título) com pausa
+    # entre elas — uns 3 segundos. 40 notas dão ~2 minutos, com folga para
+    # quando o OMIE fica lento.
+    LOTE_PADRAO = 40
 
     # Falhas seguidas param o ciclo automático.
     #
@@ -165,26 +173,63 @@ module Financeiro
 
       cliente = mapper.cliente
 
-      titulo = mapper.titulo
-
       resumo[:previstas] += 1
 
-      resumo[:amostra] << { nf: nota.number, comprador: cliente[:razao_social],
-                            valor: titulo[:valor_documento] } if resumo[:amostra].size < 5
+      if resumo[:amostra].size < 5
+        resumo[:amostra] << { nf: nota.number, comprador: cliente[:razao_social],
+                              valor: nota.total_amount.to_f }
+      end
 
       return if dry_run
 
-      client.request(CLIENTE[:endpoint], CLIENTE[:call], cliente)
+      codigo = resolver_cliente!(mapper.documento, cliente)
 
-      dormir
-
-      resposta = client.request(TITULO[:endpoint], TITULO[:call], titulo)
+      resposta = client.request(TITULO[:endpoint], TITULO[:call], mapper.titulo(codigo_cliente: codigo))
 
       registrar!(nota, resposta)
 
       resumo[:enviadas] += 1
 
       dormir
+    end
+
+    # Consulta pelo CPF/CNPJ e só cria quando não existe.
+    #
+    # Criar às cegas não funciona: a base do cliente já tem os compradores, com
+    # código de integração vazio, e o OMIE recusa a inclusão pelo CPF repetido
+    # ("Cliente já cadastrado ... com o Id [X] e código de integração []").
+    # Era isso que impedia TODOS os títulos de nascerem.
+    #
+    # O cache vale por execução: dentro de um lote o mesmo comprador pode
+    # aparecer em várias notas, e consultar de novo é chamada jogada fora — e o
+    # OMIE bloqueia repetição em sequência.
+    def resolver_cliente!(documento, payload)
+      cache[documento] ||= consultar_cliente(documento) || incluir_cliente!(payload)
+    end
+
+    def cache = @cache ||= {}
+
+    def consultar_cliente(documento)
+      resposta = client.request(CONSULTA_CLIENTE[:endpoint], CONSULTA_CLIENTE[:call],
+                                cnpj_cpf: documento)
+
+      dormir
+
+      resposta["codigo_cliente_omie"]
+    rescue Omie::Client::ApiError => e
+      raise unless e.message.match?(NAO_CADASTRADO)
+
+      dormir
+
+      nil
+    end
+
+    def incluir_cliente!(payload)
+      resposta = client.request(CLIENTE[:endpoint], CLIENTE[:call], payload)
+
+      dormir
+
+      resposta["codigo_cliente_omie"]
     end
 
     # O código do título no OMIE fica na nota: é o que faz reprocessar não
