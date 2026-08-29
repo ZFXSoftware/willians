@@ -42,7 +42,11 @@ class IntegracoesController < ApplicationController
       enviadas_ao_omie: escopo.where("invoices.metadata->>'omie_codigo_lancamento' IS NOT NULL").count,
       # O desfecho da última importação, que roda em fila: sem isto a tela só
       # sabe dizer "enfileirado", que é igual para sucesso e para falha.
-      ultimo_resultado: current_tenant.metadata["tiny_ultima_importacao"]
+      ultimo_resultado: current_tenant.metadata["tiny_ultima_importacao"],
+      # O envio ao OMIE continua pelo ciclo automático mesmo com a tela
+      # fechada. Sem mostrar isso, sair da página parece ter parado tudo — e a
+      # única forma de saber era comparar o contador de tempos em tempos.
+      ultimo_envio: current_tenant.metadata["omie_envio_saude"]
     }
   end
 

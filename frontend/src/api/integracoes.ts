@@ -86,6 +86,16 @@ export interface NotasFiscais {
   ultima_importacao: string | null
   enviadas_ao_omie: number
   ultimo_resultado: ResultadoImportacao | null
+  ultimo_envio: UltimoEnvioOmie | null
+}
+
+// O envio ao OMIE continua pelo ciclo automático com a tela fechada. Este é o
+// carimbo da última leva — é ele que responde "ainda está acontecendo?".
+export interface UltimoEnvioOmie {
+  em: string
+  enviadas?: number
+  falhas_seguidas?: number
+  ultimo_erro?: string | null
 }
 
 // A importação roda em fila: o botão recebe "enfileirado" e nada mais. É este

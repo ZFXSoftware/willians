@@ -924,6 +924,14 @@ function NotasFiscaisCard({
         <div>
           <p className="text-zinc-500 text-xs">Enviadas ao OMIE</p>
           <p className="font-medium mt-1">{notas.enviadas_ao_omie}</p>
+          {/* O ciclo automático continua com a tela fechada. Sem este carimbo,
+              sair da página parece ter parado tudo, e a única forma de saber
+              era comparar o contador de tempos em tempos. */}
+          {notas.ultimo_envio?.em && (
+            <p className="text-xs text-zinc-500 mt-1">
+              última leva {desde(notas.ultimo_envio.em)}
+            </p>
+          )}
         </div>
         <div>
           <p className="text-zinc-500 text-xs">Última importação</p>
@@ -932,6 +940,17 @@ function NotasFiscaisCard({
           </p>
         </div>
       </div>
+
+      {/* Falha seguida no envio automático PARA o ciclo. Se ninguém contar,
+          o número simplesmente deixa de subir e parece que terminou. */}
+      {(notas.ultimo_envio?.falhas_seguidas ?? 0) > 0 && (
+        <div className="mt-4 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl px-4 py-3 text-sm text-yellow-300">
+          O envio automático falhou {notas.ultimo_envio?.falhas_seguidas}{" "}
+          vez(es) seguida(s)
+          {notas.ultimo_envio?.ultimo_erro ? `: ${notas.ultimo_envio.ultimo_erro}` : "."} Depois
+          de três, ele para de tentar até alguém enviar pela tela.
+        </div>
+      )}
 
       {/* Sem o `?? `, o desfecho sumia ao recarregar a página e a pessoa
           ficava sem saber o que a última importação fez. */}
