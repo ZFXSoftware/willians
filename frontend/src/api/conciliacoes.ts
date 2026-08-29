@@ -14,6 +14,11 @@ export interface Registro {
   observacao: string | null
   payout_batch_id: number | null
   financial_entry_id: number | null
+  // Quantas vendas o repasse carrega dentro. Doze linhas para milhares de
+  // lançamentos parece que quase nada é conferido — e é o contrário: cada
+  // repasse junta uma centena de vendas.
+  vendas: number | null
+  pago_em: string | null
 }
 
 export interface Meta {

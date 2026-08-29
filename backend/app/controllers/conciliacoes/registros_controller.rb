@@ -14,7 +14,7 @@ module Conciliacoes
 
     def escopo
       scope = atuais
-                .includes(:conciliation_run, :payout_batch)
+                .includes(:conciliation_run, payout_batch: :financial_entry_allocations)
                 .order(conciliated_at: :desc, id: :desc)
 
       scope = scope.where(status: params[:status]) if params[:status].present?
@@ -55,7 +55,15 @@ module Conciliacoes
         data: registro.conciliated_at,
         observacao: registro.observacao,
         payout_batch_id: registro.payout_batch_id,
-        financial_entry_id: registro.financial_entry_id
+        financial_entry_id: registro.financial_entry_id,
+        # Quantas vendas esse repasse carrega dentro.
+        #
+        # Doze linhas para 2551 lançamentos parece que quase nada está sendo
+        # conferido — e é o contrário: o marketplace não transfere venda por
+        # venda, junta uma centena delas num bloco só. Sem este número, as
+        # duas leituras são indistinguíveis.
+        vendas: registro.payout_batch&.financial_entry_allocations&.size,
+        pago_em: registro.payout_batch&.paid_at
       }
     end
 

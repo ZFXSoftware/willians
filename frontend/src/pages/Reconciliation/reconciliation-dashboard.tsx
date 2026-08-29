@@ -313,8 +313,20 @@ export default function ReconciliationDashboard() {
                         <td className="px-4 py-3">
                           <Selo status={row.status} texto={rotulo(row.status)} />
                         </td>
-                        <td className="px-4 py-3 font-medium">
-                          {row.referencia ?? "—"}
+                        <td className="px-4 py-3">
+                          {/* O repasse é um BLOCO: o marketplace junta uma
+                              centena de vendas numa transferência só. Sem
+                              dizer quantas, doze linhas para milhares de
+                              lançamentos parecem cobrir quase nada. */}
+                          <span className="font-medium">
+                            {row.vendas ? `${row.vendas} venda(s)` : "Repasse"}
+                          </span>
+                          <span
+                            className="block text-xs text-zinc-500 mt-0.5"
+                            title={row.referencia ?? undefined}
+                          >
+                            {row.pago_em ? `pago em ${dataHoraBR(row.pago_em)}` : "—"}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-zinc-300">
                           {rotulo(row.plataforma)}
