@@ -210,12 +210,52 @@ module Conciliacao
     end
 
     def valor_omie_for(payout, omie_totals)
-      encontradas =
-        referencias_for(payout).select { |ref| omie_totals.key?(ref) }
+      cobertura = cobertura_de(payout, omie_totals)
 
-      return if encontradas.empty?
+      return if cobertura[:encontradas].empty?
 
-      encontradas.sum(BigDecimal("0")) { |ref| omie_totals[ref] }
+      # Comparação PARCIAL não é comparação.
+      #
+      # Um repasse junta uma centena de vendas. Se só três delas têm título no
+      # OMIE, somar essas três e comparar com o repasse inteiro produz uma
+      # diferença enorme que não é divergência nenhuma — é a ausência das
+      # outras noventa e sete. Alguém lendo isso concluiria que falta dinheiro.
+      #
+      # Enquanto a cobertura não for completa, não há o que comparar.
+      return unless cobertura[:completa]
+
+      cobertura[:encontradas].sum(BigDecimal("0")) { |ref| omie_totals[ref] }
+    end
+
+    # Guardada por repasse porque a observação, montada depois, precisa dela
+    # para dizer QUAL dos dois casos é: nenhuma nota no OMIE, ou algumas.
+    def cobertura_de(payout, omie_totals)
+      @coberturas ||= {}
+
+      @coberturas[payout.id] ||= begin
+        # O denominador são TODOS os recebíveis que o repasse liquidou — e não
+        # só os que já têm nota fiscal. Contando apenas os que têm, um repasse
+        # de cem vendas com uma nota só apareceria como cobertura completa, e a
+        # comparação sairia com o valor de uma venda contra o repasse inteiro.
+        total = recebiveis_de(payout).size
+
+        referencias = referencias_for(payout)
+
+        encontradas = referencias.select { |ref| omie_totals.key?(ref) }
+
+        {
+          referencias: [ total, referencias.size ].max,
+          encontradas: encontradas,
+          completa: total.positive? && encontradas.size == total
+        }
+      end
+    end
+
+    def recebiveis_de(payout)
+      payout
+        .financial_entry_allocations
+        .filter_map(&:receivable_unit_id)
+        .uniq
     end
 
     # Um repasse é conciliado pelas referências dos recebíveis que ele liquidou.
@@ -260,6 +300,30 @@ module Conciliacao
         .includes(financial_entry_allocations: :receivable_unit)
     end
 
+    # "Sem título correspondente" cobre dois casos com providências opostas:
+    # nenhuma nota deste repasse chegou ao OMIE, ou ALGUMAS chegaram e as
+    # outras não. O segundo se resolve terminando o envio; o primeiro pode ser
+    # nota não emitida, elo com o pedido faltando, ou título de fato ausente.
+    def observacao_de(payout, resultado)
+      return resultado.mensagem if resultado.valor_omie.present?
+
+      cobertura = @coberturas[payout.id] || {}
+
+      encontradas = cobertura[:encontradas].to_a.size
+
+      referencias = cobertura[:referencias].to_i
+
+      return resultado.mensagem if referencias.zero?
+
+      if encontradas.zero?
+        "Nenhuma das #{referencias} nota(s) deste repasse tem título no OMIE."
+      else
+        "Comparação incompleta: só #{encontradas} de #{referencias} nota(s) deste repasse " \
+        "têm título no OMIE. Comparar o repasse inteiro com uma parte dos títulos " \
+        "acusaria uma diferença que não existe."
+      end
+    end
+
     def registro_row(payout, resultado)
       now = Time.current
 
@@ -286,7 +350,7 @@ module Conciliacao
 
         descricao: "Repasse #{payout.external_id} x títulos OMIE",
 
-        observacao: resultado.mensagem,
+        observacao: observacao_de(payout, resultado),
 
         conciliation_metadata: {
           valor_interno: resultado.valor_interno.to_s,

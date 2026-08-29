@@ -269,7 +269,33 @@ module Financeiro
 
       assert_nil registro.conciliation_metadata["valor_omie"],
                  "sem NF não há como saber QUAL título é o desta venda"
-      assert_includes registro.observacao.to_s, "Sem título correspondente"
+      # A observação passa a dizer QUANTAS notas do repasse estão sem título —
+      # "nenhuma" e "algumas" pedem providências diferentes.
+      assert_includes registro.observacao.to_s, "Nenhuma"
+    end
+
+    # Um repasse junta uma centena de vendas. Somar os títulos de três delas e
+    # comparar com o repasse inteiro produz uma diferença enorme que não é
+    # divergência nenhuma — é a ausência das outras noventa e sete. Quem lesse
+    # isso concluiria que falta dinheiro.
+    test "cobertura parcial não vira comparação" do
+      venda_com_taxa(pagamento: "PAY-A", bruto: 100, taxa: 10)
+      venda_com_taxa(pagamento: "PAY-B", bruto: 200, taxa: 20)
+      repasse
+
+      pedido = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PED-A")
+      nota = criar_nota(tenant: @tenant, pedido: pedido, numero: "111", valor: 100)
+
+      # Só UM dos dois recebíveis tem nota fiscal.
+      ReceivableUnit.where(tenant: @tenant).first.update!(invoice: nota, order: pedido)
+
+      fechar
+
+      registro = conciliar([ { "numero_documento_fiscal" => "111", "valor_documento" => "100.00" } ])
+
+      assert_nil registro.conciliation_metadata["valor_omie"],
+                 "comparar o repasse inteiro com parte dos títulos inventa divergência"
+      assert_includes registro.observacao.to_s, "Comparação incompleta"
     end
   end
 end
