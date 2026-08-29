@@ -35,6 +35,10 @@ export interface ResumoConciliacao {
   ultima_execucao: string | null
   execucoes_hoje: number
   execucao: ExecucaoConciliacao | null
+  // Enquanto houver notas na fila para o OMIE, TODO número desta tela é
+  // provisório: o repasse comparado hoje contra 3 títulos será comparado
+  // amanhã contra 87.
+  notas_a_enviar: number
 }
 
 // O desfecho da última execução. A conciliação roda em fila: a tela dispara e

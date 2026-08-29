@@ -95,8 +95,24 @@ module Conciliacoes
                           .where(tenant_id: current_tenant.id)
                           .where(started_at: Time.current.beginning_of_day..)
                           .count,
-        execucao: execucao
+        execucao: execucao,
+        # Quantas notas ainda vão virar título no OMIE.
+        #
+        # Enquanto houver notas na fila, TODO número desta tela é provisório: o
+        # repasse comparado hoje contra 3 títulos vai ser comparado amanhã
+        # contra 87. Sem esse aviso, o cliente lê a tela como se fosse
+        # resultado final e conclui que falta dinheiro.
+        notas_a_enviar: Invoice
+                          .where(tenant_id: current_tenant.id)
+                          .nao_enviadas_ao_omie(marco_do_envio)
+                          .count
       }
+    end
+
+    def marco_do_envio
+      Integracoes::Config.get("omie", :envio_a_partir_de, tenant: current_tenant).presence&.to_date
+    rescue Date::Error
+      nil
     end
 
     # O desfecho da última execução.

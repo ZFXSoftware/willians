@@ -27,6 +27,20 @@ class Invoice < ApplicationRecord
            dependent: :nullify,
            inverse_of: :return_invoice
 
+  # As que ainda não viraram título no OMIE.
+  #
+  # Num escopo só porque a pergunta aparece em dois lugares com significados
+  # diferentes: o serviço de envio usa para saber o que mandar, e a tela de
+  # conciliação para avisar que os números dela ainda vão mudar. Escrito duas
+  # vezes, um dos dois divergiria — e aí a tela mentiria sobre o outro.
+  scope :nao_enviadas_ao_omie, ->(marco = nil) {
+    escopo = where(operation_type: :sale)
+             .where.not(status: :cancelled)
+             .where("invoices.metadata->>'omie_codigo_lancamento' IS NULL")
+
+    marco.present? ? escopo.where(issued_at: marco..) : escopo
+  }
+
   enum :status, {
     issued: "issued",
     cancelled: "cancelled",

@@ -281,13 +281,10 @@ module Financeiro
     # uma a uma seria mais lento do que enviar.
     def notas
       escopo = Invoice
-                 .where(tenant_id: tenant.id, operation_type: :sale)
-                 .where.not(status: :cancelled)
-                 .where("invoices.metadata->>'omie_codigo_lancamento' IS NULL")
+                 .where(tenant_id: tenant.id)
+                 .nao_enviadas_ao_omie(marco)
                  .includes(:order)
                  .order(:issued_at, :id)
-
-      escopo = escopo.where(issued_at: marco..) if marco
 
       @pendentes_total = escopo.count
 

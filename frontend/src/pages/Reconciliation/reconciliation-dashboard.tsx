@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Link } from "react-router-dom"
 import { RefreshCw, Search } from "lucide-react"
 
 import {
@@ -169,6 +170,27 @@ export default function ReconciliationDashboard() {
           </button>
         </div>
       </div>
+
+      {/* Enquanto houver nota na fila, TODO número desta tela é provisório.
+          Sem dizer isso, o cliente lê como resultado final — e "esperado R$
+          300 contra recebido R$ 12.000" parece dinheiro sumido, quando é só o
+          envio pela metade. */}
+      {(resumo?.notas_a_enviar ?? 0) > 0 && (
+        <div className="bg-sky-500/10 border border-sky-500/20 rounded-2xl px-5 py-4 text-sm text-sky-200 flex flex-wrap items-center justify-between gap-3">
+          <span>
+            <strong>Números provisórios.</strong> Ainda faltam{" "}
+            {resumo?.notas_a_enviar} nota(s) para virar título no OMIE — até lá,
+            os repasses são comparados contra uma parte dos títulos.
+          </span>
+
+          <Link
+            to="/integracoes"
+            className="underline hover:text-sky-100 shrink-0"
+          >
+            acompanhar o envio
+          </Link>
+        </div>
+      )}
 
       {aviso && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-4 text-sm text-zinc-300 flex items-center justify-between gap-4">
