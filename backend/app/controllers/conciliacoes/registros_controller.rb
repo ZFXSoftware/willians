@@ -86,7 +86,37 @@ module Conciliacoes
         execucoes_hoje: ConciliationRun
                           .where(tenant_id: current_tenant.id)
                           .where(started_at: Time.current.beginning_of_day..)
-                          .count
+                          .count,
+        execucao: execucao
+      }
+    end
+
+    # O desfecho da última execução.
+    #
+    # A conciliação roda em FILA: a tela dispara e recebe "enfileirado", nada
+    # mais. Sem isto, o resultado só existia numa linha de log — e a pergunta
+    # "o que aconteceu quando eu cliquei?" não tinha resposta na tela.
+    #
+    # Os números do metadata são o que separa as causas de "não conferiu":
+    # zero título no OMIE é um problema, zero repasse com nota fiscal é outro,
+    # e ter os dois e mesmo assim não casar é o terceiro.
+    def execucao
+      run = ConciliationRun.where(tenant_id: current_tenant.id).order(:started_at).last
+
+      return if run.blank?
+
+      {
+        status: run.status,
+        iniciada_em: run.started_at,
+        terminada_em: run.finished_at,
+        repasses: run.total_entries,
+        conferidos: run.matches_found,
+        divergentes: run.divergences_found,
+        titulos_no_omie: run.metadata["omie_referencias"],
+        repasses_com_nf: run.metadata["repasses_com_nf"],
+        sem_titulo: run.metadata["nao_encontrados"],
+        periodo: [ run.metadata["start_date"], run.metadata["end_date"] ].compact_blank.join(" a "),
+        erro: run.metadata["error"]
       }
     end
   end

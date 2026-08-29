@@ -29,6 +29,26 @@ export interface ResumoConciliacao {
   divergencias_abertas: number
   ultima_execucao: string | null
   execucoes_hoje: number
+  execucao: ExecucaoConciliacao | null
+}
+
+// O desfecho da última execução. A conciliação roda em fila: a tela dispara e
+// recebe "enfileirado", nada mais — sem isto o resultado só existia no log.
+export interface ExecucaoConciliacao {
+  status: string
+  iniciada_em: string | null
+  terminada_em: string | null
+  repasses: number
+  conferidos: number
+  divergentes: number
+  // Estes três separam as causas de "não conferiu": sem título no OMIE é um
+  // problema, sem nota fiscal nossa é outro, e ter os dois e não casar é o
+  // terceiro.
+  titulos_no_omie: number | null
+  repasses_com_nf: number | null
+  sem_titulo: number | null
+  periodo: string
+  erro: string | null
 }
 
 export interface RegistrosResponse {

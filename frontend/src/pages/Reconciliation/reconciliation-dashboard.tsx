@@ -4,6 +4,7 @@ import { RefreshCw, Search } from "lucide-react"
 import {
   fetchRegistros,
   processarConciliacao,
+  type ExecucaoConciliacao,
   type FiltrosRegistros,
 } from "../../api/conciliacoes"
 import { errorMessage } from "../../api/client"
@@ -14,6 +15,56 @@ import { Carregando, ErroAoCarregar, Selo, Vazio } from "../../components/Estado
 const PLATAFORMAS = ["mercado_livre", "shopee", "amazon", "magalu"]
 
 const STATUS = ["matched", "divergent", "manual_review", "pending"]
+
+const ESPERA_MS = 4000
+
+const ESPERA_MAXIMA = 45 // 3 minutos: a execução lê o OMIE inteiro antes
+
+const dorme = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// Explica o desfecho da última execução em uma frase.
+//
+// A tela mostrava as linhas e nada mais: "repasses divergentes" sem dizer
+// CONTRA O QUE eles divergiram. Os três números do backend separam causas com
+// providências opostas, e é essa distinção que faltava.
+function leitura(e: ExecucaoConciliacao): { tom: string; texto: string } {
+  if (e.erro) return { tom: "text-red-300", texto: `A execução falhou: ${e.erro}` }
+
+  if (!e.repasses) {
+    return {
+      tom: "text-sky-300",
+      texto:
+        "Nenhum repasse no período. A conciliação compara repasses do marketplace " +
+        "com títulos do OMIE — sem repasse, não há o que comparar.",
+    }
+  }
+
+  if (!e.titulos_no_omie) {
+    return {
+      tom: "text-yellow-300",
+      texto:
+        "Nenhum título encontrado no OMIE no período. Enquanto eles não estiverem lá, " +
+        "todo repasse aparece como divergente — não por diferença de valor, mas por " +
+        "não haver contra o que comparar.",
+    }
+  }
+
+  if (!e.repasses_com_nf) {
+    return {
+      tom: "text-yellow-300",
+      texto:
+        `${e.titulos_no_omie} título(s) no OMIE, mas nenhum repasse tem nota fiscal ligada ` +
+        "do nosso lado. É o número da NF que casa os dois — sem ele, não há chave.",
+    }
+  }
+
+  return {
+    tom: e.conferidos > 0 ? "text-emerald-300" : "text-yellow-300",
+    texto:
+      `${e.conferidos} de ${e.repasses} repasse(s) conferiram com o OMIE. ` +
+      `${e.sem_titulo ?? 0} não encontraram título correspondente.`,
+  }
+}
 
 export default function ReconciliationDashboard() {
   const [filtros, setFiltros] = useState<FiltrosRegistros>({ page: 1 })
@@ -30,18 +81,49 @@ export default function ReconciliationDashboard() {
     setFiltros((atual) => ({ ...atual, ...mudanca, page: 1 }))
   }
 
+  // Espera o desfecho, em vez de dizer "enfileirado" e sumir.
+  //
+  // A conciliação roda em fila: o clique só devolvia um id de job, e o que ela
+  // fez ficava numa linha de log. Aqui a tela acompanha o carimbo da última
+  // execução até ele mudar, e então mostra o resultado.
   async function disparar() {
+    const marco = data?.resumo?.execucao?.terminada_em ?? null
+
     setProcessando(true)
-    setAviso(null)
+    setAviso("Conciliação em andamento...")
 
     try {
-      const { job_id } = await processarConciliacao()
-      setAviso(`Conciliação enfileirada (job ${job_id}). Atualize em instantes.`)
+      await processarConciliacao()
     } catch (e) {
-      setAviso(errorMessage(e, "Não foi possível disparar a conciliação"))
-    } finally {
       setProcessando(false)
+      setAviso(errorMessage(e, "Não foi possível disparar a conciliação"))
+      return
     }
+
+    for (let tentativa = 0; tentativa < ESPERA_MAXIMA; tentativa++) {
+      await dorme(ESPERA_MS)
+
+      let execucao: ExecucaoConciliacao | null | undefined
+
+      try {
+        execucao = (await fetchRegistros(filtros)).resumo.execucao
+      } catch {
+        continue // hipo da rede não cancela a espera
+      }
+
+      if (!execucao?.terminada_em || execucao.terminada_em === marco) continue
+
+      setProcessando(false)
+      setAviso(null)
+      reload()
+
+      return
+    }
+
+    setProcessando(false)
+    setAviso(
+      "A conciliação continua rodando em segundo plano. Atualize a página daqui a pouco.",
+    )
   }
 
   const resumo = data?.resumo
@@ -94,6 +176,38 @@ export default function ReconciliationDashboard() {
           <button onClick={reload} className="text-zinc-400 hover:text-white shrink-0">
             atualizar
           </button>
+        </div>
+      )}
+
+      {/* O que a última execução fez. Sem isto, a tela mostrava as linhas e
+          nada mais — "repasses divergentes" sem dizer contra o que eles
+          divergiram, nem se houve contra o que comparar. */}
+      {!aviso && resumo?.execucao && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-4 space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className={`text-sm ${leitura(resumo.execucao).tom}`}>
+              {leitura(resumo.execucao).texto}
+            </p>
+
+            <span className="text-xs text-zinc-500 shrink-0">
+              {resumo.execucao.periodo} · {desde(resumo.execucao.terminada_em)}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
+            {[
+              { rotulo: "Repasses", valor: resumo.execucao.repasses },
+              { rotulo: "Títulos no OMIE", valor: resumo.execucao.titulos_no_omie },
+              { rotulo: "Com nota fiscal", valor: resumo.execucao.repasses_com_nf },
+              { rotulo: "Conferidos", valor: resumo.execucao.conferidos },
+              { rotulo: "Sem título", valor: resumo.execucao.sem_titulo },
+            ].map((item) => (
+              <div key={item.rotulo}>
+                <p className="text-zinc-500">{item.rotulo}</p>
+                <p className="text-zinc-200 font-medium mt-0.5">{item.valor ?? "—"}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
