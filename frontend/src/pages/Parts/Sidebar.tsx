@@ -7,6 +7,7 @@ import {
   Undo2,
   ArrowRightLeft,
   KeyRound,
+  Receipt,
   Users,
   LogOut,
 } from "lucide-react"
@@ -53,6 +54,13 @@ export default function Sidebar() {
       label: "Conta virtual",
       icon: Scale,
       path: "/saldos",
+    },
+    {
+      // O razão. Fica logo depois da conciliação porque é o que ela compara —
+      // e era a única coisa grande do sistema sem tela para navegar.
+      label: "Lançamentos",
+      icon: Receipt,
+      path: "/lancamentos",
     },
     {
       label: "Divergências",

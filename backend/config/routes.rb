@@ -44,6 +44,10 @@ Rails.application.routes.draw do
   get  "saldos", to: "saldos#index"
   post "saldos/conferir", to: "saldos#conferir"
 
+  # O razão inteiro. O painel mostra só as últimas movimentações, e com
+  # milhares de lançamentos isso não responde "e os outros?".
+  get "lancamentos", to: "lancamentos#index"
+
   get "conciliacoes/registros", to: "conciliacoes/registros#index"
 
   namespace :integracoes do
