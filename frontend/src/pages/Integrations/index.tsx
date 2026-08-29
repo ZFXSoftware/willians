@@ -9,6 +9,7 @@ import {
   KeyRound,
   Plug,
   RefreshCw,
+  ShieldAlert,
   ShoppingBag,
   Trash2,
   XCircle,
@@ -26,6 +27,7 @@ import {
   sincronizar,
   type Integracao,
   type NotasFiscais,
+  type NotasRecusadas,
   type ResultadoEnvioOmie,
   type ResultadoImportacao,
   type ResumoSincronizacao,
@@ -806,6 +808,65 @@ function notaDaImportacao(r: ResultadoImportacao): Nota {
 // mesma pergunta que ela faz — o que já entrou e o que falta entrar. E isto
 // era uma tarefa de linha de comando, o que só funciona para quem tem acesso
 // ao servidor.
+// As notas que nós recusamos.
+//
+// Elas saíram da fila de envio de propósito: nota sem valor ou sem CPF do
+// comprador o OMIE nunca aceitaria, e o ciclo automático as escolhia de novo a
+// cada volta — para sempre, sem nunca sair do lugar.
+//
+// Sair da fila não pode virar sumir. Cada uma é uma venda sem título no OMIE, e
+// o repasse que a contiver fica em "comparação incompleta" enquanto ela existir.
+// Por isso vêm com o número da NF: é o que permite achar a nota no Tiny.
+function NotasRecusadasPainel({ recusadas }: { recusadas: NotasRecusadas }) {
+  const [aberto, setAberto] = useState(false)
+
+  if (!recusadas || recusadas.total === 0) return null
+
+  return (
+    <div className="mt-5 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+      <button
+        onClick={() => setAberto(!aberto)}
+        className="flex items-start gap-3 text-left w-full"
+      >
+        <ShieldAlert size={16} className="text-amber-300 mt-0.5 shrink-0" />
+        <div>
+          <p className="text-sm text-amber-200">
+            {recusadas.total} nota(s) não têm como virar título no OMIE
+          </p>
+          <p className="text-xs text-zinc-400 mt-1">
+            Saíram da fila para não serem tentadas de novo a cada ciclo. Enquanto
+            ficarem assim, o repasse que contiver uma delas não fecha a comparação.
+            {aberto ? " Toque para esconder." : " Toque para ver quais."}
+          </p>
+        </div>
+      </button>
+
+      {aberto && (
+        <ul className="mt-3 space-y-2 border-t border-amber-500/10 pt-3">
+          {recusadas.itens.map((item) => (
+            <li key={item.nf} className="text-xs flex flex-wrap gap-x-3 gap-y-1">
+              <span className="font-medium text-zinc-200">NF {item.nf}</span>
+              <span className="text-zinc-500">
+                {item.emitida_em ? dataHoraBR(item.emitida_em) : "sem data"}
+              </span>
+              <span className="text-amber-200/80">
+                {item.motivo === "sem_valor"
+                  ? "sem valor — confira a nota no Tiny"
+                  : "sem CPF/CNPJ do comprador"}
+              </span>
+            </li>
+          ))}
+          {recusadas.total > recusadas.itens.length && (
+            <li className="text-xs text-zinc-500">
+              e mais {recusadas.total - recusadas.itens.length}.
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function NotasFiscaisCard({
   notas,
   aoTerminar,
@@ -894,8 +955,11 @@ function NotasFiscaisCard({
               {importando ? "Enfileirando..." : "Importar do Tiny"}
             </button>
 
+            {/* As recusadas saem da conta de pendentes: elas nunca vão subir,
+                e mantê-las aqui deixaria o botão prometendo um envio que não
+                acontece — "8 pendentes" para sempre, e clicar não muda nada. */}
             <EnvioAoOmie
-              pendentes={notas.total - notas.enviadas_ao_omie}
+              pendentes={notas.total - notas.enviadas_ao_omie - notas.recusadas.total}
               aoTerminar={aoTerminar}
             />
           </div>
@@ -940,6 +1004,8 @@ function NotasFiscaisCard({
           </p>
         </div>
       </div>
+
+      <NotasRecusadasPainel recusadas={notas.recusadas} />
 
       {/* Falha seguida no envio automático PARA o ciclo. Se ninguém contar,
           o número simplesmente deixa de subir e parece que terminou. */}

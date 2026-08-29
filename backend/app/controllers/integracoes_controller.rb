@@ -40,6 +40,10 @@ class IntegracoesController < ApplicationController
       com_pedido: escopo.where.not(order_id: nil).count,
       ultima_importacao: escopo.maximum(:updated_at),
       enviadas_ao_omie: escopo.where("invoices.metadata->>'omie_codigo_lancamento' IS NOT NULL").count,
+      # As que nunca vão subir sozinhas. Saíram da fila para o ciclo automático
+      # não as escolher de novo a cada volta, mas cada uma é uma venda que a
+      # conciliação não vai conseguir comparar — some da fila, não do problema.
+      recusadas: recusadas_no_envio(escopo),
       # O desfecho da última importação, que roda em fila: sem isto a tela só
       # sabe dizer "enfileirado", que é igual para sucesso e para falha.
       ultimo_resultado: current_tenant.metadata["tiny_ultima_importacao"],
@@ -47,6 +51,27 @@ class IntegracoesController < ApplicationController
       # fechada. Sem mostrar isso, sair da página parece ter parado tudo — e a
       # única forma de saber era comparar o contador de tempos em tempos.
       ultimo_envio: current_tenant.metadata["omie_envio_saude"]
+    }
+  end
+
+  # Quantas, por quê, e quais — com o número da NF, que é o que permite achar a
+  # nota no Tiny e corrigir. Um contador sozinho só diz que existe problema.
+  def recusadas_no_envio(escopo)
+    notas = escopo.recusadas_no_envio.order(issued_at: :desc)
+
+    {
+      total: notas.count,
+      itens: notas.limit(20).map do |nota|
+        recusa = nota.metadata["omie_recusa"] || {}
+
+        {
+          nf: nota.number,
+          emitida_em: nota.issued_at,
+          valor: nota.total_amount,
+          motivo: recusa["motivo"],
+          mensagem: recusa["mensagem"]
+        }
+      end
     }
   end
 

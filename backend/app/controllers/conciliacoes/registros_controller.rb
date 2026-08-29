@@ -105,7 +105,14 @@ module Conciliacoes
         notas_a_enviar: Invoice
                           .where(tenant_id: current_tenant.id)
                           .nao_enviadas_ao_omie(marco_do_envio)
-                          .count
+                          .count,
+        # Estas não estão na fila e nunca vão sair dela sozinhas. O repasse que
+        # contiver uma delas fica em "comparação incompleta" para sempre — e
+        # sem dizer isso a tela mostra uma espera que não termina.
+        notas_recusadas: Invoice
+                           .where(tenant_id: current_tenant.id)
+                           .recusadas_no_envio
+                           .count
       }
     end
 

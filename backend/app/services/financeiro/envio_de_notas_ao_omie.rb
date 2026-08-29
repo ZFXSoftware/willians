@@ -109,6 +109,14 @@ module Financeiro
           # e marcar o lote como falho por causa dela pararia o automático.
           resumo[:recusadas_por_nos] += 1
 
+          # A recusa fica GRAVADA na nota, e não só contada no resumo.
+          #
+          # Sem isso a nota continuava na fila e era escolhida de novo em toda
+          # execução — para sempre. Com oito notas assim e mais nada pendente,
+          # o ciclo automático passou a rodar de hora em hora só para recusar
+          # as mesmas oito. Consumo puro, sem nunca sair do lugar.
+          nota.recusar_envio!(motivo: motivo_de(e), mensagem: e.message) unless dry_run
+
           resumo[:erros] << "NF #{nota.number}: #{e.message}" if resumo[:erros].size < 5
 
           Rails.logger.warn "[EnvioDeNotas] #{e.message}"
@@ -307,6 +315,10 @@ module Financeiro
       # Sempre limitado: sem teto, uma execução com milhares de notas não
       # termina dentro de nenhuma requisição, e cai no meio.
       escopo.limit(limite || LOTE_PADRAO)
+    end
+
+    def motivo_de(erro)
+      erro.is_a?(Omie::Mappers::InvoiceMapper::SemValor) ? :sem_valor : :sem_comprador
     end
 
     def settings_de(nota)

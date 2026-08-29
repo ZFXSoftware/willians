@@ -1,4 +1,80 @@
 namespace :tiny do
+  desc "Compara o valor das notas zeradas com o que o Tiny devolve (SOMENTE LEITURA)"
+  task conferir_valores: :environment do
+    # O OMIE recusa título sem valor, então nota zerada nunca sobe — e o
+    # repasse que a contém fica em "comparação incompleta" para sempre.
+    #
+    # Antes de decidir o que fazer com elas, é preciso saber de quem é o zero:
+    # da nota, ou do nosso leitor. Já erramos formato de número uma vez, no CSV
+    # do Mercado Livre, onde "1.150,00" virava zero em silêncio.
+    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
+             Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
+
+    abort "Nenhuma empresa com token do Tiny. Use TENANT=<id>." if tenant.blank?
+
+    Current.tenant = tenant
+
+    zeradas = Invoice.where(tenant_id: tenant.id)
+                     .where(operation_type: :sale)
+                     .where("COALESCE(total_amount, 0) <= 0")
+                     .order(:issued_at)
+
+    puts
+    puts "Empresa: ##{tenant.id} #{tenant.name}"
+    puts "Notas sem valor no nosso banco: #{zeradas.count}"
+
+    if zeradas.none?
+      puts "Nada a conferir."
+      next
+    end
+
+    reader = Fiscal::Tiny::Reader.new
+
+    zeradas.each do |nota|
+      pedido = nota.metadata["numero_ecommerce"].presence || nota.order&.external_id
+
+      puts
+      puts "NF #{nota.number}/#{nota.series} · emitida #{nota.issued_at} · pedido #{pedido || '—'}"
+      puts "  nosso valor:    #{nota.total_amount.inspect}"
+      puts "  situação Tiny:  #{nota.metadata['situacao_tiny'] || '—'}"
+
+      if pedido.blank?
+        puts "  (sem número de pedido: não dá para reconsultar no Tiny)"
+        next
+      end
+
+      sleep 1 # o Tiny limita requisições por minuto
+
+      encontrada = reader.por_pedido(pedido).find { |n| n[:numero].to_s == nota.number.to_s }
+
+      if encontrada.blank?
+        puts "  o Tiny não devolveu esta nota na consulta por pedido."
+        next
+      end
+
+      # Só os campos de VALOR: o resto é dado do comprador e não tem por que
+      # sair no log.
+      bruto = encontrada[:bruto] || {}
+
+      puts "  valor normalizado:  #{encontrada[:valor].inspect}"
+      puts "  valor cru do Tiny:  #{bruto['valor'].inspect}"
+
+      outros = bruto.select { |chave, _| chave.to_s.match?(/valor|total|frete|desconto/i) }
+
+      puts "  outros campos de valor: #{outros.inspect}" if outros.any?
+    end
+
+    puts
+    puts "Como ler:"
+    puts "  valor cru preenchido e o nosso zerado -> o erro é meu, na leitura."
+    puts "  valor cru zerado também               -> a nota é assim no Tiny."
+    puts "                                           Veja a situação: remessa e"
+    puts "                                           bonificação não têm valor a receber."
+    puts
+    puts "Nada foi gravado."
+  end
+
+
   desc "Importa as notas fiscais do Tiny para o nosso banco (não toca no OMIE)"
   task importar: :environment do
     # O InvoiceSync existia e ninguém o chamava — quarta peça do sistema com

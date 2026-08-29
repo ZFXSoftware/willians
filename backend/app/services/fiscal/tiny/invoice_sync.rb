@@ -224,6 +224,12 @@ module Fiscal
           ).compact
         )
 
+        # Nota recusada no envio ao OMIE volta para a fila quando o dado que
+        # causou a recusa muda — valor preenchido, CPF corrigido. É a via de
+        # volta: sem ela, corrigir no Tiny não adiantaria nada, porque a nota
+        # continuaria marcada aqui.
+        resumo[:reabertas] += 1 if invoice.liberar_recusa_se_mudou!
+
         invoice.save!
 
         resumo[novo ? :criadas : :atualizadas] += 1

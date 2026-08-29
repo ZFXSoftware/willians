@@ -85,8 +85,23 @@ export interface NotasFiscais {
   com_pedido: number
   ultima_importacao: string | null
   enviadas_ao_omie: number
+  // As que nós recusamos: sem valor ou sem CPF do comprador. Saíram da fila —
+  // o ciclo automático as escolheria de novo a cada volta, para sempre —, mas
+  // continuam sendo vendas que a conciliação não vai conseguir comparar.
+  recusadas: NotasRecusadas
   ultimo_resultado: ResultadoImportacao | null
   ultimo_envio: UltimoEnvioOmie | null
+}
+
+export interface NotasRecusadas {
+  total: number
+  itens: Array<{
+    nf: string
+    emitida_em: string | null
+    valor: string | number | null
+    motivo: "sem_valor" | "sem_comprador" | string | null
+    mensagem: string | null
+  }>
 }
 
 // O envio ao OMIE continua pelo ciclo automático com a tela fechada. Este é o

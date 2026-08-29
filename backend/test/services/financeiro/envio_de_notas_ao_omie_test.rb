@@ -178,6 +178,53 @@ module Financeiro
       assert_empty espiao.chamadas.select { |call, _| call == "IncluirContaReceber" }
     end
 
+    # A nota recusada continuava na fila e era escolhida de novo em TODA
+    # execução. Com oito notas assim e mais nada pendente, o ciclo automático
+    # rodava de hora em hora só para recusar as mesmas oito, para sempre.
+    test "nota recusada sai da fila e não é escolhida de novo" do
+      criar_nota_do_tiny.update!(total_amount: 0)
+
+      enviar
+
+      resumo, _ = enviar
+
+      assert_equal 0, resumo[:previstas], "insistir nela é execução jogada fora"
+      assert_equal 0, resumo[:recusadas_por_nos]
+    end
+
+    # A via de volta: sem ela, corrigir a nota no Tiny não adiantaria nada,
+    # porque a marca de recusa continuaria aqui e a nota nunca mais seria
+    # tentada.
+    test "nota corrigida no Tiny volta para a fila" do
+      nota = criar_nota_do_tiny
+      nota.update!(total_amount: 0)
+
+      enviar
+
+      assert_predicate Invoice.recusadas_no_envio, :any?
+
+      # Quem marcou a recusa foi outra instância, carregada dentro do serviço.
+      nota.reload.update!(total_amount: 134.65)
+
+      assert nota.liberar_recusa_se_mudou!, "o valor mudou: a recusa não vale mais"
+
+      nota.save!
+
+      resumo, _ = enviar
+
+      assert_equal 1, resumo[:enviadas]
+    end
+
+    test "simulação não marca a nota como recusada" do
+      criar_nota_do_tiny.update!(total_amount: 0)
+
+      EnvioDeNotasAoOmie.new(
+        tenant: @tenant, client: OmieEspiao.new, dry_run: true, pausa: 0
+      ).call
+
+      assert_empty Invoice.recusadas_no_envio, "simular não pode mudar o estado de nada"
+    end
+
     # Uma nota ruim entre quarenta marcava o LOTE inteiro como falho, e três
     # lotes depois o ciclo automático parava — com 39 de cada 40 tendo sido
     # enviadas com sucesso. Uma nota derrubava o processo inteiro.
