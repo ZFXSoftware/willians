@@ -41,7 +41,7 @@ namespace :omie do
 
     puts "Previstas:        #{resumo[:previstas]}"
     puts "Enviadas:         #{resumo[:enviadas]}"
-    puts "Sem comprador:    #{resumo[:sem_comprador]}"
+    puts "Recusadas por nós: #{resumo[:recusadas_por_nos]}"
     puts "Falhas:           #{resumo[:falhas]}"
 
     if resumo[:amostra].present?

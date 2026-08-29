@@ -53,7 +53,7 @@ module Fiscal
         "[EnvioDeNotas] empresa ##{current_tenant.id}: pedido aplicar=#{!simular?} " \
         "limite=#{params[:limite].presence || 'lote'} -> previstas=#{resumo[:previstas].to_i} " \
         "enviadas=#{resumo[:enviadas].to_i} falhas=#{resumo[:falhas].to_i} " \
-        "sem_comprador=#{resumo[:sem_comprador].to_i} pendentes=#{resumo[:pendentes].to_i} " \
+        "recusadas_por_nos=#{resumo[:recusadas_por_nos].to_i} pendentes=#{resumo[:pendentes].to_i} " \
         "simulacao=#{resumo[:motivo_da_simulacao] || 'não'}"
       )
 

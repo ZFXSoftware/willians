@@ -252,7 +252,9 @@ export interface ResultadoEnvioOmie {
   // nota são duas chamadas ao OMIE com pausa entre elas, e milhares não cabem
   // numa requisição só.
   pendentes: number
-  sem_comprador: number
+  // Notas que NÓS recusamos por não terem como virar título: sem CPF do
+  // comprador, ou sem valor. Não são falha do envio — o OMIE nem foi chamado.
+  recusadas_por_nos: number
   falhas: number
   amostra?: Array<{ nf: string; comprador: string; valor: number }>
   erros?: string[]

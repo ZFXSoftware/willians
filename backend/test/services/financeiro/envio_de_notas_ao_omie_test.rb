@@ -164,6 +164,34 @@ module Financeiro
 
     # ----------------------------------------------------------- as recusas
 
+    # O OMIE recusa título sem valor — "O preenchimento da tag
+    # [valor_documento] é obrigatório!" — e uma nota assim seria retentada a
+    # cada ciclo, para sempre, gastando três chamadas por volta.
+    test "nota sem valor é recusada por nós, antes de chamar o OMIE" do
+      criar_nota_do_tiny.update!(total_amount: 0)
+
+      resumo, espiao = enviar
+
+      assert_equal 1, resumo[:recusadas_por_nos]
+      assert_equal 0, resumo[:enviadas]
+      assert_includes resumo[:erros].first, "sem valor"
+      assert_empty espiao.chamadas.select { |call, _| call == "IncluirContaReceber" }
+    end
+
+    # Uma nota ruim entre quarenta marcava o LOTE inteiro como falho, e três
+    # lotes depois o ciclo automático parava — com 39 de cada 40 tendo sido
+    # enviadas com sucesso. Uma nota derrubava o processo inteiro.
+    test "lote com alguma nota enviada não conta como execução falha" do
+      criar_nota_do_tiny(numero: "1")
+      criar_nota_do_tiny(numero: "2").update!(total_amount: 0)
+
+      resumo, _ = enviar
+
+      assert_equal 1, resumo[:enviadas]
+      assert_equal 1, resumo[:recusadas_por_nos]
+      assert_equal 0, @tenant.reload.metadata.dig("omie_envio_saude", "falhas_seguidas")
+    end
+
     # Cadastro sem identificação na contabilidade de alguém é pior do que nota
     # não enviada — e o mesmo comprador viraria dois cadastros.
     test "nota sem CPF/CNPJ do comprador é recusada, não enviada torta" do
@@ -171,7 +199,7 @@ module Financeiro
 
       resumo, espiao = enviar
 
-      assert_equal 1, resumo[:sem_comprador]
+      assert_equal 1, resumo[:recusadas_por_nos]
       assert_equal 0, resumo[:enviadas]
       assert_empty espiao.chamadas
     end
@@ -207,7 +235,7 @@ module Financeiro
 
       resumo, _ = enviar
 
-      assert_equal 1, resumo[:sem_comprador]
+      assert_equal 1, resumo[:recusadas_por_nos]
       assert_equal 1, resumo[:enviadas]
     end
 

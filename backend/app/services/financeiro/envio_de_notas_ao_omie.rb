@@ -102,8 +102,14 @@ module Financeiro
 
         notas.each do |nota|
           processar(nota, resumo)
-        rescue Omie::Mappers::InvoiceMapper::SemComprador => e
-          resumo[:sem_comprador] += 1
+        rescue Omie::Mappers::InvoiceMapper::SemComprador,
+               Omie::Mappers::InvoiceMapper::SemValor => e
+          # Nota que o OMIE nunca aceitaria. Contada e visível, mas não é
+          # "falha do envio": insistir nela a cada ciclo é chamada jogada fora,
+          # e marcar o lote como falho por causa dela pararia o automático.
+          resumo[:recusadas_por_nos] += 1
+
+          resumo[:erros] << "NF #{nota.number}: #{e.message}" if resumo[:erros].size < 5
 
           Rails.logger.warn "[EnvioDeNotas] #{e.message}"
         rescue StandardError => e
@@ -166,7 +172,13 @@ module Financeiro
     end
 
     def registrar_saude!(resumo)
-      falhou = resumo[:falhas].to_i.positive?
+      # Uma execução só conta como falha quando NADA passou.
+      #
+      # Antes bastava uma nota recusada entre quarenta para o lote inteiro ser
+      # marcado como falho — e três lotes depois o ciclo automático parava, com
+      # 39 notas de cada 40 tendo sido enviadas com sucesso. Uma nota ruim
+      # derrubava o processo inteiro.
+      falhou = resumo[:falhas].to_i.positive? && resumo[:enviadas].to_i.zero?
 
       seguidas = falhou ? saude["falhas_seguidas"].to_i + 1 : 0
 

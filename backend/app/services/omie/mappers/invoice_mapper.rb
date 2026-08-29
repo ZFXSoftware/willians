@@ -13,6 +13,12 @@ module Omie
 
       class SemComprador < StandardError; end
 
+      # Título sem valor o OMIE recusa — "O preenchimento da tag
+      # [valor_documento] é obrigatório!" —, e uma nota assim seria retentada a
+      # cada ciclo, para sempre. Melhor recusar aqui, contada e visível, do que
+      # gastar uma chamada por ciclo num caso que nunca vai passar.
+      class SemValor < StandardError; end
+
       def initialize(invoice:, settings:)
         @invoice = invoice
 
@@ -44,6 +50,8 @@ module Omie
       # inclusão pelo CPF repetido, e nenhum título era criado.
       def titulo(codigo_cliente:)
         exigir_comprador!
+
+        exigir_valor!
 
         {
           # Distingue o que é nosso do que o TrackCash criou, e permite
@@ -102,6 +110,14 @@ module Omie
         raise SemComprador,
               "Nota #{invoice.number} sem CPF/CNPJ utilizável do comprador " \
               "(nome: #{nome.presence || 'ausente'}, documento: #{documento.presence || 'ausente'})."
+      end
+
+      def exigir_valor!
+        return if invoice.total_amount.to_d.positive?
+
+        raise SemValor,
+              "Nota #{invoice.number} está sem valor (#{invoice.total_amount.inspect}). " \
+              "O OMIE recusa título sem valor, e a nota veio assim do Tiny."
       end
 
       def data(valor) = valor&.to_date&.strftime("%d/%m/%Y")

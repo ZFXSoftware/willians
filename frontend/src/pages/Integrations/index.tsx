@@ -945,10 +945,13 @@ function NotasFiscaisCard({
           o número simplesmente deixa de subir e parece que terminou. */}
       {(notas.ultimo_envio?.falhas_seguidas ?? 0) > 0 && (
         <div className="mt-4 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl px-4 py-3 text-sm text-yellow-300">
-          O envio automático falhou {notas.ultimo_envio?.falhas_seguidas}{" "}
-          vez(es) seguida(s)
-          {notas.ultimo_envio?.ultimo_erro ? `: ${notas.ultimo_envio.ultimo_erro}` : "."} Depois
-          de três, ele para de tentar até alguém enviar pela tela.
+          {/* Só conta como falha a execução em que NADA passou — antes uma
+              nota ruim entre quarenta marcava o lote inteiro, e três lotes
+              depois o automático parava com 39 de cada 40 tendo dado certo. */}
+          {notas.ultimo_envio?.falhas_seguidas} execução(ões) seguida(s) sem
+          conseguir enviar nada
+          {notas.ultimo_envio?.ultimo_erro ? `: ${notas.ultimo_envio.ultimo_erro}` : "."}{" "}
+          Na terceira, o envio automático para até alguém enviar pela tela.
         </div>
       )}
 
@@ -1121,10 +1124,14 @@ function EnvioAoOmie({
                 </div>
               )}
 
-              {previa.sem_comprador > 0 && (
+              {/* Recusadas por NÓS, antes de chamar o OMIE: sem CPF do
+                  comprador, ou sem valor. Não são falha do envio — e insistir
+                  nelas a cada ciclo é chamada jogada fora. */}
+              {previa.recusadas_por_nos > 0 && (
                 <p className="text-yellow-300 text-xs">
-                  {previa.sem_comprador} nota(s) sem CPF/CNPJ do comprador ficam de
-                  fora — cadastro sem identificação é pior do que nota faltando.
+                  {previa.recusadas_por_nos} nota(s) não têm como virar título — sem
+                  CPF/CNPJ do comprador, ou sem valor. Ficam de fora até serem
+                  corrigidas no Tiny.
                 </p>
               )}
 
