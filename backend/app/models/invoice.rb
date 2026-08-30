@@ -58,6 +58,8 @@ class Invoice < ApplicationRecord
     [ total_amount.to_d.to_s, (metadata || {})["comprador_documento"].to_s ].join("|")
   end
 
+  def recusada_no_envio? = (metadata || {})["omie_recusa"].present?
+
   def recusar_envio!(motivo:, mensagem:)
     update!(metadata: (metadata || {}).merge(
       "omie_recusa" => {

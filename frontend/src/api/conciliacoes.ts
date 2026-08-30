@@ -39,6 +39,10 @@ export interface ResumoConciliacao {
   // provisório: o repasse comparado hoje contra 3 títulos será comparado
   // amanhã contra 87.
   notas_a_enviar: number
+  // Notas que NUNCA vão virar título: emitidas sem valor, que o OMIE recusa.
+  // Não são espera — são uma correção pendente no Tiny, e o repasse que
+  // contiver uma delas é comparado sem ela, com a diferença explicada.
+  notas_recusadas: number
 }
 
 // O desfecho da última execução. A conciliação roda em fila: a tela dispara e

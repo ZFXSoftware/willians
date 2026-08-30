@@ -222,7 +222,14 @@ module Conciliacao
       # outras noventa e sete. Alguém lendo isso concluiria que falta dinheiro.
       #
       # Enquanto a cobertura não for completa, não há o que comparar.
-      return unless cobertura[:completa]
+      #
+      # Salvo quando o que falta são notas que NUNCA vão ter título: nota
+      # emitida sem valor, que o OMIE recusa. Esperar por elas é esperar para
+      # sempre, e o repasse ficava em "comparação incompleta" sem prazo e sem
+      # explicação. Comparar dizendo o que ficou de fora é melhor: a diferença
+      # que aparece é dinheiro que entrou sem documento fiscal, e isso é
+      # divergência de verdade.
+      return unless cobertura[:completa] || cobertura[:completa_com_exclusoes]
 
       cobertura[:encontradas].sum(BigDecimal("0")) { |ref| omie_totals[ref] }
     end
@@ -237,18 +244,37 @@ module Conciliacao
         # só os que já têm nota fiscal. Contando apenas os que têm, um repasse
         # de cem vendas com uma nota só apareceria como cobertura completa, e a
         # comparação sairia com o valor de uma venda contra o repasse inteiro.
-        total = recebiveis_de(payout).size
+        unidades = unidades_de(payout)
+
+        total = unidades.size
 
         referencias = referencias_for(payout)
 
         encontradas = referencias.select { |ref| omie_totals.key?(ref) }
 
+        # As que não vão chegar: nota emitida sem valor não vira título nunca.
+        # Contá-las como "faltando" deixa o repasse esperando para sempre.
+        recusadas = unidades.filter_map { |u| u.invoice if u.invoice&.recusada_no_envio? }
+
+        completa = total.positive? && encontradas.size == total
+
         {
           referencias: [ total, referencias.size ].max,
           encontradas: encontradas,
-          completa: total.positive? && encontradas.size == total
+          recusadas: recusadas,
+          completa: completa,
+          completa_com_exclusoes:
+            !completa && total.positive? && recusadas.any? &&
+              (encontradas.size + recusadas.size) == total
         }
       end
+    end
+
+    def unidades_de(payout)
+      payout
+        .financial_entry_allocations
+        .filter_map(&:receivable_unit)
+        .uniq
     end
 
     def recebiveis_de(payout)
@@ -297,7 +323,7 @@ module Conciliacao
           platform_account: platform_account
         )
         .where(paid_at: start_date.beginning_of_day..end_date.end_of_day)
-        .includes(financial_entry_allocations: :receivable_unit)
+        .includes(financial_entry_allocations: { receivable_unit: :invoice })
     end
 
     # "Sem título correspondente" cobre dois casos com providências opostas:
@@ -305,9 +331,13 @@ module Conciliacao
     # outras não. O segundo se resolve terminando o envio; o primeiro pode ser
     # nota não emitida, elo com o pedido faltando, ou título de fato ausente.
     def observacao_de(payout, resultado)
-      return resultado.mensagem if resultado.valor_omie.present?
-
       cobertura = @coberturas[payout.id] || {}
+
+      if resultado.valor_omie.present?
+        return resultado.mensagem unless cobertura[:completa_com_exclusoes]
+
+        return "#{resultado.mensagem} #{exclusoes(cobertura)}".strip
+      end
 
       encontradas = cobertura[:encontradas].to_a.size
 
@@ -320,8 +350,27 @@ module Conciliacao
       else
         "Comparação incompleta: só #{encontradas} de #{referencias} nota(s) deste repasse " \
         "têm título no OMIE. Comparar o repasse inteiro com uma parte dos títulos " \
-        "acusaria uma diferença que não existe."
+        "acusaria uma diferença que não existe. #{exclusoes(cobertura)}".strip
       end
+    end
+
+    # O que ficou de fora e não vai entrar.
+    #
+    # Sem nomear as notas, a frase vira mais uma espera sem prazo — e é
+    # justamente o oposto: são as notas que alguém precisa ir corrigir no
+    # Tiny para o repasse fechar.
+    def exclusoes(cobertura)
+      recusadas = cobertura[:recusadas].to_a
+
+      return "" if recusadas.empty?
+
+      numeros = recusadas.first(3).map(&:number).join(", ")
+
+      resto = recusadas.size > 3 ? " e outras #{recusadas.size - 3}" : ""
+
+      "#{recusadas.size} venda(s) ficaram de fora: a nota fiscal delas foi emitida sem " \
+      "valor e não vira título (NF #{numeros}#{resto}). A diferença apontada é dinheiro " \
+      "que entrou sem documento fiscal correspondente."
     end
 
     def registro_row(payout, resultado)

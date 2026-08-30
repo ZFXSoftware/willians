@@ -297,5 +297,66 @@ module Financeiro
                  "comparar o repasse inteiro com parte dos títulos inventa divergência"
       assert_includes registro.observacao.to_s, "Comparação incompleta"
     end
+
+    # A regra acima manda esperar pelas notas que faltam. Mas nota emitida sem
+    # valor o OMIE recusa, e esperar por ela é esperar para sempre: o repasse
+    # ficava em "comparação incompleta" sem prazo e sem explicação.
+    #
+    # Aqui a comparação acontece, e a diferença que aparece é real — é o
+    # dinheiro que entrou sem documento fiscal correspondente.
+    test "nota recusada por não ter valor não trava o repasse para sempre" do
+      venda_com_taxa(pagamento: "PAY-A", bruto: 100, taxa: 10)
+      venda_com_taxa(pagamento: "PAY-B", bruto: 200, taxa: 20)
+      repasse
+
+      pedido_a = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PED-A")
+      nota_a = criar_nota(tenant: @tenant, pedido: pedido_a, numero: "111", valor: 100)
+
+      pedido_b = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PED-B")
+      nota_b = criar_nota(tenant: @tenant, pedido: pedido_b, numero: "222", valor: 0)
+
+      nota_b.recusar_envio!(motivo: :sem_valor, mensagem: "Nota 222 está sem valor")
+
+      unidades = ReceivableUnit.where(tenant: @tenant).order(:id).to_a
+
+      unidades[0].update!(invoice: nota_a, order: pedido_a)
+      unidades[1].update!(invoice: nota_b, order: pedido_b)
+
+      fechar
+
+      registro = conciliar([ { "numero_documento_fiscal" => "111", "valor_documento" => "100.00" } ])
+
+      assert_equal "100.0", registro.conciliation_metadata["valor_omie"].to_s,
+                   "compara com o que existe, em vez de esperar pelo que nunca vem"
+      assert_includes registro.observacao.to_s, "sem valor"
+      assert_includes registro.observacao.to_s, "222", "diz QUAL nota corrigir no Tiny"
+    end
+
+    # A exclusão vale só para o que nunca vai chegar. Nota que ainda está na
+    # fila de envio continua sendo motivo para esperar — senão a tela voltaria
+    # a inventar divergência enquanto o envio anda.
+    test "nota apenas pendente de envio continua travando a comparação" do
+      venda_com_taxa(pagamento: "PAY-A", bruto: 100, taxa: 10)
+      venda_com_taxa(pagamento: "PAY-B", bruto: 200, taxa: 20)
+      repasse
+
+      pedido_a = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PED-A")
+      nota_a = criar_nota(tenant: @tenant, pedido: pedido_a, numero: "111", valor: 100)
+
+      pedido_b = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PED-B")
+      nota_b = criar_nota(tenant: @tenant, pedido: pedido_b, numero: "222", valor: 200)
+
+      unidades = ReceivableUnit.where(tenant: @tenant).order(:id).to_a
+
+      unidades[0].update!(invoice: nota_a, order: pedido_a)
+      unidades[1].update!(invoice: nota_b, order: pedido_b)
+
+      fechar
+
+      registro = conciliar([ { "numero_documento_fiscal" => "111", "valor_documento" => "100.00" } ])
+
+      assert_nil registro.conciliation_metadata["valor_omie"]
+      assert_includes registro.observacao.to_s, "Comparação incompleta"
+    end
   end
 end

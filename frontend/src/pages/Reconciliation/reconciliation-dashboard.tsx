@@ -192,6 +192,25 @@ export default function ReconciliationDashboard() {
         </div>
       )}
 
+      {/* Espera tem fim; isto não tem. A nota emitida sem valor não vira
+          título nunca, e o repasse que a contém é comparado sem ela — a
+          diferença que aparece é dinheiro que entrou sem documento fiscal.
+          Sem dizer isso, a divergência parece defeito do sistema. */}
+      {(resumo?.notas_recusadas ?? 0) > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl px-5 py-4 text-sm text-amber-200 flex flex-wrap items-center justify-between gap-3">
+          <span>
+            <strong>{resumo?.notas_recusadas} nota(s) emitidas sem valor.</strong>{" "}
+            Não viram título no OMIE, e o repasse que contiver uma delas é
+            comparado sem ela — a diferença apontada é venda sem documento
+            fiscal, e a correção é no Tiny.
+          </span>
+
+          <Link to="/integracoes" className="underline hover:text-amber-100 shrink-0">
+            ver quais
+          </Link>
+        </div>
+      )}
+
       {aviso && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-5 py-4 text-sm text-zinc-300 flex items-center justify-between gap-4">
           {aviso}
