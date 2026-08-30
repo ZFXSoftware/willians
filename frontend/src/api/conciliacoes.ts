@@ -90,8 +90,33 @@ export async function fetchRegistros(
 }
 
 // O disparo passa pelo gateway, que enfileira o processamento.
-export async function processarConciliacao(): Promise<{ job_id: string }> {
-  const { data } = await gatewayApi.post("/conciliacoes/processar", {})
+//
+// O período importa mais do que parece: sem ele o backend concilia os ÚLTIMOS
+// 30 DIAS de repasses, e repasse mais antigo que isso nunca vira registro — não
+// é a listagem que esconde, é que ele nunca foi conferido. Era por isso que a
+// tela mostrava doze linhas e nenhuma paginação.
+export async function processarConciliacao(
+  periodo?: { start_date: string; end_date: string },
+): Promise<{ job_id: string }> {
+  const { data } = await gatewayApi.post("/conciliacoes/processar", periodo ?? {})
 
   return data
+}
+
+// Quanto tempo para trás conciliar. O padrão do backend é 30 dias.
+export const PERIODOS = [
+  { valor: 30, rotulo: "Últimos 30 dias" },
+  { valor: 90, rotulo: "Últimos 3 meses" },
+  { valor: 180, rotulo: "Últimos 6 meses" },
+  { valor: 365, rotulo: "Último ano" },
+] as const
+
+export function janelaDe(dias: number): { start_date: string; end_date: string } {
+  const fim = new Date()
+  const inicio = new Date(fim.getTime() - dias * 24 * 60 * 60 * 1000)
+
+  return {
+    start_date: inicio.toISOString().slice(0, 10),
+    end_date: fim.toISOString().slice(0, 10),
+  }
 }

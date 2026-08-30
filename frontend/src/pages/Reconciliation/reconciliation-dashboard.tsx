@@ -4,6 +4,8 @@ import { RefreshCw, Search } from "lucide-react"
 
 import {
   fetchRegistros,
+  janelaDe,
+  PERIODOS,
   processarConciliacao,
   type ExecucaoConciliacao,
   type FiltrosRegistros,
@@ -70,6 +72,13 @@ function leitura(e: ExecucaoConciliacao): { tom: string; texto: string } {
 export default function ReconciliationDashboard() {
   const [filtros, setFiltros] = useState<FiltrosRegistros>({ page: 1 })
   const [busca, setBusca] = useState("")
+  // Quanto tempo para trás conciliar.
+  //
+  // O backend concilia os últimos 30 dias quando ninguém diz o período, e
+  // repasse mais velho que isso nunca vira registro. Não adiantava paginar: as
+  // páginas antigas não existiam porque aqueles repasses jamais foram
+  // conferidos.
+  const [dias, setDias] = useState(30)
   const [processando, setProcessando] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
 
@@ -91,10 +100,13 @@ export default function ReconciliationDashboard() {
     const marco = data?.resumo?.execucao?.terminada_em ?? null
 
     setProcessando(true)
-    setAviso("Conciliação em andamento...")
+    setAviso(
+      `Conciliando os últimos ${dias} dias de repasses...` +
+        (dias > 30 ? " Períodos longos demoram: são mais títulos para ler do OMIE." : ""),
+    )
 
     try {
-      await processarConciliacao()
+      await processarConciliacao(janelaDe(dias))
     } catch (e) {
       setProcessando(false)
       setAviso(errorMessage(e, "Não foi possível disparar a conciliação"))
@@ -147,6 +159,19 @@ export default function ReconciliationDashboard() {
         </div>
 
         <div className="flex flex-wrap gap-3">
+          <select
+            value={dias}
+            onChange={(e) => setDias(Number(e.target.value))}
+            className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm outline-none focus:border-zinc-600"
+            title="Quanto tempo para trás a próxima conciliação vai olhar"
+          >
+            {PERIODOS.map((p) => (
+              <option key={p.valor} value={p.valor}>
+                {p.rotulo}
+              </option>
+            ))}
+          </select>
+
           <select
             value={filtros.plataforma ?? ""}
             onChange={(e) => aplicar({ plataforma: e.target.value || undefined })}
