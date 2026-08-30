@@ -84,6 +84,13 @@ namespace :tiny do
                     item["descricao"].to_s[0, 40], item["quantidade"],
                     item["valor_unitario"], item["valor_total"])
       end
+
+      # Quanto o marketplace pagou por essa mesma venda.
+      #
+      # É o número que dá tamanho ao problema: a nota diz zero, mas o dinheiro
+      # entrou. Vem do nosso extrato, não de chute — e serve para o contador
+      # decidir o que fazer com a nota, não para eu preencher o título.
+      imprimir_valor_do_marketplace(nota)
     end
 
     puts
@@ -94,6 +101,28 @@ namespace :tiny do
     puts "  as duas zeradas e sem itens com valor -> a nota é assim no Tiny mesmo."
     puts
     puts "Nada foi gravado."
+  end
+
+  # O que o marketplace movimentou para o pedido desta nota.
+  #
+  # `sale` é a venda bruta e `settlement` é o repasse líquido; as taxas entram
+  # negativas. Interessa a venda: é ela que a nota fiscal deveria espelhar.
+  def imprimir_valor_do_marketplace(nota)
+    return puts "  extrato: nota sem pedido vinculado." if nota.order_id.blank?
+
+    lancamentos = FinancialEntry.where(tenant_id: nota.tenant_id, order_id: nota.order_id)
+
+    if lancamentos.none?
+      puts "  extrato: nenhum lançamento ligado a este pedido."
+
+      return
+    end
+
+    venda = lancamentos.where(entry_type: :sale).sum(:amount)
+
+    puts format("  extrato do marketplace: venda R$ %.2f em %d lançamento(s) — %s",
+                venda, lancamentos.count,
+                lancamentos.group(:entry_type).count.map { |t, n| "#{t} #{n}" }.join(", "))
   end
 
   # Todos os campos que parecem valor, sem despejar a nota inteira: o resto é
