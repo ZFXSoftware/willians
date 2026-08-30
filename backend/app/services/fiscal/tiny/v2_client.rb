@@ -70,6 +70,24 @@ module Fiscal
         }
       end
 
+      # A nota INTEIRA, pelo id do Tiny.
+      #
+      # A pesquisa é uma listagem e devolve um resumo — e para oito notas ela
+      # traz `valor` como "0.00". Só a nota completa diz se o valor realmente
+      # não existe ou se é a listagem que não o calcula: aqui vêm os itens e os
+      # totais que o cabeçalho da busca não tem.
+      #
+      # => o hash da nota, ou nil quando o Tiny não a encontra.
+      def obter_nota(id)
+        retorno = post("nota.fiscal.obter.php", id: id)
+
+        return if retorno.nil?
+
+        nota = retorno["nota_fiscal"]
+
+        nota.is_a?(Hash) ? nota : nil
+      end
+
       private
 
       def vazio(pagina)

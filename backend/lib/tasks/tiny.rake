@@ -59,19 +59,49 @@ namespace :tiny do
       puts "  valor normalizado:  #{encontrada[:valor].inspect}"
       puts "  valor cru do Tiny:  #{bruto['valor'].inspect}"
 
-      outros = bruto.select { |chave, _| chave.to_s.match?(/valor|total|frete|desconto/i) }
+      puts "  outros campos de valor (busca): #{valores_de(bruto)}"
 
-      puts "  outros campos de valor: #{outros.inspect}" if outros.any?
+      # A busca é uma LISTAGEM e devolve resumo. A nota completa tem os itens e
+      # os totais que o cabeçalho não traz — é ela que separa "a nota não tem
+      # valor" de "a listagem não calcula o valor".
+      sleep 1
+
+      detalhe = Fiscal::Tiny::V2Client.new.obter_nota(bruto["id"] || nota.external_id)
+
+      if detalhe.blank?
+        puts "  nota completa: o Tiny não devolveu."
+        next
+      end
+
+      puts "  campos de valor (nota completa): #{valores_de(detalhe)}"
+
+      itens = Array(detalhe["itens"]).map { |i| i["item"] || i }
+
+      puts "  itens: #{itens.size}"
+
+      itens.first(3).each do |item|
+        puts format("    %-40s qtd %-6s unit %-10s total %s",
+                    item["descricao"].to_s[0, 40], item["quantidade"],
+                    item["valor_unitario"], item["valor_total"])
+      end
     end
 
     puts
     puts "Como ler:"
     puts "  valor cru preenchido e o nosso zerado -> o erro é meu, na leitura."
-    puts "  valor cru zerado também               -> a nota é assim no Tiny."
-    puts "                                           Veja a situação: remessa e"
-    puts "                                           bonificação não têm valor a receber."
+    puts "  busca zerada e nota completa com valor -> a listagem é que não calcula;"
+    puts "                                            o conserto é meu, lendo a nota."
+    puts "  as duas zeradas e sem itens com valor -> a nota é assim no Tiny mesmo."
     puts
     puts "Nada foi gravado."
+  end
+
+  # Todos os campos que parecem valor, sem despejar a nota inteira: o resto é
+  # dado do comprador e não tem por que sair num log.
+  def valores_de(hash)
+    hash.select { |chave, _| chave.to_s.match?(/valor|total|frete|desconto|icms|ipi/i) }
+        .reject { |_, valor| valor.is_a?(Array) || valor.is_a?(Hash) }
+        .inspect
   end
 
 
