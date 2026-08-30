@@ -44,6 +44,15 @@ class IntegracoesController < ApplicationController
       # não as escolher de novo a cada volta, mas cada uma é uma venda que a
       # conciliação não vai conseguir comparar — some da fila, não do problema.
       recusadas: recusadas_no_envio(escopo),
+      # Quantas o próximo envio realmente pegaria.
+      #
+      # A tela calculava isto por subtração — total menos enviadas menos
+      # recusadas —, mas `total` conta TODAS as notas, inclusive devoluções e
+      # canceladas, e ignora o marco inicial. Dois denominadores diferentes
+      # para a mesma pergunta divergem, e aí o botão some quando havia nota
+      # para enviar, ou aparece quando não havia. Aqui é o MESMO escopo que o
+      # serviço de envio usa.
+      pendentes: escopo.nao_enviadas_ao_omie(marco_do_envio).count,
       # O desfecho da última importação, que roda em fila: sem isto a tela só
       # sabe dizer "enfileirado", que é igual para sucesso e para falha.
       ultimo_resultado: current_tenant.metadata["tiny_ultima_importacao"],
@@ -52,6 +61,14 @@ class IntegracoesController < ApplicationController
       # única forma de saber era comparar o contador de tempos em tempos.
       ultimo_envio: current_tenant.metadata["omie_envio_saude"]
     }
+  end
+
+  # Onde começa a nossa responsabilidade. Sem isto, a contagem incluiria o
+  # histórico que o sistema antigo já lançou — e o envio não inclui.
+  def marco_do_envio
+    Integracoes::Config.get("omie", :envio_a_partir_de, tenant: current_tenant).presence&.to_date
+  rescue Date::Error
+    nil
   end
 
   # Quantas, por quê, e quais — com o número da NF, que é o que permite achar a

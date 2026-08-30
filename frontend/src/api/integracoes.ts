@@ -85,6 +85,10 @@ export interface NotasFiscais {
   com_pedido: number
   ultima_importacao: string | null
   enviadas_ao_omie: number
+  // Quantas o próximo envio pegaria. Vem pronto do backend, pelo MESMO escopo
+  // que o serviço de envio usa — calcular por subtração aqui dava um número
+  // diferente, porque `total` conta devoluções e canceladas.
+  pendentes: number
   // As que nós recusamos: sem valor ou sem CPF do comprador. Saíram da fila —
   // o ciclo automático as escolheria de novo a cada volta, para sempre —, mas
   // continuam sendo vendas que a conciliação não vai conseguir comparar.

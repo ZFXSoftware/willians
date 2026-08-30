@@ -955,11 +955,9 @@ function NotasFiscaisCard({
               {importando ? "Enfileirando..." : "Importar do Tiny"}
             </button>
 
-            {/* As recusadas saem da conta de pendentes: elas nunca vão subir,
-                e mantê-las aqui deixaria o botão prometendo um envio que não
-                acontece — "8 pendentes" para sempre, e clicar não muda nada. */}
             <EnvioAoOmie
-              pendentes={notas.total - notas.enviadas_ao_omie - notas.recusadas.total}
+              pendentes={notas.pendentes}
+              recusadas={notas.recusadas.total}
               aoTerminar={aoTerminar}
             />
           </div>
@@ -1049,9 +1047,11 @@ function NotasFiscaisCard({
 // então oferece o envio — uma nota, depois o lote.
 function EnvioAoOmie({
   pendentes,
+  recusadas,
   aoTerminar,
 }: {
   pendentes: number
+  recusadas: number
   aoTerminar: () => void
 }) {
   const [ocupado, setOcupado] = useState(false)
@@ -1120,10 +1120,16 @@ function EnvioAoOmie({
     }
   }
 
+  // Zero pendentes é resposta, não ausência de resposta — mas "nada pendente"
+  // sozinho confunde quando existem notas recusadas: elas não estão na fila
+  // justamente porque não podem entrar, e quem não sabe disso lê a frase como
+  // "está tudo no OMIE".
   if (pendentes <= 0 && !previa) {
     return (
       <span className="flex items-center px-4 py-3 text-sm text-zinc-500">
-        Nada pendente para o OMIE
+        {recusadas > 0
+          ? `Nada na fila — ${recusadas} nota(s) só sobem depois de corrigidas`
+          : "Todas as notas já estão no OMIE"}
       </span>
     )
   }
