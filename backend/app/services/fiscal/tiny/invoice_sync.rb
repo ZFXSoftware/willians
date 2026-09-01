@@ -98,7 +98,7 @@ module Fiscal
 
         return {} if refs.empty?
 
-        criar_pedidos_faltantes!(refs)
+        criar_pedidos_faltantes!(notas, refs)
 
         Order
           .where(tenant_id: tenant.id, external_id: refs)
@@ -116,37 +116,93 @@ module Fiscal
       #
       # O pedido nasce só com o número; o conteúdo (comprador, valor, datas)
       # vem depois, do marketplace.
-      def criar_pedidos_faltantes!(refs)
-        conta = conta_da_nota
-
-        return resumo[:sem_plataforma] += refs.size if conta.blank?
-
+      def criar_pedidos_faltantes!(notas, refs)
         conhecidos = Order.where(tenant_id: tenant.id, external_id: refs).pluck(:external_id).to_set
 
-        faltando = refs.reject { |ref| conhecidos.include?(ref) }
+        faltando = notas.reject { |n| n[:numero_ecommerce].blank? || conhecidos.include?(n[:numero_ecommerce]) }
 
         return if faltando.empty?
 
         agora = Time.current
 
-        Order.insert_all(
-          faltando.map do |ref|
+        linhas =
+          faltando.filter_map do |nota|
+            canal, conta = destino_de(nota)
+
+            # `next resumo[...] += 1` devolveria o INTEIRO, que o filter_map
+            # considera resultado válido — e a lista de linhas ganharia um
+            # número no lugar de um pedido.
+            if canal.blank?
+              resumo[:sem_plataforma] += 1
+
+              next
+            end
+
             {
               tenant_id: tenant.id,
-              platform_account_id: conta.id,
-              platform: conta.platform,
-              external_id: ref,
+              # Pode ser NULO: canal reconhecido sem conta é exatamente o caso
+              # do Magalu e do TikTok, que ainda não têm integração. O pedido
+              # nasce com o canal certo e fica FORA de qualquer conciliação,
+              # em vez de sujar a do Mercado Livre.
+              platform_account_id: conta&.id,
+              platform: canal,
+              external_id: nota[:numero_ecommerce],
               status: "pending",
               currency: "BRL",
               metadata: { "origem" => "tiny_invoice_sync" },
               created_at: agora,
               updated_at: agora
             }
-          end,
-          unique_by: :idx_orders_unique
-        )
+          end
 
-        resumo[:pedidos_criados] += faltando.size
+        return if linhas.empty?
+
+        Order.insert_all(linhas.uniq { |l| l[:external_id] }, unique_by: :idx_orders_unique)
+
+        resumo[:pedidos_criados] += linhas.size
+      end
+
+      # Para qual canal vai o pedido desta nota.
+      #
+      # Primeiro o intermediador declarado na NF-e, que é fato: numa amostra de
+      # 40 notas do cliente, 23 vinham de Shopee, Amazon, Magalu e TikTok e
+      # todas viravam pedido do Mercado Livre, porque a regra era "só existe
+      # uma conta ativa, deve ser essa".
+      #
+      # Sem intermediador, a regra antiga continua valendo — é tudo o que se
+      # sabe, e recusar tudo pararia a corrente inteira em notas antigas.
+      def destino_de(nota)
+        canal = Canal.para(intermediador_de(nota), tenant: tenant)
+
+        return [ canal, contas_por_canal[canal] ] if canal.present?
+
+        conta = conta_da_nota
+
+        conta ? [ conta.platform, conta ] : [ nil, nil ]
+      end
+
+      def contas_por_canal
+        @contas_por_canal ||= tenant
+                                .platform_accounts
+                                .where(status: :active)
+                                .index_by(&:platform)
+      end
+
+      # O intermediador vem da nota COMPLETA do Tiny, uma consulta por nota —
+      # caro demais para o caminho da importação. Quem o busca é a tarefa
+      # `tiny:intermediador`, em lote e retomável; aqui só se lê o que ela já
+      # gravou.
+      def intermediador_de(nota)
+        intermediadores[nota[:id_tiny]]
+      end
+
+      def intermediadores
+        @intermediadores ||=
+          Invoice
+            .where(tenant_id: tenant.id)
+            .where("invoices.metadata->'intermediador'->>'nome' IS NOT NULL")
+            .pluck(:external_id, Arel.sql("invoices.metadata->'intermediador'->>'nome'"))
+            .to_h
       end
 
       # A nota do Tiny não diz de qual marketplace ela é. Com uma conta só na

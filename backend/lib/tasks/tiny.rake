@@ -122,11 +122,35 @@ namespace :tiny do
                      .count
 
       puts format("    atribuídas a: %s", atribuidas.inspect)
+
+      # Se existe dinheiro nosso para essas vendas.
+      #
+      # É o que separa "canal atribuído errado" de "canal que o sistema nem
+      # tem de onde ler". Um se conserta mudando a atribuição; o outro precisa
+      # de um conector novo, ou de assumir que aquele canal não é conciliado.
+      pedidos = Invoice
+                  .where(tenant_id: tenant.id)
+                  .where("invoices.metadata->'intermediador'->>'cnpj' IS NOT DISTINCT FROM ?", cnpj)
+                  .where.not(order_id: nil)
+                  .select(:order_id)
+
+      com_dinheiro = FinancialEntry
+                       .where(tenant_id: tenant.id, order_id: pedidos)
+                       .distinct
+                       .count(:order_id)
+
+      puts format("    pedidos com lançamento no extrato: %d", com_dinheiro)
       puts
     end
 
-    puts "Onde o intermediador não bate com a plataforma atribuída, a venda está"
-    puts "na conciliação de uma conta que nunca vai repassar por ela."
+    puts "Contas de marketplace cadastradas: " \
+         "#{tenant.platform_accounts.where(status: :active).pluck(:platform).uniq.join(', ').presence || 'nenhuma'}"
+    puts
+    puts "Como ler:"
+    puts "  intermediador != plataforma atribuída  -> venda na conciliação errada."
+    puts "  zero pedidos com lançamento            -> o sistema não lê o dinheiro"
+    puts "                                            desse canal. Atribuir certo tira"
+    puts "                                            a sujeira, mas não concilia."
     puts
     puts "Nada foi gravado."
   end

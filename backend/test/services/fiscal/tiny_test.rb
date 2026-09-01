@@ -203,6 +203,33 @@ module Fiscal
       assert_equal pedido.id, Invoice.find_by(tenant: tenant, order_id: pedido.id)&.order_id
     end
 
+    # O intermediador declarado na NF-e é fato, e vence a heurística.
+    #
+    # Numa amostra de 40 notas do cliente, 17 eram do Mercado Livre e 23 não —
+    # Shopee, Amazon, Magalu e TikTok, todas viradas em pedido do Mercado
+    # Livre pela regra "só existe uma conta ativa, deve ser essa". 58% das
+    # vendas na conciliação de uma conta que nunca vai repassar por elas.
+    test "nota de outro canal não vira pedido do marketplace conectado" do
+      tenant = criar_tenant
+      conta = criar_conta(tenant: tenant, plataforma: "mercado_livre")
+
+      # O intermediador é lido pela tarefa `tiny:intermediador` e fica na nota;
+      # aqui simulamos uma nota já conhecida, com a Shopee gravada.
+      pedido_antigo = criar_pedido(tenant: tenant, conta: conta, external_id: "OUTRO")
+
+      criar_nota(tenant: tenant, pedido: pedido_antigo, numero: "999", valor: 10)
+        .update!(external_id: "9002",
+                 metadata: { "intermediador" => { "nome" => "Shopee" } })
+
+      sincronizar(tenant)
+
+      criado = Order.find_by(tenant: tenant, external_id: "PED-SEM-PEDIDO")
+
+      assert_equal "shopee", criado.platform, "o canal vem da NF-e, não da única conta ativa"
+      assert_nil criado.platform_account_id,
+                 "canal sem integração fica reconhecido e FORA da conciliação"
+    end
+
     # Atribuir a nota ao marketplace errado estragaria a conciliação daquela
     # conta, e a nota do Tiny não diz de qual marketplace ela é.
     test "com mais de um marketplace na empresa, não chuta o pedido" do
