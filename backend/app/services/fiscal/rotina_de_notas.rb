@@ -23,7 +23,7 @@ module Fiscal
     def call
       return { ignorada: "Tiny não configurado" } unless configurado?
 
-      resumo = { importacao: importar, envio: enviar }
+      resumo = { canais: ler_intermediadores, importacao: importar, envio: enviar }
 
       Rails.logger.info "#{LOG_PREFIX} empresa ##{tenant.id}: #{resumo.inspect}"
 
@@ -36,6 +36,23 @@ module Fiscal
 
     def configurado?
       Current.with_tenant(tenant) { Tiny::Settings.configured?(tenant: tenant) }
+    end
+
+    # De qual canal veio cada nota, lido na própria NF-e.
+    #
+    # Vem ANTES da importação porque é ele que permite ao InvoiceSync atribuir
+    # o pedido ao marketplace certo — sem isso, ele cai na regra antiga, que
+    # pôs 23 de 40 notas do cliente na conciliação do Mercado Livre.
+    #
+    # Em lote: são milhares de notas a uma consulta por segundo, e uma hora não
+    # cabe numa volta do ciclo nem num terminal que cai por inatividade. Cada
+    # volta lê um pedaço e o progresso fica gravado nota a nota.
+    def ler_intermediadores
+      Tiny::IntermediadorSync.new(tenant: tenant).call
+    rescue StandardError => e
+      Rails.logger.error "#{LOG_PREFIX} empresa ##{tenant.id}: leitura de canais falhou: #{e.message}"
+
+      { erro: e.message }
     end
 
     # Janela curta de propósito: o ciclo roda o tempo todo, e reler 90 dias a

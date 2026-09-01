@@ -1,100 +1,42 @@
 namespace :tiny do
-  desc "Grava na nota quem intermediou a venda, lendo a NF-e do Tiny (LIMITE=200)"
+  desc "Lê na NF-e quem intermediou cada venda (LIMITE=120; normalmente roda sozinho)"
   task intermediador: :environment do
-    # O cliente vende no TikTok Shop, e essas notas viraram pedidos do Mercado
-    # Livre — o InvoiceSync atribui à única conta ativa quando não tem outra
-    # forma de saber. Elas entram na conciliação de uma conta que nunca vai
-    # repassar por elas.
-    #
-    # Antes de consertar é preciso saber o tamanho: são oito notas ou duas
-    # mil? A resposta está no grupo `intermediador` da NF-e, que só vem na
-    # nota completa — uma consulta por nota.
+    # O ciclo automático já faz isto em lotes, a cada volta. Esta tarefa existe
+    # para adiantar o histórico de um cliente novo, e para investigar.
     #
     # Escreve SÓ o intermediador na nossa nota. Não mexe em pedido, plataforma
-    # nem em nada do OMIE. É retomável: pula o que já tem o campo.
+    # nem em nada do OMIE. É retomável: pula o que já foi perguntado.
     tenant = Tenant.find_by(id: ENV["TENANT"]) ||
              Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
 
     abort "Nenhuma empresa com token do Tiny. Use TENANT=<id>." if tenant.blank?
 
-    Current.tenant = tenant
+    limite = (ENV["LIMITE"] || Fiscal::Tiny::IntermediadorSync::LOTE_PADRAO).to_i
 
-    limite = (ENV["LIMITE"] || 200).to_i
-
-    pendentes = Invoice
-                  .where(tenant_id: tenant.id)
-                  .where("invoices.metadata->'intermediador' IS NULL")
-                  .order(issued_at: :desc)
-
-    total_pendente = pendentes.count
+    # Sem isto a tarefa fica muda por minutos: é uma consulta por segundo, e o
+    # buffer do docker segura até o pouco que ela imprimiria.
+    $stdout.sync = true
 
     puts
     puts "Empresa: ##{tenant.id} #{tenant.name}"
-    puts "Notas sem intermediador lido: #{total_pendente}"
-    puts "Esta execução vai ler: #{[ limite, total_pendente ].min} (uma consulta por segundo)"
+    puts "Lendo até #{limite} nota(s), uma consulta por segundo."
+    puts "Leva uns #{(limite / 60.0).ceil} minuto(s). Pode parar no meio: o progresso fica gravado."
     puts
 
-    if total_pendente.zero?
-      puts "Nada a fazer. Rode `rake tiny:mapa_de_canais` para ver o resultado."
+    resumo = Fiscal::Tiny::IntermediadorSync.new(tenant: tenant, limite: limite).call
 
-      next
-    end
-
-    # Sem isto a tarefa fica MUDA por vários minutos — uma pausa de um segundo
-    # por nota, sem nenhum sinal de vida, é indistinguível de travamento. E o
-    # buffer do docker segura até o que seria impresso.
-    $stdout.sync = true
-
-    client = Fiscal::Tiny::V2Client.new
-
-    lidas = 0
-    falhas = 0
-
-    canais = Hash.new(0)
-
-    pendentes.limit(limite).each_with_index do |nota, indice|
-      sleep 1
-
-      if (indice % 10).zero?
-        puts format("  %d/%d lidas · %s", indice, [ limite, total_pendente ].min,
-                    canais.sort_by { |_, n| -n }.map { |c, n| "#{c} #{n}" }.join(", ").presence || "começando")
-      end
-
-      detalhe = client.obter_nota(nota.external_id)
-
-      if detalhe.blank?
-        falhas += 1
-
-        next
-      end
-
-      inter = detalhe["intermediador"] || {}
-
-      canais[inter["nome"].presence || "(sem intermediador)"] += 1
-
-      # Grava mesmo quando vem vazio: o hash presente com nome nulo é a
-      # resposta "o Tiny não sabe", e é diferente de "ainda não perguntei".
-      # Sem essa distinção a tarefa releria as mesmas notas para sempre.
-      nota.update!(metadata: nota.metadata.merge(
-        "intermediador" => { "nome" => inter["nome"], "cnpj" => inter["cnpj"] }
-      ))
-
-      lidas += 1
-    rescue StandardError => e
-      falhas += 1
-
-      Rails.logger.warn "[intermediador] NF #{nota.number}: #{e.class} #{e.message}"
-    end
-
-    puts
     puts "Canais encontrados nesta leva:"
-    canais.sort_by { |_, n| -n }.each { |canal, n| puts format("  %-24s %d", canal, n) }
+    resumo[:canais].sort_by { |_, quantas| -quantas }.each do |canal, quantas|
+      puts format("  %-24s %d", canal, quantas)
+    end
+
     puts
-    puts "Lidas:  #{lidas}"
-    puts "Falhas: #{falhas}"
-    puts "Faltam: #{total_pendente - lidas}"
+    puts "Lidas:  #{resumo[:lidas]}"
+    puts "Falhas: #{resumo[:falhas]}"
+    puts "Faltam: #{resumo[:pendentes]}"
     puts
-    puts "Rode de novo para continuar, ou `rake tiny:mapa_de_canais` para o resumo."
+    puts "O ciclo automático continua de onde parou. Para ver o resultado:"
+    puts "  rake tiny:mapa_de_canais"
   end
 
   desc "De quais canais vieram as vendas, e onde a atribuição está errada (SOMENTE LEITURA)"
