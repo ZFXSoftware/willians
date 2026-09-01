@@ -40,13 +40,25 @@ namespace :tiny do
       next
     end
 
+    # Sem isto a tarefa fica MUDA por vários minutos — uma pausa de um segundo
+    # por nota, sem nenhum sinal de vida, é indistinguível de travamento. E o
+    # buffer do docker segura até o que seria impresso.
+    $stdout.sync = true
+
     client = Fiscal::Tiny::V2Client.new
 
     lidas = 0
     falhas = 0
 
-    pendentes.limit(limite).each do |nota|
+    canais = Hash.new(0)
+
+    pendentes.limit(limite).each_with_index do |nota, indice|
       sleep 1
+
+      if (indice % 10).zero?
+        puts format("  %d/%d lidas · %s", indice, [ limite, total_pendente ].min,
+                    canais.sort_by { |_, n| -n }.map { |c, n| "#{c} #{n}" }.join(", ").presence || "começando")
+      end
 
       detalhe = client.obter_nota(nota.external_id)
 
@@ -57,6 +69,8 @@ namespace :tiny do
       end
 
       inter = detalhe["intermediador"] || {}
+
+      canais[inter["nome"].presence || "(sem intermediador)"] += 1
 
       # Grava mesmo quando vem vazio: o hash presente com nome nulo é a
       # resposta "o Tiny não sabe", e é diferente de "ainda não perguntei".
@@ -72,6 +86,10 @@ namespace :tiny do
       Rails.logger.warn "[intermediador] NF #{nota.number}: #{e.class} #{e.message}"
     end
 
+    puts
+    puts "Canais encontrados nesta leva:"
+    canais.sort_by { |_, n| -n }.each { |canal, n| puts format("  %-24s %d", canal, n) }
+    puts
     puts "Lidas:  #{lidas}"
     puts "Falhas: #{falhas}"
     puts "Faltam: #{total_pendente - lidas}"
