@@ -1,4 +1,94 @@
 namespace :tiny do
+  desc "Quem intermediou cada venda, segundo a própria NF-e (SOMENTE LEITURA)"
+  task intermediadores: :environment do
+    # Uma nota veio com intermediador "TikTok", e o sistema a atribuiu ao
+    # Mercado Livre — porque é a única conta ativa, e é assim que o
+    # InvoiceSync decide quando não tem escolha.
+    #
+    # Se isso não for exceção, a corrente inteira está torta: pedidos de outro
+    # canal nascem como Mercado Livre, entram na conciliação daquela conta e o
+    # repasse nunca vai encontrá-los. Uma amostra de uma nota não decide nada;
+    # esta tarefa mede.
+    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
+             Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
+
+    abort "Nenhuma empresa com token do Tiny. Use TENANT=<id>." if tenant.blank?
+
+    Current.tenant = tenant
+
+    dias = (ENV["DIAS"] || 30).to_i
+    amostra = (ENV["AMOSTRA"] || 40).to_i
+
+    puts
+    puts "Empresa: ##{tenant.id} #{tenant.name}"
+    puts "Lendo o intermediador de até #{amostra} nota(s) dos últimos #{dias} dias."
+    puts "São #{amostra} consultas ao Tiny, uma por segundo."
+    puts
+
+    notas = Fiscal::Tiny::Reader.new.notas_fiscais(
+      start_date: Date.current - dias, end_date: Date.current
+    )
+
+    if notas.empty?
+      puts "Nenhuma nota no período. Tente DIAS=180."
+
+      next
+    end
+
+    puts "Notas no período: #{notas.size}. Conferindo #{[ amostra, notas.size ].min}."
+    puts
+
+    client = Fiscal::Tiny::V2Client.new
+
+    por_intermediador = Hash.new { |h, k| h[k] = [] }
+
+    notas.first(amostra).each do |nota|
+      sleep 1
+
+      detalhe = client.obter_nota(nota[:bruto]["id"])
+
+      next if detalhe.blank?
+
+      inter = detalhe["intermediador"] || {}
+
+      chave = [ inter["nome"].presence || "(sem intermediador)", inter["cnpj"] ]
+
+      por_intermediador[chave] << nota[:numero_ecommerce]
+    end
+
+    puts "Intermediador declarado na NF-e:"
+    puts
+
+    por_intermediador.sort_by { |_, refs| -refs.size }.each do |(nome, cnpj), refs|
+      puts format("  %-24s %-20s %d nota(s)", nome, cnpj || "—", refs.size)
+
+      # O que o nosso banco acha desses pedidos.
+      #
+      # Pedido criado pelo InvoiceSync nasceu da nota e herdou a plataforma da
+      # única conta ativa — ou seja, é PALPITE. Pedido vindo da API do
+      # marketplace é fato: ele existe lá.
+      pedidos = Order.where(tenant_id: tenant.id, external_id: refs.compact)
+
+      da_api = pedidos.where("orders.metadata->>'origem' IS DISTINCT FROM 'tiny_invoice_sync'")
+
+      puts format("    no nosso banco: %d pedido(s), %d confirmado(s) pela API do marketplace",
+                  pedidos.count, da_api.count)
+
+      puts format("    plataformas atribuídas: %s", pedidos.group(:platform).count.inspect)
+
+      puts format("    exemplo de numero_ecommerce: %s", refs.compact.first.inspect)
+      puts
+    end
+
+    puts "Como ler:"
+    puts "  intermediador diferente do marketplace conectado, com pedidos NÃO"
+    puts "  confirmados pela API, significa que aquelas notas vieram de outro"
+    puts "  canal e foram atribuídas ao Mercado Livre por falta de alternativa."
+    puts
+    puts "Nada foi gravado."
+  end
+
+
   desc "De qual marketplace vem cada nota, e o que o Tiny informa a respeito (SOMENTE LEITURA)"
   task origens: :environment do
     # Hoje a origem da nota só existe pelo PEDIDO, e nota sem pedido fica sem
