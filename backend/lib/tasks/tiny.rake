@@ -67,11 +67,18 @@ namespace :tiny do
       puts "  #{detalhe.keys.sort.join(', ')}"
       puts
 
-      # Se existir campo de origem, o valor dele não é sensível — é o nome da
-      # loja. Mostro só esses.
-      origem = detalhe.select { |chave, _| chave.to_s.match?(/ecommerce|loja|canal|origem|marketplace/i) }
+      # `intermediador` é o grupo da NF-e criado para isto (NT 2020.006): a
+      # plataforma que intermediou a venda, com CNPJ e o identificador do
+      # VENDEDOR nela. Não é dado do comprador, então pode sair no log.
+      #
+      # A primeira versão desta tarefa procurava por "ecommerce|loja|canal" e
+      # passou reto pelo campo certo.
+      origem = detalhe.select do |chave, _|
+        chave.to_s.match?(/intermediador|ecommerce|loja|canal|origem|marketplace|marcadores|id_venda/i)
+      end
 
-      puts "Campos que parecem indicar origem: #{origem.inspect}"
+      puts "Campos que parecem indicar origem:"
+      origem.each { |chave, valor| puts "  #{chave}: #{valor.inspect}" }
     end
 
     puts
