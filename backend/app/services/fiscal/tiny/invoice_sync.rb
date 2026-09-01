@@ -153,6 +153,12 @@ module Fiscal
       # empresa, não há ambiguidade. Com várias, atribuir seria chute — e um
       # pedido no marketplace errado estragaria a conciliação daquela conta.
       def conta_da_nota
+        return @conta_da_nota if defined?(@conta_da_nota)
+
+        @conta_da_nota = resolver_conta_da_nota
+      end
+
+      def resolver_conta_da_nota
         return @platform_account if @platform_account
 
         contas = tenant.platform_accounts.where(status: :active).to_a
@@ -220,6 +226,12 @@ module Fiscal
             # criar o título exigiria reler a nota no Tiny.
             "comprador_nome" => nota[:cliente_nome],
             "comprador_documento" => nota[:cliente_documento],
+            # De qual marketplace a nota veio.
+            #
+            # Fica NA NOTA, e não só no pedido: nota sem pedido vinculado é
+            # justamente o caso em que ninguém sabia responder de onde ela era,
+            # e o pedido pode ser apagado com a conta sem levar a nota junto.
+            "plataforma" => conta_da_nota&.platform,
             "sincronizado_em" => Time.current
           ).compact
         )

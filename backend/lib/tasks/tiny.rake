@@ -1,4 +1,87 @@
 namespace :tiny do
+  desc "De qual marketplace vem cada nota, e o que o Tiny informa a respeito (SOMENTE LEITURA)"
+  task origens: :environment do
+    # Hoje a origem da nota só existe pelo PEDIDO, e nota sem pedido fica sem
+    # nada. Pior: com mais de uma conta ativa o InvoiceSync não sabe de qual
+    # marketplace é a nota e desiste — deixa de criar pedido e a corrente
+    # inteira para.
+    #
+    # Antes de inventar regra (adivinhar pelo formato do número, por exemplo),
+    # a pergunta é se o Tiny já informa isso. Esta tarefa mostra o que temos e
+    # lista os NOMES dos campos que o Tiny devolve, para procurar um.
+    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
+             Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
+
+    abort "Nenhuma empresa com token do Tiny. Use TENANT=<id>." if tenant.blank?
+
+    Current.tenant = tenant
+
+    notas = Invoice.where(tenant_id: tenant.id)
+
+    puts
+    puts "Empresa: ##{tenant.id} #{tenant.name}"
+    puts "Notas: #{notas.count}"
+    puts
+
+    puts "Contas de marketplace ativas:"
+    tenant.platform_accounts.where(status: :active).each do |conta|
+      puts format("  ##{conta.id} %-16s %s", conta.platform, conta.external_id)
+    end
+    puts "  (nenhuma)" if tenant.platform_accounts.where(status: :active).none?
+    puts
+
+    # O que já dá para responder: a plataforma do pedido da nota.
+    por_plataforma = notas.left_joins(:order).group("orders.platform").count
+
+    puts "Origem conhecida hoje (pelo pedido):"
+    por_plataforma.each do |plataforma, quantas|
+      puts format("  %-20s %d", plataforma || "SEM PEDIDO — origem desconhecida", quantas)
+    end
+    puts
+
+    # E o que o Tiny devolve. Só os NOMES dos campos: os valores trazem dado do
+    # comprador, e o que interessa aqui é descobrir se existe um campo de
+    # origem, não ler o conteúdo das notas.
+    amostra = Fiscal::Tiny::Reader.new.notas_fiscais(
+      start_date: Date.current - (ENV["DIAS"] || 30).to_i, end_date: Date.current
+    ).first
+
+    if amostra.blank?
+      puts "Nenhuma nota no período para inspecionar. Tente DIAS=180."
+
+      next
+    end
+
+    bruto = amostra[:bruto] || {}
+
+    puts "Campos que a BUSCA do Tiny devolve:"
+    puts "  #{bruto.keys.sort.join(', ')}"
+    puts
+
+    sleep 1
+
+    detalhe = Fiscal::Tiny::V2Client.new.obter_nota(bruto["id"])
+
+    if detalhe.present?
+      puts "Campos que a NOTA COMPLETA devolve:"
+      puts "  #{detalhe.keys.sort.join(', ')}"
+      puts
+
+      # Se existir campo de origem, o valor dele não é sensível — é o nome da
+      # loja. Mostro só esses.
+      origem = detalhe.select { |chave, _| chave.to_s.match?(/ecommerce|loja|canal|origem|marketplace/i) }
+
+      puts "Campos que parecem indicar origem: #{origem.inspect}"
+    end
+
+    puts
+    puts "Procure nas listas acima um campo de loja/canal. Se existir, a origem"
+    puts "vem do Tiny e não precisa ser adivinhada."
+    puts
+    puts "Nada foi gravado."
+  end
+
+
   desc "Compara o valor das notas zeradas com o que o Tiny devolve (SOMENTE LEITURA)"
   task conferir_valores: :environment do
     # O OMIE recusa título sem valor, então nota zerada nunca sobe — e o
