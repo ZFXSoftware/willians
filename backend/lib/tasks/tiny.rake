@@ -1,14 +1,17 @@
 namespace :tiny do
-  desc "Quem intermediou cada venda, segundo a própria NF-e (SOMENTE LEITURA)"
-  task intermediadores: :environment do
-    # Uma nota veio com intermediador "TikTok", e o sistema a atribuiu ao
-    # Mercado Livre — porque é a única conta ativa, e é assim que o
-    # InvoiceSync decide quando não tem escolha.
+  desc "Grava na nota quem intermediou a venda, lendo a NF-e do Tiny (LIMITE=200)"
+  task intermediador: :environment do
+    # O cliente vende no TikTok Shop, e essas notas viraram pedidos do Mercado
+    # Livre — o InvoiceSync atribui à única conta ativa quando não tem outra
+    # forma de saber. Elas entram na conciliação de uma conta que nunca vai
+    # repassar por elas.
     #
-    # Se isso não for exceção, a corrente inteira está torta: pedidos de outro
-    # canal nascem como Mercado Livre, entram na conciliação daquela conta e o
-    # repasse nunca vai encontrá-los. Uma amostra de uma nota não decide nada;
-    # esta tarefa mede.
+    # Antes de consertar é preciso saber o tamanho: são oito notas ou duas
+    # mil? A resposta está no grupo `intermediador` da NF-e, que só vem na
+    # nota completa — uma consulta por nota.
+    #
+    # Escreve SÓ o intermediador na nossa nota. Não mexe em pedido, plataforma
+    # nem em nada do OMIE. É retomável: pula o que já tem o campo.
     tenant = Tenant.find_by(id: ENV["TENANT"]) ||
              Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
 
@@ -16,74 +19,114 @@ namespace :tiny do
 
     Current.tenant = tenant
 
-    dias = (ENV["DIAS"] || 30).to_i
-    amostra = (ENV["AMOSTRA"] || 40).to_i
+    limite = (ENV["LIMITE"] || 200).to_i
+
+    pendentes = Invoice
+                  .where(tenant_id: tenant.id)
+                  .where("invoices.metadata->'intermediador' IS NULL")
+                  .order(issued_at: :desc)
+
+    total_pendente = pendentes.count
 
     puts
     puts "Empresa: ##{tenant.id} #{tenant.name}"
-    puts "Lendo o intermediador de até #{amostra} nota(s) dos últimos #{dias} dias."
-    puts "São #{amostra} consultas ao Tiny, uma por segundo."
+    puts "Notas sem intermediador lido: #{total_pendente}"
+    puts "Esta execução vai ler: #{[ limite, total_pendente ].min} (uma consulta por segundo)"
     puts
 
-    notas = Fiscal::Tiny::Reader.new.notas_fiscais(
-      start_date: Date.current - dias, end_date: Date.current
-    )
-
-    if notas.empty?
-      puts "Nenhuma nota no período. Tente DIAS=180."
+    if total_pendente.zero?
+      puts "Nada a fazer. Rode `rake tiny:mapa_de_canais` para ver o resultado."
 
       next
     end
 
-    puts "Notas no período: #{notas.size}. Conferindo #{[ amostra, notas.size ].min}."
-    puts
-
     client = Fiscal::Tiny::V2Client.new
 
-    por_intermediador = Hash.new { |h, k| h[k] = [] }
+    lidas = 0
+    falhas = 0
 
-    notas.first(amostra).each do |nota|
+    pendentes.limit(limite).each do |nota|
       sleep 1
 
-      detalhe = client.obter_nota(nota[:bruto]["id"])
+      detalhe = client.obter_nota(nota.external_id)
 
-      next if detalhe.blank?
+      if detalhe.blank?
+        falhas += 1
+
+        next
+      end
 
       inter = detalhe["intermediador"] || {}
 
-      chave = [ inter["nome"].presence || "(sem intermediador)", inter["cnpj"] ]
+      # Grava mesmo quando vem vazio: o hash presente com nome nulo é a
+      # resposta "o Tiny não sabe", e é diferente de "ainda não perguntei".
+      # Sem essa distinção a tarefa releria as mesmas notas para sempre.
+      nota.update!(metadata: nota.metadata.merge(
+        "intermediador" => { "nome" => inter["nome"], "cnpj" => inter["cnpj"] }
+      ))
 
-      por_intermediador[chave] << nota[:numero_ecommerce]
+      lidas += 1
+    rescue StandardError => e
+      falhas += 1
+
+      Rails.logger.warn "[intermediador] NF #{nota.number}: #{e.class} #{e.message}"
     end
+
+    puts "Lidas:  #{lidas}"
+    puts "Falhas: #{falhas}"
+    puts "Faltam: #{total_pendente - lidas}"
+    puts
+    puts "Rode de novo para continuar, ou `rake tiny:mapa_de_canais` para o resumo."
+  end
+
+  desc "De quais canais vieram as vendas, e onde a atribuição está errada (SOMENTE LEITURA)"
+  task mapa_de_canais: :environment do
+    tenant = Tenant.find_by(id: ENV["TENANT"]) || Tenant.order(:id).first
+
+    abort "Nenhuma empresa." if tenant.blank?
+
+    notas = Invoice.where(tenant_id: tenant.id)
+
+    lidas = notas.where("invoices.metadata->'intermediador' IS NOT NULL")
+
+    puts
+    puts "Empresa: ##{tenant.id} #{tenant.name}"
+    puts "Notas: #{notas.count} · com intermediador lido: #{lidas.count}"
+    puts
+
+    if lidas.none?
+      puts "Rode `rake tiny:intermediador` primeiro."
+
+      next
+    end
+
+    grupos = lidas
+               .group("invoices.metadata->'intermediador'->>'nome'")
+               .group("invoices.metadata->'intermediador'->>'cnpj'")
+               .count
 
     puts "Intermediador declarado na NF-e:"
     puts
 
-    por_intermediador.sort_by { |_, refs| -refs.size }.each do |(nome, cnpj), refs|
-      puts format("  %-24s %-20s %d nota(s)", nome, cnpj || "—", refs.size)
+    grupos.sort_by { |_, quantas| -quantas }.each do |(nome, cnpj), quantas|
+      puts format("  %-24s %-22s %d nota(s)", nome || "(não informado)", cnpj || "—", quantas)
 
-      # O que o nosso banco acha desses pedidos.
-      #
-      # Pedido criado pelo InvoiceSync nasceu da nota e herdou a plataforma da
-      # única conta ativa — ou seja, é PALPITE. Pedido vindo da API do
-      # marketplace é fato: ele existe lá.
-      pedidos = Order.where(tenant_id: tenant.id, external_id: refs.compact)
+      # A que plataforma essas notas foram atribuídas no nosso banco. Quando o
+      # intermediador não é o marketplace atribuído, a venda está na
+      # conciliação errada.
+      atribuidas = Invoice
+                     .where(tenant_id: tenant.id)
+                     .where("invoices.metadata->'intermediador'->>'cnpj' IS NOT DISTINCT FROM ?", cnpj)
+                     .left_joins(:order)
+                     .group("orders.platform")
+                     .count
 
-      da_api = pedidos.where("orders.metadata->>'origem' IS DISTINCT FROM 'tiny_invoice_sync'")
-
-      puts format("    no nosso banco: %d pedido(s), %d confirmado(s) pela API do marketplace",
-                  pedidos.count, da_api.count)
-
-      puts format("    plataformas atribuídas: %s", pedidos.group(:platform).count.inspect)
-
-      puts format("    exemplo de numero_ecommerce: %s", refs.compact.first.inspect)
+      puts format("    atribuídas a: %s", atribuidas.inspect)
       puts
     end
 
-    puts "Como ler:"
-    puts "  intermediador diferente do marketplace conectado, com pedidos NÃO"
-    puts "  confirmados pela API, significa que aquelas notas vieram de outro"
-    puts "  canal e foram atribuídas ao Mercado Livre por falta de alternativa."
+    puts "Onde o intermediador não bate com a plataforma atribuída, a venda está"
+    puts "na conciliação de uma conta que nunca vai repassar por ela."
     puts
     puts "Nada foi gravado."
   end
