@@ -74,3 +74,41 @@ export async function apagarConfiguracao(
 
   return data
 }
+
+// De qual canal veio cada nota.
+//
+// A NF-e declara quem intermediou a venda, mas o nome é o que o cliente
+// escolheu usar. Numa base real apareceram "Mercado Livre", "Shopee",
+// "Magalu", "TikTok" — e "Alma teen", que é venda de balcão emitida como
+// digital por exigência fiscal e não é marketplace nenhum. Nenhum código
+// adivinha isso; quem opera diz, uma vez.
+export interface CanalEncontrado {
+  nome: string
+  cnpj: string | null
+  notas: number
+  canal: string | null
+}
+
+export interface CanaisResponse {
+  items: CanalEncontrado[]
+  opcoes: Array<{ canal: string; rotulo: string }>
+  // Enquanto um nome estiver sem canal, as notas dele não viram pedido e não
+  // entram em conciliação nenhuma.
+  sem_canal: number
+  // Notas que o ciclo automático ainda não perguntou ao Tiny. A lista cresce
+  // sozinha nas primeiras horas de um cliente novo.
+  aguardando_leitura: number
+}
+
+export async function fetchCanais(): Promise<CanaisResponse> {
+  const { data } = await api.get<CanaisResponse>("/integracoes/canais")
+
+  return data
+}
+
+/** Canal vazio desfaz o mapeamento daquele nome. */
+export async function mapearCanal(nome: string, canal: string): Promise<CanaisResponse> {
+  const { data } = await api.put<CanaisResponse>("/integracoes/canais", { nome, canal })
+
+  return data
+}

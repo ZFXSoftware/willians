@@ -31,6 +31,27 @@ module Fiscal
         "tiktok shop" => "tiktok"
       }.freeze
 
+      # Nem todo intermediador é marketplace.
+      #
+      # O cliente emite venda de balcão como venda digital por exigência
+      # fiscal, e o intermediador dela é a marca da loja. Essa venda não tem
+      # repasse de ninguém: precisa virar título no OMIE como qualquer outra, e
+      # ficar FORA de toda conciliação de marketplace. Sem um canal para ela, a
+      # única saída seria deixá-la sem canal — indistinguível de um nome que
+      # ninguém mapeou ainda.
+      PROPRIA = "loja_propria".freeze
+
+      # O que a tela oferece. Marketplace primeiro, venda própria por último:
+      # ela é a exceção, não a opção comum.
+      OPCOES = [
+        { canal: "mercado_livre", rotulo: "Mercado Livre" },
+        { canal: "shopee", rotulo: "Shopee" },
+        { canal: "amazon", rotulo: "Amazon" },
+        { canal: "magalu", rotulo: "Magalu" },
+        { canal: "tiktok", rotulo: "TikTok Shop" },
+        { canal: PROPRIA, rotulo: "Venda própria — não é marketplace" }
+      ].freeze
+
       # Onde a empresa guarda os nomes que só ela usa.
       CHAVE = "canais_por_intermediador".freeze
 
@@ -62,18 +83,45 @@ module Fiscal
         (tenant.metadata || {})[CHAVE].to_h.transform_keys { |k| normalizar(k) }
       end
 
-      # Os nomes que apareceram nas notas e ninguém mapeou.
+      def self.marketplace?(canal)
+        canal.present? && canal != PROPRIA
+      end
+
+      # Todo intermediador que apareceu nas notas, com quantas notas tem e para
+      # onde está mapeado hoje.
       #
-      # É a lista de trabalho: enquanto um nome estiver aqui, as notas dele não
-      # têm canal e não viram pedido.
-      def self.nao_mapeados(tenant)
+      # É a lista de trabalho da tela: enquanto um nome estiver sem canal, as
+      # notas dele não viram pedido — e ninguém tem como adivinhar que "Alma
+      # teen" é venda de balcão olhando para o código.
+      def self.encontrados(tenant)
         Invoice
           .where(tenant_id: tenant.id)
           .where("invoices.metadata->'intermediador'->>'nome' IS NOT NULL")
-          .distinct
-          .pluck(Arel.sql("invoices.metadata->'intermediador'->>'nome'"))
-          .reject { |nome| para(nome, tenant: tenant).present? }
-          .sort
+          .group(Arel.sql("invoices.metadata->'intermediador'->>'nome'"))
+          .group(Arel.sql("invoices.metadata->'intermediador'->>'cnpj'"))
+          .count
+          .map { |(nome, cnpj), notas| { nome: nome, cnpj: cnpj, notas: notas, canal: para(nome, tenant: tenant) } }
+          .sort_by { |item| [ item[:canal] ? 1 : 0, -item[:notas] ] }
+      end
+
+      def self.nao_mapeados(tenant)
+        encontrados(tenant).reject { |item| item[:canal] }.map { |item| item[:nome] }.sort
+      end
+
+      # Grava o mapa da empresa. Canal em branco APAGA o mapeamento daquele
+      # nome — é como a tela desfaz uma escolha errada.
+      def self.mapear!(tenant, nome, canal)
+        validos = OPCOES.map { |o| o[:canal] }
+
+        raise ArgumentError, "Canal desconhecido: #{canal}" if canal.present? && !validos.include?(canal)
+
+        mapa = (tenant.metadata || {})[CHAVE].to_h
+
+        canal.present? ? mapa[nome.to_s] = canal : mapa.delete(nome.to_s)
+
+        tenant.update!(metadata: (tenant.metadata || {}).merge(CHAVE => mapa))
+
+        mapa
       end
     end
   end

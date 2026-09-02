@@ -76,6 +76,11 @@ Rails.application.routes.draw do
     # copiar um código de um terminal.
     get    "omie/opcoes", to: "omie#opcoes"
 
+    # De qual canal veio cada nota. O nome do intermediador vem da NF-e, mas o
+    # que ele significa só quem opera sabe dizer.
+    get    "canais", to: "canais#index"
+    put    "canais", to: "canais#update"
+
     get    "configuracoes", to: "configuracoes#index"
     put    "configuracoes/:provedor", to: "configuracoes#update"
     delete "configuracoes/:provedor/:chave", to: "configuracoes#destroy"

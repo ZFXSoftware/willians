@@ -9,12 +9,15 @@ import {
   KeyRound,
   RefreshCw,
   ShieldCheck,
+  Store,
   Trash2,
 } from "lucide-react"
 
 import {
   apagarConfiguracao,
+  fetchCanais,
   fetchConfiguracoes,
+  mapearCanal,
   salvarConfiguracao,
   type CampoConfiguracao,
   type ProvedorConfiguracao,
@@ -86,6 +89,8 @@ export default function Settings() {
         <ErroAoCarregar mensagem={error} onRetry={reload} />
       ) : (
         <div className="space-y-4">
+          <CartaoCanais />
+
           {data?.provedores.map((provedor) => (
             <CartaoProvedor
               key={provedor.chave}
@@ -95,6 +100,106 @@ export default function Settings() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// De qual canal veio cada nota.
+//
+// A NF-e diz quem intermediou a venda, mas o nome é o que o cliente escolheu
+// usar: além dos marketplaces, apareceu "Alma teen" — venda de balcão emitida
+// como digital por exigência fiscal, que não é marketplace nenhum e não tem
+// repasse de ninguém. Nenhum código adivinha isso.
+//
+// Enquanto um nome estiver sem canal, as notas dele não viram pedido. Por isso
+// os pendentes vêm primeiro e com aviso: é trabalho, não detalhe.
+function CartaoCanais() {
+  const { data, loading, error, reload } = useResource(fetchCanais)
+  const [salvando, setSalvando] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
+
+  async function escolher(nome: string, canal: string) {
+    setSalvando(nome)
+    setAviso(null)
+
+    try {
+      await mapearCanal(nome, canal)
+      reload()
+    } catch (e) {
+      setAviso(errorMessage(e, "Não foi possível gravar o canal"))
+    } finally {
+      setSalvando(null)
+    }
+  }
+
+  if (loading || error || !data || (data.items.length === 0 && data.aguardando_leitura === 0)) {
+    return null
+  }
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl">
+      <div className="flex items-center gap-4">
+        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 shrink-0">
+          <Store size={20} />
+        </div>
+
+        <div className="min-w-0">
+          <h2 className="font-semibold text-lg">Canais de venda</h2>
+          <p className="text-sm text-zinc-400 mt-0.5 max-w-xl">
+            A nota fiscal diz quem intermediou a venda. O que cada nome
+            significa só você sabe — e é isso que decide em qual conciliação a
+            venda entra.
+          </p>
+        </div>
+      </div>
+
+      {data.sem_canal > 0 && (
+        <p className="mt-4 text-sm text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+          {data.sem_canal} nome(s) sem canal. As notas deles não viram pedido e
+          ficam fora de qualquer conciliação até alguém dizer o que são.
+        </p>
+      )}
+
+      {data.aguardando_leitura > 0 && (
+        <p className="mt-4 text-sm text-sky-300 bg-sky-500/10 border border-sky-500/20 rounded-xl px-4 py-3">
+          {data.aguardando_leitura} nota(s) ainda não foram lidas. O sistema lê
+          em lotes, sozinho — esta lista cresce nas próximas horas.
+        </p>
+      )}
+
+      {aviso && <p className="mt-4 text-sm text-red-400">{aviso}</p>}
+
+      <div className="mt-5 space-y-2">
+        {data.items.map((item) => (
+          <div
+            key={item.nome}
+            className="flex flex-wrap items-center justify-between gap-3 border border-zinc-800 rounded-xl px-4 py-3"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{item.nome}</p>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                {item.cnpj ?? "sem CNPJ"} · {item.notas} nota(s)
+              </p>
+            </div>
+
+            <select
+              value={item.canal ?? ""}
+              disabled={salvando === item.nome}
+              onChange={(e) => escolher(item.nome, e.target.value)}
+              className={`bg-zinc-950 border rounded-xl px-3 py-2 text-sm outline-none focus:border-zinc-600 disabled:opacity-50 ${
+                item.canal ? "border-zinc-800" : "border-amber-500/40"
+              }`}
+            >
+              <option value="">Escolha o canal...</option>
+              {data.opcoes.map((o) => (
+                <option key={o.canal} value={o.canal}>
+                  {o.rotulo}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
