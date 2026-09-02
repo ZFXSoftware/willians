@@ -6,10 +6,9 @@ namespace :tiny do
     #
     # Escreve SÓ o intermediador na nossa nota. Não mexe em pedido, plataforma
     # nem em nada do OMIE. É retomável: pula o que já foi perguntado.
-    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
-             Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
+    puts
 
-    abort "Nenhuma empresa com token do Tiny. Use TENANT=<id>." if tenant.blank?
+    tenant = Diagnostico::EmpresaAlvo.anunciar!
 
     limite = (ENV["LIMITE"] || Fiscal::Tiny::IntermediadorSync::LOTE_PADRAO).to_i
 
@@ -41,9 +40,9 @@ namespace :tiny do
 
   desc "De quais canais vieram as vendas, e onde a atribuição está errada (SOMENTE LEITURA)"
   task mapa_de_canais: :environment do
-    tenant = Tenant.find_by(id: ENV["TENANT"]) || Tenant.order(:id).first
+    puts
 
-    abort "Nenhuma empresa." if tenant.blank?
+    tenant = Diagnostico::EmpresaAlvo.anunciar!
 
     notas = Invoice.where(tenant_id: tenant.id)
 
@@ -126,10 +125,9 @@ namespace :tiny do
     # Antes de inventar regra (adivinhar pelo formato do número, por exemplo),
     # a pergunta é se o Tiny já informa isso. Esta tarefa mostra o que temos e
     # lista os NOMES dos campos que o Tiny devolve, para procurar um.
-    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
-             Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
+    puts
 
-    abort "Nenhuma empresa com token do Tiny. Use TENANT=<id>." if tenant.blank?
+    tenant = Diagnostico::EmpresaAlvo.anunciar!
 
     Current.tenant = tenant
 
@@ -214,10 +212,9 @@ namespace :tiny do
     # Antes de decidir o que fazer com elas, é preciso saber de quem é o zero:
     # da nota, ou do nosso leitor. Já erramos formato de número uma vez, no CSV
     # do Mercado Livre, onde "1.150,00" virava zero em silêncio.
-    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
-             Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
+    puts
 
-    abort "Nenhuma empresa com token do Tiny. Use TENANT=<id>." if tenant.blank?
+    tenant = Diagnostico::EmpresaAlvo.anunciar!
 
     Current.tenant = tenant
 
@@ -348,10 +345,9 @@ namespace :tiny do
     # carrega o número da NF, que é a chave de casamento com o título do OMIE.
     #
     # Escreve SÓ no nosso banco. Nada é enviado ao OMIE aqui.
-    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
-             Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
+    puts
 
-    abort "Nenhuma empresa com token do Tiny. Use TENANT=<id>." if tenant.blank?
+    tenant = Diagnostico::EmpresaAlvo.anunciar!
 
     dias = (ENV["DIAS"] || 30).to_i
 
@@ -398,16 +394,17 @@ namespace :tiny do
     # rake roda sem `Current.tenant`. Sem escolher a empresa, `configured?`
     # olhava só o ambiente e concluía que nada estava configurado — o mesmo
     # falso negativo que a `omie:titulos` deu.
-    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
-             Tenant.order(:id).find { |t| Current.with_tenant(t) { Fiscal::Tiny::Settings.configured? } }
+    puts
 
-    if tenant.blank?
-      abort "Nenhuma empresa com token do Tiny. No Tiny: instale a extensão 'Token API' em " \
-            "Início > Extensões da Olist, depois Configurações > aba E-commerce > Token API. " \
-            "Cole o token em Configurações > Tiny. Use TENANT=<id> para escolher a empresa."
-    end
+    tenant = Diagnostico::EmpresaAlvo.anunciar!
 
     Current.tenant = tenant
+
+    unless Fiscal::Tiny::Settings.configured?(tenant: tenant)
+      abort "A empresa ##{tenant.id} não tem token do Tiny. No Tiny: instale a extensão " \
+            "'Token API' em Início > Extensões da Olist, depois Configurações > aba " \
+            "E-commerce > Token API. Cole o token em Configurações > Tiny."
+    end
 
     unless Fiscal::Tiny::Settings.configured?
       abort "A empresa ##{tenant.id} #{tenant.name} não tem token do Tiny. Use TENANT=<id>."

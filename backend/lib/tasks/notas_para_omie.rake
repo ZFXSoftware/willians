@@ -7,10 +7,7 @@ namespace :omie do
     # São milhares de notas, e cada uma vira um título na contabilidade de
     # alguém. Por isso: simula por padrão, aceita LIMITE para provar com uma só,
     # e a trava OMIE_ALLOW_WRITES continua valendo por baixo.
-    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
-             Tenant.order(:id).find { |t| Current.with_tenant(t) { Omie::Client.configured? } }
-
-    abort "Nenhuma empresa com chave do OMIE. Use TENANT=<id>." if tenant.blank?
+    tenant = Diagnostico::EmpresaAlvo.anunciar!
 
     aplicar = %w[true 1].include?(ENV["APLICAR"].to_s.strip.downcase)
 

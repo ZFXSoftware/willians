@@ -8,16 +8,16 @@ namespace :canais do
     #
     # Simula por padrão. São milhares de pedidos numa base de produção, e o que
     # some daqui reaparece como venda faltando na conciliação de alguém.
-    tenant = Tenant.find_by(id: ENV["TENANT"]) || Tenant.order(:id).first
-
-    abort "Nenhuma empresa. Use TENANT=<id>." if tenant.blank?
-
     aplicar = %w[true 1].include?(ENV["APLICAR"].to_s.strip.downcase)
 
     $stdout.sync = true
 
     puts
-    puts "Empresa: ##{tenant.id} #{tenant.name}"
+
+    # Escolher a empresa "sozinho" foi o que fez esta tarefa rodar contra o
+    # Tenant Demo e responder "0 pedidos a corrigir" com milhares errados.
+    tenant = Diagnostico::EmpresaAlvo.anunciar!
+
     puts aplicar ? "MODO: GRAVANDO" : "MODO: simulação (nada será gravado)"
     puts
 

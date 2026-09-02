@@ -229,8 +229,7 @@ namespace :omie do
     # pedir para o usuário adivinhar.
     #
     # SOMENTE LEITURA.
-    tenant = Tenant.find_by(id: ENV["TENANT"]) ||
-             Tenant.order(:id).find { |t| Current.with_tenant(t) { Omie::Client.configured? } }
+    tenant = Diagnostico::EmpresaAlvo.anunciar!
 
     abort "Nenhuma empresa com chave do OMIE. Rode `omie:titulos` para ver quais existem." if tenant.blank?
 
