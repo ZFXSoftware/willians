@@ -486,7 +486,7 @@ module Conciliacao
       if resultado.valor_omie.present?
         return resultado.mensagem unless cobertura[:completa_com_exclusoes]
 
-        return "#{resultado.mensagem} #{exclusoes(cobertura)} #{sem_nota_frase(cobertura)}".squish
+        return "#{resultado.mensagem}. #{exclusoes(cobertura)} #{sem_nota_frase(cobertura, resultado)}".squish
       end
 
       encontradas = cobertura[:encontradas].to_a.size
@@ -514,14 +514,23 @@ module Conciliacao
     #
     # É o que separa "falta dinheiro" de "falta nota": sem este número, uma
     # diferença de R$ 1.200 num repasse com seis vendas sem NF parece rombo.
-    def sem_nota_frase(cobertura)
+    def sem_nota_frase(cobertura, resultado)
       quantas = cobertura[:sem_nota].to_i
 
       return "" if quantas.zero?
 
-      "#{quantas} venda(s) deste repasse não têm nota fiscal: " \
-      "R$ #{format('%.2f', cobertura[:valor_sem_nota].to_d)} da diferença é dinheiro que " \
-      "entrou sem documento fiscal, e não falta de repasse."
+      sem_nota = cobertura[:valor_sem_nota].to_d
+
+      # A subtração é o ponto.
+      #
+      # "Diferença de R$ 196,58" e "R$ 141,23 são vendas sem nota" deixavam a
+      # conta final para quem lê — e a conta final é a única coisa que importa:
+      # R$ 55,35 de diferença real num repasse de R$ 20 mil é outra história.
+      real = resultado.diferenca.to_d.abs - sem_nota
+
+      "#{quantas} venda(s) deste repasse não têm nota fiscal, somando " \
+      "R$ #{format('%.2f', sem_nota)}. Descontando isso, a diferença real é " \
+      "R$ #{format('%.2f', real)}."
     end
 
     # O que ficou de fora e não vai entrar.

@@ -337,6 +337,8 @@ module Financeiro
       assert_includes registro.observacao.to_s, "não têm nota fiscal"
       assert_includes registro.observacao.to_s, "200.00",
                       "sem o valor sem nota, a diferença parece rombo"
+      assert_includes registro.observacao.to_s, "diferença real",
+                      "a subtração é o ponto: deixá-la para o leitor é deixar o número no ar"
     end
 
     # O pacote do Mercado Livre: o comprador leva dois itens, o ML cria duas
