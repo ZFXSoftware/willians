@@ -83,6 +83,15 @@ module Marketplace
         coletados
       end
 
+      # Um pedido só, pelo id.
+      #
+      # A busca por período não serve para investigar um caso: o pedido pode
+      # estar fora da janela, e trazer 50 páginas para olhar um é desperdício.
+      # É por aqui que se descobre o `pack_id` de uma venda específica.
+      def order(id)
+        normalizar(parse!(com_retry(URI.join(api_host, "/orders/#{id}"))))
+      end
+
       private
 
       attr_reader :access_token, :seller_id, :sleeper
