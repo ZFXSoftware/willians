@@ -23,7 +23,12 @@ module Fiscal
     def call
       return { ignorada: "Tiny não configurado" } unless configurado?
 
-      resumo = { canais: ler_intermediadores, importacao: importar, envio: enviar }
+      resumo = {
+        canais: ler_intermediadores,
+        importacao: importar,
+        vinculos: religar_notas,
+        envio: enviar
+      }
 
       Rails.logger.info "#{LOG_PREFIX} empresa ##{tenant.id}: #{resumo.inspect}"
 
@@ -66,6 +71,20 @@ module Fiscal
         .call(start_date: fim - dias, end_date: fim)
     rescue StandardError => e
       Rails.logger.error "#{LOG_PREFIX} empresa ##{tenant.id}: leitura do Tiny falhou: #{e.message}"
+
+      { erro: e.message }
+    end
+
+    # Liga a nota ao dinheiro que chegou DEPOIS dela.
+    #
+    # O InvoiceSync liga no momento em que a nota é importada, com o que
+    # existir naquele instante — e o dinheiro do marketplace chega duas semanas
+    # depois. Sem este passo, a venda paga fica sem nota para sempre, e a
+    # conciliação não tem por onde casar com o título do OMIE.
+    def religar_notas
+      VinculoDeNotas.new(tenant: tenant).call
+    rescue StandardError => e
+      Rails.logger.error "#{LOG_PREFIX} empresa ##{tenant.id}: religar notas falhou: #{e.message}"
 
       { erro: e.message }
     end
