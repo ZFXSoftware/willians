@@ -10,6 +10,7 @@ import {
   type ExecucaoConciliacao,
   type FiltrosRegistros,
 } from "../../api/conciliacoes"
+import { fetchFilas, ocupada } from "../../api/processos"
 import { errorMessage } from "../../api/client"
 import { useResource } from "../../hooks/useResource"
 import { brl, dataHoraBR, desde, rotulo } from "../../lib/format"
@@ -86,6 +87,14 @@ export default function ReconciliationDashboard() {
     () => fetchRegistros(filtros),
     [JSON.stringify(filtros)],
   )
+
+  // O processamento é UM DE CADA VEZ (worker com concorrência 1). Sem saber
+  // que já há uma execução na fila, o botão devolve "enfileirado" na primeira
+  // e na quinta vez igualzinho — e as quatro extras só esperam para refazer o
+  // que acabou de ser feito.
+  const { data: filas } = useResource(fetchFilas)
+
+  const jaRodando = ocupada(filas)
 
   function aplicar(mudanca: Partial<FiltrosRegistros>) {
     setFiltros((atual) => ({ ...atual, ...mudanca, page: 1 }))
@@ -187,14 +196,32 @@ export default function ReconciliationDashboard() {
 
           <button
             onClick={disparar}
-            disabled={processando}
+            disabled={processando || jaRodando}
+            title={
+              jaRodando
+                ? "Já existe uma execução na fila. Acompanhe em Processos."
+                : undefined
+            }
             className="flex items-center gap-2 bg-white text-black font-medium px-5 py-3 rounded-xl hover:opacity-90 transition disabled:opacity-50"
           >
-            <RefreshCw size={15} className={processando ? "animate-spin" : ""} />
-            {processando ? "Enfileirando..." : "Processar Conciliação"}
+            <RefreshCw size={15} className={processando || jaRodando ? "animate-spin" : ""} />
+            {processando ? "Enfileirando..." : jaRodando ? "Já em execução" : "Processar Conciliação"}
           </button>
         </div>
       </div>
+
+      {jaRodando && (
+        <div className="bg-sky-500/10 border border-sky-500/20 rounded-2xl px-5 py-4 text-sm text-sky-200 flex flex-wrap items-center justify-between gap-3">
+          <span>
+            Já existe uma conciliação em andamento. Os números abaixo só mudam
+            quando ela terminar.
+          </span>
+
+          <Link to="/processos" className="underline hover:text-sky-100 shrink-0">
+            acompanhar
+          </Link>
+        </div>
+      )}
 
       {/* Enquanto houver nota na fila, TODO número desta tela é provisório.
           Sem dizer isso, o cliente lê como resultado final — e "esperado R$

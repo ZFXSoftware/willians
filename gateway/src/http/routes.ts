@@ -107,6 +107,57 @@ async function enfileirar(res: Response, nome: string, dados: object) {
   }
 }
 
+// O que está na fila agora.
+//
+// Sem isto, quem aperta "Processar" não tem como saber se já há uma execução
+// rodando — e a resposta 202 "enfileirado" é idêntica para a primeira e para a
+// quinta. O worker roda com concorrência 1, então as quatro extras só ficam
+// esperando e repetem trabalho que acabou de ser feito.
+//
+// Só os jobs DESTA organização: a fila é compartilhada entre clientes.
+router.get("/filas", async (req, res) => {
+  const tenantId = await autorizar(req, res, "ver a fila")
+
+  if (!tenantId) return
+
+  try {
+    const [ativos, esperando, atrasados, contagens] = await Promise.all([
+      conciliacaoQueue.getJobs(["active"], 0, 50),
+      conciliacaoQueue.getJobs(["waiting"], 0, 50),
+      conciliacaoQueue.getJobs(["delayed"], 0, 50),
+      conciliacaoQueue.getJobCounts(),
+    ])
+
+    const meus = (lista: Awaited<ReturnType<typeof conciliacaoQueue.getJobs>>) =>
+      lista
+        .filter((job) => String(job?.data?.tenant_id ?? tenantId) === String(tenantId))
+        .map((job) => ({
+          id: job.id,
+          nome: job.name,
+          criado_em: job.timestamp ? new Date(job.timestamp).toISOString() : null,
+          iniciado_em: job.processedOn ? new Date(job.processedOn).toISOString() : null,
+          tentativa: job.attemptsMade,
+          periodo:
+            job.data?.start_date && job.data?.end_date
+              ? `${job.data.start_date} a ${job.data.end_date}`
+              : null,
+        }))
+
+    return res.json({
+      ativos: meus(ativos),
+      esperando: meus(esperando),
+      agendados: meus(atrasados),
+      // Contagem GLOBAL da fila, incluindo outras organizações: é o que explica
+      // uma espera longa sem nenhum job seu na frente.
+      total_na_fila: contagens,
+    })
+  } catch (err) {
+    console.error("[routes] falha ao ler a fila:", err)
+
+    return res.status(503).json({ status: "error", error: "Fila indisponível" })
+  }
+})
+
 router.post("/conciliacoes/processar", async (req, res) => {
   const tenantId = await autorizar(req, res, "disparar a conciliação")
 

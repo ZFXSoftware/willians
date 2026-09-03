@@ -7,6 +7,7 @@ import Dashboard from "../pages/Dashboard"
 import ReconciliationDashboard from "../pages/Reconciliation/reconciliation-dashboard"
 import Divergences from "../pages/Divergences"
 import Entries from "../pages/Entries"
+import Processes from "../pages/Processes"
 import Integrations from "../pages/Integrations"
 import Settings from "../pages/Settings"
 import Balances from "../pages/Balances"
@@ -42,6 +43,7 @@ export default function AppRoutes() {
             element={<ReconciliationDashboard />}
           />
 
+          <Route path="/processos" element={<Processes />} />
           <Route path="/lancamentos" element={<Entries />} />
           <Route path="/divergencias" element={<Divergences />} />
           <Route path="/integracoes" element={<Integrations />} />

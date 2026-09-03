@@ -1,4 +1,5 @@
 import {
+  Activity,
   LayoutDashboard,
   ArrowLeftRight,
   AlertTriangle,
@@ -76,6 +77,11 @@ export default function Sidebar() {
       label: "Devoluções",
       icon: Undo2,
       path: "/devolucoes",
+    },
+    {
+      label: "Processos",
+      icon: Activity,
+      path: "/processos",
     },
     {
       label: "Integrações",

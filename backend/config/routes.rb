@@ -48,6 +48,9 @@ Rails.application.routes.draw do
   # milhares de lançamentos isso não responde "e os outros?".
   get "lancamentos", to: "lancamentos#index"
 
+  # O que o sistema executou, e como terminou. A fila viva fica no gateway.
+  get "processos", to: "processos#index"
+
   get "conciliacoes/registros", to: "conciliacoes/registros#index"
 
   namespace :integracoes do
