@@ -1,0 +1,115 @@
+namespace :conciliacao do
+  desc "Das vendas já pagas pelo marketplace, quantas têm nota fiscal — e por que as outras não (SOMENTE LEITURA)"
+  task vendas_sem_nf: :environment do
+    # "Não tem NF" esconde três situações com consertos completamente
+    # diferentes, e na tela as três aparecem iguais:
+    #
+    #   1. a nota ESTÁ no nosso banco e não foi ligada ao recebível
+    #      -> defeito de vínculo, conserto nosso e imediato
+    #   2. a nota não está no nosso banco
+    #      -> defeito de importação: a janela do Tiny não alcançou aquela data
+    #   3. a nota não existe nem no Tiny
+    #      -> o cliente não emitiu, e aí não é problema de software
+    #
+    # Sem separar, a pergunta "temos as NF das vendas pagas?" não tem resposta.
+    $stdout.sync = true
+
+    puts
+
+    tenant = Diagnostico::EmpresaAlvo.anunciar!
+
+    recebiveis = ReceivableUnit.where(tenant_id: tenant.id)
+
+    total = recebiveis.count
+
+    com_nota = recebiveis.where.not(invoice_id: nil).count
+
+    puts "Vendas (recebíveis) no banco: #{total}"
+    puts format("  com nota fiscal ligada:  %d (%.1f%%)", com_nota, porcento(com_nota, total))
+    puts format("  sem nota fiscal ligada:  %d", total - com_nota)
+    puts
+
+    sem_nota = recebiveis.where(invoice_id: nil).includes(:order)
+
+    if sem_nota.none?
+      puts "Todas as vendas têm nota. Nada a investigar aqui."
+
+      next
+    end
+
+    # A nota pode existir e só não ter sido ligada. O elo é o número do pedido:
+    # `numero_ecommerce` na nota, `external_id` no pedido.
+    referencias = sem_nota.filter_map { |unidade| unidade.order&.external_id }.uniq
+
+    notas_por_pedido =
+      Invoice
+        .where(tenant_id: tenant.id)
+        .where("invoices.metadata->>'numero_ecommerce' IN (?)", referencias.presence || [ "" ])
+        .pluck(Arel.sql("invoices.metadata->>'numero_ecommerce'"), :number)
+        .to_h
+
+    orfas = 0
+    ausentes = 0
+    sem_pedido = 0
+
+    exemplos = { orfa: [], ausente: [] }
+
+    sem_nota.find_each do |unidade|
+      referencia = unidade.order&.external_id
+
+      if referencia.blank?
+        sem_pedido += 1
+
+        next
+      end
+
+      if notas_por_pedido.key?(referencia)
+        orfas += 1
+
+        exemplos[:orfa] << "#{referencia} (NF #{notas_por_pedido[referencia]})" if exemplos[:orfa].size < 5
+      else
+        ausentes += 1
+
+        exemplos[:ausente] << "#{referencia} liberado em #{unidade.expected_on}" if exemplos[:ausente].size < 5
+      end
+    end
+
+    puts "Por que a nota não está ligada:"
+    puts
+    puts format("  %-46s %d", "a nota ESTÁ no nosso banco, sem vínculo", orfas)
+    puts format("  %-46s %d", "a nota não está no nosso banco", ausentes)
+    puts format("  %-46s %d", "o recebível não tem pedido", sem_pedido)
+    puts
+
+    exemplos[:orfa].each { |exemplo| puts "    órfã:   #{exemplo}" }
+    exemplos[:ausente].each { |exemplo| puts "    faltando: #{exemplo}" }
+
+    puts
+
+    if ausentes.positive?
+      datas = sem_nota.filter_map(&:expected_on)
+
+      puts format("  As vendas sem nota vão de %s a %s.", datas.min, datas.max) if datas.any?
+
+      janela = Invoice.where(tenant_id: tenant.id).minimum(:issued_at)
+
+      puts "  A nota mais antiga que importamos é de #{janela&.to_date || '—'}."
+      puts "  Se as vendas sem nota são anteriores a isso, o problema é a janela"
+      puts "  da importação do Tiny, e não a emissão."
+    end
+
+    puts
+    puts "Como consertar:"
+    puts "  órfãs      -> reimportar do Tiny cobrindo a data delas religa o vínculo."
+    puts "  faltando   -> importar o Tiny com janela maior (DIAS)."
+    puts "  sem pedido -> o recebível não achou o pedido no marketplace."
+    puts
+    puts "Nada foi gravado."
+  end
+
+  def porcento(parte, total)
+    return 0.0 if total.to_i.zero?
+
+    parte * 100.0 / total
+  end
+end
