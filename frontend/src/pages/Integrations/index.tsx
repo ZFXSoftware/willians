@@ -1120,17 +1120,32 @@ function EnvioAoOmie({
     }
   }
 
-  // Zero pendentes é resposta, não ausência de resposta — mas "nada pendente"
-  // sozinho confunde quando existem notas recusadas: elas não estão na fila
-  // justamente porque não podem entrar, e quem não sabe disso lê a frase como
-  // "está tudo no OMIE".
+  // Fila vazia esconde o número, não o botão.
+  //
+  // Eu tinha trocado os botões por uma frase quando `pendentes` zerava, e o
+  // resultado foi tirar a ação de quem opera: sem forma de conferir, de forçar
+  // uma volta depois de corrigir uma nota, ou sequer de saber se o zero é
+  // verdade. Estado vazio não é motivo para remover comando — é motivo para
+  // rotulá-lo com honestidade.
   if (pendentes <= 0 && !previa) {
     return (
-      <span className="flex items-center px-4 py-3 text-sm text-zinc-500">
-        {recusadas > 0
-          ? `Nada na fila — ${recusadas} nota(s) só sobem depois de corrigidas`
-          : "Todas as notas já estão no OMIE"}
-      </span>
+      <div className="flex flex-col items-end gap-1">
+        <button
+          onClick={() => executar({})}
+          disabled={ocupado}
+          className="flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 transition px-5 py-3 rounded-xl text-sm font-medium disabled:opacity-50"
+          title="Consulta o que está pendente; não grava nada"
+        >
+          <Building2 size={15} />
+          {ocupado ? "Conferindo..." : "Conferir notas pendentes"}
+        </button>
+
+        <span className="text-xs text-zinc-500">
+          {recusadas > 0
+            ? `nada na fila · ${recusadas} nota(s) só sobem depois de corrigidas`
+            : "nada na fila"}
+        </span>
+      </div>
     )
   }
 
