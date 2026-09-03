@@ -35,8 +35,36 @@ namespace :conciliacao do
           .limit(quantos)
       end
 
+    # "Nenhum divergente" tem duas leituras opostas — tudo bateu, ou nada foi
+    # comparado — e repasse sem cobertura completa vira `manual_review`, não
+    # `divergent`. Sem o quadro por status, a mensagem é um beco sem saída.
+    atuais = ConciliacaoRegistro
+               .where(tenant_id: tenant.id)
+               .where(id: ConciliacaoRegistro.ids_dos_ultimos(tenant.id))
+
+    puts "Situação atual dos repasses:"
+    atuais.group(:status).count.sort_by { |_, quantos| -quantos }.each do |status, quantos|
+      puts format("  %-16s %d", status, quantos)
+    end
+    puts
+
     if registros.none?
-      puts "Nenhum repasse divergente. Rode a conciliação antes, ou use REPASSE=<id>."
+      puts "Nenhum repasse DIVERGENTE."
+      puts
+
+      if atuais.where(status: "manual_review").any?
+        puts "Mas há repasses em 'manual_review': são os que não puderam ser comparados"
+        puts "por falta de cobertura. Abrindo o maior deles para ver o motivo:"
+        puts
+
+        registro = atuais.where(status: "manual_review").order(valor: :desc).first
+
+        lote = PayoutBatch.find_by(id: registro&.payout_batch_id)
+
+        imprimir_remessa(tenant, lote, registro) if lote
+      elsif atuais.where(status: "matched").any?
+        puts "Todos os repasses comparáveis CONFEREM com o OMIE."
+      end
 
       next
     end
