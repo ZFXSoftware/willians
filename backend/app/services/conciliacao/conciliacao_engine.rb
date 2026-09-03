@@ -138,7 +138,25 @@ module Conciliacao
 
         resolvidos << payout.financial_entry_id if resultado.ok? && payout.financial_entry_id
 
-        registros << registro_row(payout, resultado)
+        linha = registro_row(payout, resultado)
+
+        # Registro novo só quando o DESFECHO mudou.
+        #
+        # O agendador roda a cada cinco minutos e gravava uma linha por repasse
+        # por volta, mesmo sem nada mudar: um único repasse do cliente já tinha
+        # 2213 registros idênticos, e a tabela crescia ~4000 linhas por dia
+        # para reescrever o mesmo estado.
+        #
+        # Quando nada mudou, o registro existente é carimbado com a data desta
+        # execução — a informação "foi conferido agora" é preservada sem uma
+        # linha nova. O histórico volta a significar mudança.
+        if inalterado?(payout, linha)
+          tocados << ultimos_registros[payout.id].id
+
+          next
+        end
+
+        registros << linha
 
         divergencia = divergencia_row(payout, resultado)
 
@@ -150,6 +168,8 @@ module Conciliacao
       end
 
       flush!(registros, divergencias)
+
+      carimbar_inalterados!
 
       fechar_resolvidas!
     end
@@ -180,6 +200,45 @@ module Conciliacao
 
     def resolvidos
       @resolvidos ||= Set.new
+    end
+
+    def tocados
+      @tocados ||= []
+    end
+
+    # O último registro de cada repasse, para comparar o desfecho. Uma consulta
+    # para a execução inteira.
+    def ultimos_registros
+      @ultimos_registros ||=
+        ConciliacaoRegistro
+          .where(tenant_id: tenant.id)
+          .where(id: ConciliacaoRegistro.ids_dos_ultimos(tenant.id))
+          .index_by(&:payout_batch_id)
+    end
+
+    # Mesmo status, mesmo valor, mesma diferença, mesma observação: nada
+    # aconteceu com este repasse desde a última vez.
+    def inalterado?(payout, linha)
+      anterior = ultimos_registros[payout.id]
+
+      return false if anterior.blank?
+
+      anterior.status == linha[:status] &&
+        anterior.valor.to_d == linha[:valor].to_d &&
+        anterior.diferenca.to_d == linha[:diferenca].to_d &&
+        anterior.observacao.to_s == linha[:observacao].to_s
+    end
+
+    # Carimba os que não mudaram, para "quando foi conferido" continuar
+    # verdadeiro sem uma linha nova.
+    def carimbar_inalterados!
+      return if tocados.empty?
+
+      ConciliacaoRegistro
+        .where(tenant_id: tenant.id, id: tocados)
+        .update_all(conciliated_at: Time.current, conciliation_run_id: run.id, updated_at: Time.current)
+
+      tocados.clear
     end
 
     def flush!(registros, divergencias)

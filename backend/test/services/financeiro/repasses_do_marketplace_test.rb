@@ -208,10 +208,12 @@ module Financeiro
       assert_equal BigDecimal("150"), registro.conciliation_metadata["valor_omie"].to_d
     end
 
-    # A conciliação grava um registro por repasse A CADA execução — é o
-    # histórico, e isso é de propósito. Mas a tela mostra ESTADO: sem o recorte,
-    # rodar três vezes exibia o mesmo repasse três vezes e o resumo contava
-    # tudo em triplicado.
+    # O histórico registra MUDANÇA, não passagem de tempo.
+    #
+    # O agendador roda a cada cinco minutos, e gravar uma linha por repasse por
+    # volta fazia um único repasse do cliente acumular 2213 registros idênticos
+    # — ~4000 linhas por dia para reescrever o mesmo estado. Execução que não
+    # muda nada carimba a data no registro que já existe.
     test "a listagem mostra só o estado atual de cada repasse" do
       venda_com_taxa
       repasse
@@ -222,8 +224,8 @@ module Financeiro
 
       lote = PayoutBatch.find_by(tenant: @tenant)
 
-      assert_equal 3, ConciliacaoRegistro.where(payout_batch_id: lote.id).count,
-                   "o histórico continua no banco"
+      assert_equal 1, ConciliacaoRegistro.where(payout_batch_id: lote.id).count,
+                   "três execuções sem novidade não são três fatos"
 
       atuais = ConciliacaoRegistro.where(
         id: ConciliacaoRegistro.ids_dos_ultimos(@tenant.id)
@@ -231,6 +233,34 @@ module Financeiro
 
       assert_equal 1, atuais.count, "a tela mostra um repasse uma vez"
       assert_equal ConciliacaoRegistro.where(payout_batch_id: lote.id).maximum(:id), atuais.first.id
+    end
+
+    # A outra metade da regra: quando o desfecho MUDA, isso é fato novo e
+    # merece linha nova. Sem este teste, "não gravar nada" passaria como
+    # otimização e o histórico deixaria de existir.
+    test "mudança de desfecho grava registro novo" do
+      venda_com_taxa(bruto: 150, taxa: 15)
+      repasse
+
+      pedido = criar_pedido(tenant: @tenant, conta: @conta, external_id: "2000000111")
+      nota = criar_nota(tenant: @tenant, pedido: pedido, numero: "12345", valor: 150)
+
+      fechar
+
+      ReceivableUnit.find_by(tenant: @tenant).update!(invoice: nota, order: pedido)
+
+      conciliar([])
+
+      lote = PayoutBatch.find_by(tenant: @tenant)
+
+      assert_equal 1, ConciliacaoRegistro.where(payout_batch_id: lote.id).count
+
+      # O título aparece no OMIE: o repasse passa a conferir.
+      conciliar([ { "numero_documento_fiscal" => "12345", "valor_documento" => "150.00" } ])
+
+      assert_equal 2, ConciliacaoRegistro.where(payout_batch_id: lote.id).count,
+                   "passar a conferir é mudança, e mudança é histórico"
+      assert_equal "matched", ConciliacaoRegistro.where(payout_batch_id: lote.id).order(:id).last.status
     end
 
     # Sem isto, "Título não encontrado" ficava aberta para sempre: o título
