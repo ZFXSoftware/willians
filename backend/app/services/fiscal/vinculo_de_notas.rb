@@ -22,13 +22,57 @@ module Fiscal
     def call
       {
         lancamentos: ligar!(FinancialEntry),
-        recebiveis: ligar!(ReceivableUnit)
+        recebiveis: ligar!(ReceivableUnit),
+        por_pacote: ligar_por_pacote!
       }
     end
 
     private
 
     attr_reader :tenant
+
+    # A nota do PACOTE, para a venda que faz parte dele.
+    #
+    # Quando o comprador leva dois itens numa compra só, o Mercado Livre cria
+    # um pack com id próprio. A nota fiscal é emitida para o PACOTE, então o
+    # Tiny grava o id do pack em `numero_ecommerce` — enquanto o extrato e a
+    # API de pedidos falam do pedido individual. Os dois números nunca se
+    # encontram, e a venda fica sem nota para sempre.
+    #
+    # Medido na base do cliente: 543 vendas pagas sem nota, todas ausentes do
+    # Tiny quando procuradas pelo número do pedido.
+    #
+    # O `pack_id` fica no metadata do pedido, gravado pelo VinculoDePedidos. O
+    # InvoiceSync, ao importar a nota do pacote, criou um pedido com o id do
+    # pack — é nele que a nota está pendurada.
+    def ligar_por_pacote!
+      linhas = ReceivableUnit.connection.exec_update(<<~SQL, "VinculoDeNotas.pacote", [ tenant.id, tenant.id ])
+        UPDATE receivable_units AS alvo
+        SET invoice_id = escolhida.id,
+            updated_at = NOW()
+        FROM orders AS pedido
+        JOIN orders AS pacote
+          ON pacote.tenant_id = pedido.tenant_id
+         AND pacote.external_id = pedido.metadata->>'pack_id'
+        JOIN LATERAL (
+          SELECT id
+          FROM invoices
+          WHERE invoices.tenant_id = pacote.tenant_id
+            AND invoices.order_id = pacote.id
+            AND invoices.operation_type = 'sale'
+            AND invoices.status <> 'cancelled'
+          ORDER BY issued_at ASC, id ASC
+          LIMIT 1
+        ) AS escolhida ON TRUE
+        WHERE pedido.tenant_id = $1
+          AND pedido.metadata->>'pack_id' IS NOT NULL
+          AND alvo.tenant_id = $2
+          AND alvo.order_id = pedido.id
+          AND alvo.invoice_id IS NULL
+      SQL
+
+      linhas.to_i
+    end
 
     # Um UPDATE só, e não um por registro: são milhares de linhas e isto roda
     # a cada volta do ciclo.

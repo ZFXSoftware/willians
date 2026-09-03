@@ -90,6 +90,37 @@ module Fiscal
       assert_equal outra.id, recebivel.reload.invoice_id
     end
 
+    # Compra com mais de um item: o Mercado Livre cria um "pack" com id
+    # próprio, a nota é emitida para o PACOTE, e o extrato fala do pedido
+    # individual. Sem cruzar os dois, a venda fica sem nota para sempre — eram
+    # 543 na base do cliente.
+    test "venda de um pacote encontra a nota emitida para o pacote" do
+      pacote = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PACK-9")
+
+      nota = criar_nota(tenant: @tenant, pedido: pacote, numero: "777", valor: 300)
+
+      nota.update!(operation_type: :sale)
+
+      @pedido.update!(metadata: (@pedido.metadata || {}).merge("pack_id" => "PACK-9"))
+
+      recebivel = criar_recebivel(tenant: @tenant, conta: @conta, pedido: @pedido)
+
+      assert_equal 1, religar[:por_pacote]
+      assert_equal nota.id, recebivel.reload.invoice_id
+    end
+
+    test "pedido sem pacote não puxa nota de ninguém" do
+      outro = criar_pedido(tenant: @tenant, conta: @conta, external_id: "OUTRO-9")
+
+      criar_nota(tenant: @tenant, pedido: outro, numero: "888", valor: 300)
+        .update!(operation_type: :sale)
+
+      recebivel = criar_recebivel(tenant: @tenant, conta: @conta, pedido: @pedido)
+
+      assert_equal 0, religar[:por_pacote]
+      assert_nil recebivel.reload.invoice_id
+    end
+
     test "não atravessa empresas" do
       outra_empresa = criar_tenant
 

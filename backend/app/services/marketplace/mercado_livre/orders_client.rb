@@ -90,6 +90,13 @@ module Marketplace
       def normalizar(pedido)
         {
           external_id: pedido["id"].to_s,
+          # O id do PACOTE, quando a compra levou mais de um item.
+          #
+          # O Tiny registra o pack em `numero_ecommerce`, porque a nota fiscal
+          # é do pacote — enquanto o extrato e esta API falam do pedido
+          # individual. Jogar isto fora fazia a nota e o dinheiro da mesma
+          # compra nunca se encontrarem.
+          pack_id: pedido["pack_id"].to_s.presence,
           # Um pedido pode ter mais de um pagamento (parcelado em dois cartões,
           # retentativa depois de recusa). Todos apontam para o mesmo pedido.
           pagamentos: Array(pedido["payments"]).filter_map { |p| p["id"].to_s.presence },

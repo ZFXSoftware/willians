@@ -44,6 +44,36 @@ namespace :conciliacao do
     por_mes.sort.each { |mes, quantas| puts format("  %-10s %d", mes || "sem data", quantas) }
     puts
 
+    # A hipótese do PACK, testada sem sair do nosso banco.
+    #
+    # Quando o comprador leva dois itens numa compra só, o Mercado Livre cria
+    # um "pack" com id próprio. O Tiny registra o PACK em numero_ecommerce
+    # (a nota é do pacote), e nós guardamos o id do pedido individual — o
+    # OrdersClient lê `pedido["id"]` e joga `pack_id` fora.
+    #
+    # Se for isso, o InvoiceSync criou, a partir dessas notas, pedidos-fantasma
+    # com o id do pack: existem no banco, nunca receberam dinheiro nenhum, e
+    # carregam justamente as notas que estamos procurando.
+    fantasmas = Order
+                  .where(tenant_id: tenant.id, platform: "mercado_livre")
+                  .where("orders.metadata->>'origem' = 'tiny_invoice_sync'")
+                  .where.missing(:financial_entries)
+
+    puts "Pedidos criados a partir de nota que nunca receberam dinheiro: #{fantasmas.count}"
+
+    com_nota = fantasmas.joins(:invoices).distinct.count
+
+    puts "  desses, com nota fiscal:  #{com_nota}"
+
+    fantasmas.limit(5).each do |pedido|
+      puts format("    %s (NF %s)", pedido.external_id, pedido.invoices.first&.number || "—")
+    end
+
+    puts
+    puts "  Se este número for próximo das vendas sem nota, a hipótese do PACK"
+    puts "  está certa: são as MESMAS compras, com dois números diferentes."
+    puts
+
     puts "Conferindo #{[ amostra, total ].min} SORTEADAS no Tiny, uma por segundo."
     puts
 
