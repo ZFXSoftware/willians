@@ -100,6 +100,15 @@ module Marketplace
         parse!(com_retry(URI.join(api_host, "/orders/#{id}")))
       end
 
+      # Dados fiscais do comprador.
+      #
+      # O Mercado Livre parou de devolver o documento dentro do pedido, mas o
+      # mantém aqui — é o que o vendedor precisa para emitir a nota. Endpoint
+      # separado, resposta com formato próprio.
+      def billing_info(id)
+        parse!(com_retry(URI.join(api_host, "/orders/#{id}/billing_info")))
+      end
+
       private
 
       attr_reader :access_token, :seller_id, :sleeper

@@ -55,10 +55,24 @@ namespace :ml do
 
       documento = documento_do_comprador(bruto)
 
+      # O pedido não traz mais o documento; o endpoint de dados fiscais traz.
+      if documento.blank?
+        sleep 1
+
+        documento = documento_do_comprador(cliente.billing_info(referencia)) rescue nil
+      end
+
       if documento.blank?
         sem_documento += 1
 
-        puts "  #{referencia}: o Mercado Livre não devolveu documento do comprador"
+        # Sem isto a conclusão seria "o ML não devolve", quando pode ser que
+        # devolva num campo que a varredura não reconhece. Os nomes dos campos
+        # não são dado sensível.
+        puts "  #{referencia}: sem documento. Campos recebidos: #{bruto.keys.sort.join(', ')}"
+
+        comprador = bruto["buyer"]
+
+        puts "    dentro de buyer: #{comprador.keys.sort.join(', ')}" if comprador.is_a?(Hash)
 
         next
       end
@@ -110,14 +124,37 @@ namespace :ml do
 
   # O documento do comprador aparece em lugares diferentes conforme o tipo de
   # venda. Procurar em todos evita concluir "não tem" quando é só outro campo.
-  def documento_do_comprador(pedido)
-    candidatos = [
-      pedido.dig("buyer", "billing_info", "doc_number"),
-      pedido.dig("buyer", "identification", "number"),
-      pedido.dig("payments", 0, "payer", "identification", "number")
-    ]
+  # Varredura em profundidade, e não caminhos fixos.
+  #
+  # O documento muda de lugar conforme o tipo de venda e a versão da resposta,
+  # e procurar em três caminhos conhecidos já devolveu "não tem" oito vezes
+  # seguidas para pedidos que certamente têm comprador.
+  def documento_do_comprador(payload)
+    encontrado = nil
 
-    candidatos.compact.map { |valor| valor.to_s.gsub(/\D/, "") }.find(&:present?)
+    procurar = lambda do |no|
+      return if encontrado
+
+      case no
+      when Hash
+        no.each do |chave, valor|
+          if chave.to_s.match?(/doc_number|\Anumber\z|cpf|cnpj|identification_number/i) &&
+             valor.to_s.gsub(/\D/, "").length.in?([ 11, 14 ])
+            encontrado = valor.to_s.gsub(/\D/, "")
+
+            return
+          end
+
+          procurar.call(valor)
+        end
+      when Array
+        no.each { |item| procurar.call(item) }
+      end
+    end
+
+    procurar.call(payload)
+
+    encontrado
   end
 
   def classificar(chave)
