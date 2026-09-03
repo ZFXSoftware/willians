@@ -26,14 +26,30 @@ namespace :conciliacao do
     sem_nota = ReceivableUnit
                  .where(tenant_id: tenant.id, invoice_id: nil)
                  .where.not(order_id: nil)
-                 .includes(:order)
-                 .order(expected_on: :desc)
 
     total = sem_nota.count
 
     puts "Vendas pagas sem nota no nosso banco: #{total}"
-    puts "Conferindo #{[ amostra, total ].min} no Tiny, uma por segundo."
     puts
+
+    # Como elas se distribuem no tempo.
+    #
+    # A primeira versão desta tarefa ordenava por data decrescente e conferiu
+    # só as mais recentes — todas liberadas dois dias antes. Uma venda de
+    # anteontem sem nota importada é banal; uma de julho é defeito. A amostra
+    # enviesada respondia a pergunta errada com confiança total.
+    por_mes = sem_nota.group(Arel.sql("to_char(expected_on, 'YYYY-MM')")).count
+
+    puts "Distribuição por mês de liberação:"
+    por_mes.sort.each { |mes, quantas| puts format("  %-10s %d", mes || "sem data", quantas) }
+    puts
+
+    puts "Conferindo #{[ amostra, total ].min} SORTEADAS no Tiny, uma por segundo."
+    puts
+
+    # Sorteio, e não as primeiras: qualquer ordenação fixa concentra a amostra
+    # num período e esconde o resto.
+    sem_nota = sem_nota.includes(:order).order(Arel.sql("RANDOM()"))
 
     if total.zero?
       puts "Nada a procurar."
