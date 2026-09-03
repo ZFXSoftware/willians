@@ -189,7 +189,7 @@ module Marketplace
     # Falhar aqui não pode derrubar a sincronização — é enriquecimento, não
     # ingestão.
     def inferir_pacotes(conta)
-      return unless conta.mercado_livre?
+      return unless provider_de(conta)&.agrupa_pedidos?
 
       MercadoLivre::PacotesInferidos.new(tenant: conta.tenant, platform_account: conta).call
     rescue StandardError => e
@@ -198,12 +198,15 @@ module Marketplace
       { erro: e.message }
     end
 
-    # Só o Mercado Livre por enquanto: é o único extrato que identifica a linha
-    # pelo pagamento em vez do pedido. Falhar aqui não derruba a ingestão — os
-    # lançamentos já estão no razão e valem por si; sem o vínculo, quem espera
-    # é a conciliação.
+    # Quem precisa deste passo é o PROVIDER quem diz.
+    #
+    # Era `return unless conta.mercado_livre?`. Certo no efeito e péssimo como
+    # forma: no dia em que a Shopee fosse conectada, os lançamentos dela
+    # entrariam e nada seria vinculado, sem sinal nenhum. Agora cada plataforma
+    # declara se o extrato dela traz o pedido — e Shopee e Amazon trazem, então
+    # a ingestão já liga sozinha.
     def vincular_pedidos(conta)
-      return unless conta.mercado_livre?
+      return unless provider_de(conta)&.vincula_pedidos?
 
       vinculador.new(
         tenant: conta.tenant,
@@ -250,6 +253,14 @@ module Marketplace
     # Sem provider implementado ou sem credencial, o ingestor cairia no provider
     # de SIMULAÇÃO quando ela estiver ligada — e lançamentos fictícios entrariam
     # no razão como se fossem reais. Melhor não chamar.
+    # A CLASSE do provider, para perguntar o que a plataforma faz sem precisar
+    # de credencial nem de rede.
+    def provider_de(conta)
+      nome = Ingestors::MarketplaceIngestor::PROVIDERS[conta.platform.to_s]
+
+      nome&.constantize
+    end
+
     def provider_configurado?(conta)
       nome = Ingestors::MarketplaceIngestor::PROVIDERS[conta.platform.to_s]
 

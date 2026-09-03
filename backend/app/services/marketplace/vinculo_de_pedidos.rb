@@ -27,7 +27,7 @@ module Marketplace
     # órfãos exatamente assim.
     RECUO_DOS_PEDIDOS = 60.days
 
-    def initialize(tenant:, platform_account:, start_date:, end_date:, client: nil)
+    def initialize(tenant:, platform_account:, start_date:, end_date:, provider: nil, client: nil)
       @tenant = tenant
 
       @platform_account = platform_account
@@ -37,12 +37,16 @@ module Marketplace
       @end_date = end_date.to_date
 
       @client = client
+
+      # O provider é quem sabe pedir pedidos à sua própria plataforma. `client`
+      # continua aceito para os testes que já injetavam um dublê.
+      @provider = provider
     end
 
     def call
       resumo = { pedidos: 0, pagamentos: 0, lancamentos_ligados: 0, ja_ligados: 0 }
 
-      pedidos = cliente.orders(start_date: start_date - RECUO_DOS_PEDIDOS, end_date: end_date)
+      pedidos = fonte.orders(start_date: start_date - RECUO_DOS_PEDIDOS, end_date: end_date)
 
       resumo[:pedidos] = pedidos.size
 
@@ -68,33 +72,16 @@ module Marketplace
 
     attr_reader :tenant, :platform_account, :start_date, :end_date
 
-    def cliente
-      @cliente ||= MercadoLivre::OrdersClient.new(
-        access_token: Credentials::TokenProvider.new(platform_account: platform_account).access_token,
-        seller_id: vendedor
-      )
-    end
-
-    # O dono do TOKEN, e não o `external_id` da conta.
+    # Quem responde "quais são os pedidos deste período".
     #
-    # São a mesma coisa quando tudo está certo, mas divergem quando um card foi
-    # reconectado com outro login do Mercado Livre. O id gravado na credencial
-    # veio junto com o token na autorização, então é impossível ele apontar
-    # para outro vendedor — e é essa garantia que o `external_id` não tinha.
-    def vendedor
-      credencial = platform_account.marketplace_credential
-
-      dono = credencial&.external_user_id.presence
-
-      if dono && dono != platform_account.external_id
-        Rails.logger.warn(
-          "#{LOG_PREFIX} conta ##{platform_account.id}: o cadastro diz vendedor " \
-          "#{platform_account.external_id} e o token é do vendedor #{dono}. " \
-          "Usando o dono do token. Reconecte a conta para acertar o cadastro."
-        )
-      end
-
-      dono || platform_account.external_id
+    # Era o cliente do Mercado Livre construído aqui dentro — o que fazia deste
+    # serviço, de nome genérico, código de uma plataforma só.
+    def fonte
+      @fonte ||= @client || @provider ||
+                 Ingestors::MarketplaceIngestor::PROVIDERS
+                   .fetch(platform_account.platform)
+                   .constantize
+                   .new(account: platform_account)
     end
 
     # O pedido pode já existir vindo da nota do Tiny, que o cria só com o

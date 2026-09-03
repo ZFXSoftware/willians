@@ -33,8 +33,9 @@ module Marketplace
     def vincular(pedidos)
       VinculoDePedidos.new(
         tenant: @tenant, platform_account: @conta,
-        start_date: Date.current - 30, end_date: Date.current
-      ).tap { |s| s.instance_variable_set(:@cliente, cliente_falso(pedidos)) }.call
+        start_date: Date.current - 30, end_date: Date.current,
+        client: cliente_falso(pedidos)
+      ).call
     end
 
     def pedido_ml(id: "2000017100877708", pagamentos: [ "PAY-1" ], comprador: "fulano")
@@ -127,22 +128,16 @@ module Marketplace
         expires_at: 4.hours.from_now
       )
 
-      servico = VinculoDePedidos.new(
-        tenant: @tenant, platform_account: @conta,
-        start_date: Date.current - 30, end_date: Date.current
-      )
+      provider = Providers::MercadoLivreProvider.new(account: @conta)
 
-      assert_equal "999888777", servico.send(:vendedor)
+      assert_equal "999888777", provider.send(:vendedor)
       assert_equal "SELLER-1", @conta.external_id, "o cadastro continua como está"
     end
 
     test "sem credencial, cai no id da conta" do
-      servico = VinculoDePedidos.new(
-        tenant: @tenant, platform_account: @conta,
-        start_date: Date.current - 30, end_date: Date.current
-      )
+      provider = Providers::MercadoLivreProvider.new(account: @conta)
 
-      assert_equal "SELLER-1", servico.send(:vendedor)
+      assert_equal "SELLER-1", provider.send(:vendedor)
     end
 
     # O extrato é datado pela LIBERAÇÃO e os pedidos pela VENDA, e o Mercado
@@ -160,14 +155,11 @@ module Marketplace
         []
       end
 
-      servico = VinculoDePedidos.new(
+      VinculoDePedidos.new(
         tenant: @tenant, platform_account: @conta,
-        start_date: Date.current - 30, end_date: Date.current
-      )
-
-      servico.instance_variable_set(:@cliente, cliente)
-
-      servico.call
+        start_date: Date.current - 30, end_date: Date.current,
+        client: cliente
+      ).call
 
       assert_operator pedido_de, :<, Date.current - 30,
                       "a janela dos pedidos precisa alcançar vendas anteriores ao extrato"

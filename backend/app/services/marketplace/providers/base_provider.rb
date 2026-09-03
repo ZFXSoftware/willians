@@ -23,6 +23,42 @@ module Marketplace
         raise NotImplementedError, "#{self.class} não informa saldo da conta"
       end
 
+      # O extrato desta plataforma traz o número do PEDIDO em cada linha?
+      #
+      # Quase sempre sim, e aí a ingestão já liga sozinha: Shopee traz o
+      # `order_sn` no escrow, Amazon traz o pedido no evento financeiro.
+      #
+      # O Mercado Livre é a exceção: o relatório de liberações identifica cada
+      # linha pelo id do PAGAMENTO e deixa a coluna do pedido vazia. Sem alguém
+      # perguntar à API de pedidos quais pagamentos pertencem a qual pedido, o
+      # dinheiro e a nota fiscal nunca se encontram.
+      #
+      # Isto era um `return unless conta.mercado_livre?` escondido dentro do
+      # serviço de sincronização. Como condição enterrada, ela silenciava: ao
+      # conectar a Shopee, os lançamentos entrariam e nada seria vinculado, sem
+      # nenhum sinal. Como contrato, cada provider responde por si — e quem
+      # disser que precisa é obrigado a implementar `orders`.
+      def self.vincula_pedidos? = false
+
+      # Os pedidos do período, com os identificadores que aparecem no extrato.
+      #
+      # => [{ external_id:, pagamentos: [], agrupador:, status:, total:,
+      #       criado_em:, comprador: }]
+      #
+      # `agrupador` é o id sob o qual a nota fiscal é emitida quando a
+      # plataforma junta pedidos — o `pack_id` do Mercado Livre. Nulo quando
+      # não há agrupamento.
+      def orders(start_date:, end_date:)
+        raise NotImplementedError,
+              "#{self.class} declarou que precisa de vínculo de pedidos mas não implementa #orders"
+      end
+
+      # A plataforma junta vários pedidos sob um id para efeito fiscal?
+      #
+      # Só o Mercado Livre, por enquanto. Quem agrupa precisa que o vínculo da
+      # nota saiba disso, senão a NF do pacote nunca encontra as vendas.
+      def self.agrupa_pedidos? = false
+
       # Credenciais vivem em marketplace_credentials, com os tokens cifrados.
       def self.configured?(account)
         MarketplaceCredential
