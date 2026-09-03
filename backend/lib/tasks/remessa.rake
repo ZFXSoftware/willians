@@ -20,8 +20,16 @@ namespace :conciliacao do
       if ENV["REPASSE"].present?
         ConciliacaoRegistro.where(tenant_id: tenant.id, payout_batch_id: ENV["REPASSE"])
       else
+        # Só o estado ATUAL de cada repasse.
+        #
+        # Cada execução grava um registro por repasse — é o histórico de como
+        # ele foi conferido ao longo do tempo. Ordenar por tamanho da diferença
+        # sem esse recorte devolve o pior registro que já existiu, de qualquer
+        # data, e eu li a data dele como se fosse a última execução: concluí
+        # que a conciliação estava parada há dias quando ela rodava.
         ConciliacaoRegistro
           .where(tenant_id: tenant.id, status: "divergent")
+          .where(id: ConciliacaoRegistro.ids_dos_ultimos(tenant.id))
           .where.not(payout_batch_id: nil)
           .order(Arel.sql("ABS(COALESCE(diferenca, 0)) DESC"))
           .limit(quantos)
@@ -63,8 +71,14 @@ namespace :conciliacao do
     puts "=" * 78
     puts "Repasse ##{lote.id} · ref #{lote.external_id} · pago em #{lote.paid_at}"
     # A data do registro importa: se ele é anterior às correções do motor, o
-    # número na tela é fantasma de uma regra que já não vale.
+    # número é fantasma de uma regra que já não vale. Agora é sempre o registro
+    # MAIS RECENTE deste repasse — antes vinha o de maior diferença, de
+    # qualquer época.
     puts "Conferido em #{registro.conciliated_at} (execução ##{registro.conciliation_run_id})"
+
+    quantas = ConciliacaoRegistro.where(tenant_id: tenant.id, payout_batch_id: lote.id).count
+
+    puts "Este repasse já foi conferido #{quantas} vez(es)."
     puts
     puts format("  dinheiro que entrou (extrato):  R$ %.2f", extrato&.amount.to_d)
     puts format("  lote: bruto R$ %.2f · taxa R$ %.2f · líquido R$ %.2f",
