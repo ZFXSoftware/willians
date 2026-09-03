@@ -62,12 +62,38 @@ module Marketplace
         # `pack_id` apontando para o próprio pedido.
         return Resultado.new(motivo: :mesma_chave) if chave == pedido.external_id
 
+        # A chave precisa ser de um PACOTE, e não de outra venda do mesmo
+        # comprador.
+        #
+        # Este é o falso positivo que a medição não pegava: ela rodou sobre
+        # vendas cuja nota EXISTE, então nunca encontrou o caso em que a venda
+        # não tem nota e o comprador tem uma só, de outra compra. Aplicada na
+        # população real, dois dos três primeiros palpites apontaram para outro
+        # pedido dele.
+        #
+        # O teste é de dado, não de formato: pacote é um registro que nasceu da
+        # nota e nunca recebeu dinheiro. Pedido de verdade tem recebível
+        # próprio — e adotá-lo como pacote poria a nota de uma venda no
+        # dinheiro de outra.
+        return Resultado.new(motivo: :outra_venda) unless pacote?(chave)
+
         Resultado.new(pack_id: chave, motivo: :ok)
       end
 
       private
 
       attr_reader :tenant, :client
+
+      # Um pacote não é uma venda: ele existe no nosso banco porque a nota o
+      # criou, e nunca teve recebível nem lançamento.
+      def pacote?(chave)
+        candidato = Order.find_by(tenant_id: tenant.id, external_id: chave)
+
+        return false if candidato.blank?
+
+        ReceivableUnit.where(tenant_id: tenant.id, order_id: candidato.id).none? &&
+          FinancialEntry.where(tenant_id: tenant.id, order_id: candidato.id).none?
+      end
 
       def notas_do_comprador(documento, unidade)
         fim = (unidade.expected_on || Date.current) + FOLGA

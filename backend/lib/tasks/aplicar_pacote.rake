@@ -41,7 +41,7 @@ namespace :ml do
 
     puts
     puts "Não arriscou:"
-    %i[nenhuma_nota ambiguo sem_documento mesma_chave chave_vazia sem_pedido].each do |motivo|
+    %i[nenhuma_nota ambiguo outra_venda sem_documento mesma_chave chave_vazia sem_pedido].each do |motivo|
       puts format("  %-16s %d", motivo, resumo[motivo].to_i) if resumo[motivo].to_i.positive?
     end
 
