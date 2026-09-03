@@ -63,7 +63,13 @@ export function desde(value: string | null | undefined): string {
 const ROTULOS: Record<string, string> = {
   matched: "Conciliado",
   divergent: "Divergente",
-  manual_review: "Revisão manual",
+  // NÃO é "alguém precisa revisar": é "não deu para comparar".
+  //
+  // O motor recusa a comparação quando a cobertura está incompleta — venda sem
+  // nota, nota sem título no OMIE. "Revisão manual" mandava o operador abrir a
+  // linha para decidir algo que não há como decidir: o que falta é dado, e o
+  // conserto é antes, não ali.
+  manual_review: "Sem comparação",
   pending: "Pendente",
   resolved: "Resolvida",
   open: "Aberta",
