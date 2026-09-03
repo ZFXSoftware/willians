@@ -235,39 +235,111 @@ module Conciliacao
     end
 
     # Guardada por repasse porque a observação, montada depois, precisa dela
-    # para dizer QUAL dos dois casos é: nenhuma nota no OMIE, ou algumas.
+    # para dizer QUAL dos casos é.
+    #
+    # O denominador são as NOTAS, e não os recebíveis.
+    #
+    # Contar recebíveis parecia certo — um repasse de cem vendas com uma nota
+    # só não pode passar por cobertura completa — mas quebra no pacote do
+    # Mercado Livre: quando o comprador leva dois itens, as duas vendas
+    # compartilham UMA nota fiscal. O repasse tinha dois recebíveis e uma
+    # referência, `1 == 2` nunca era verdade, e ele ficava em "comparação
+    # incompleta" para sempre por estar certo.
     def cobertura_de(payout, omie_totals)
       @coberturas ||= {}
 
-      @coberturas[payout.id] ||= begin
-        # O denominador são TODOS os recebíveis que o repasse liquidou — e não
-        # só os que já têm nota fiscal. Contando apenas os que têm, um repasse
-        # de cem vendas com uma nota só apareceria como cobertura completa, e a
-        # comparação sairia com o valor de uma venda contra o repasse inteiro.
+      @coberturas[payout.id] ||= calcular_cobertura(payout, omie_totals)
+    end
+
+    # Método próprio, e não um `begin` dentro do memo: ali `return` sai da
+    # função sem guardar a cobertura, e `next` nem é válido — `begin/end` não é
+    # bloco. Os dois já quebraram esta mesma linha hoje.
+    def calcular_cobertura(payout, omie_totals)
         unidades = unidades_de(payout)
 
-        total = unidades.size
+        # Venda sem nota continua sendo buraco: não há o que comparar com ela,
+        # e ignorá-la faria a soma do OMIE ser confrontada com um repasse que
+        # inclui vendas que ela não cobre.
+        sem_nota = unidades.count { |unidade| unidade.invoice.blank? }
 
-        referencias = referencias_for(payout)
+        por_nota = unidades.select(&:invoice).group_by(&:invoice)
 
-        encontradas = referencias.select { |ref| omie_totals.key?(ref) }
+        # Repasse em que NENHUMA venda tem nota fiscal.
+        #
+        # Acontece em lançamento manual e em conta sem integração fiscal: ali o
+        # título do OMIE carrega a referência do recebível no número do
+        # documento, e é por ela que se casa. Exigir nota nesse caso não
+        # protegeria nada — apagaria a única chave que existe.
+        #
+        # Só vale quando NENHUMA tem: com metade das vendas com nota, aceitar a
+        # referência das outras é a comparação parcial que este arquivo inteiro
+        # existe para impedir.
+        #
+        # `next`, e não `return`: dentro de `||= begin ... end` o return sai do
+        # MÉTODO sem atribuir a memória, e a observação, montada depois, lia
+        # cobertura vazia.
+        return cobertura_sem_notas(payout, unidades, omie_totals) if por_nota.empty?
+
+        # Nota cujos recebíveis NÃO estão todos neste repasse.
+        #
+        # A nota do pacote vale pelas duas vendas. Se só uma delas caiu aqui,
+        # somar o valor inteiro da nota contra um repasse que pagou metade
+        # acusa uma diferença que não existe — o mesmo erro da cobertura
+        # parcial, um nível abaixo.
+        divididas = notas_divididas(por_nota)
+
+        esperadas = por_nota.keys.filter_map { |nota| Omie::Readers::ReceivableTotals.normalizar(nota.number) }.uniq
+
+        encontradas = esperadas.select { |ref| omie_totals.key?(ref) }
 
         # As que não vão chegar: nota emitida sem valor não vira título nunca.
         # Contá-las como "faltando" deixa o repasse esperando para sempre.
-        recusadas = unidades.filter_map { |u| u.invoice if u.invoice&.recusada_no_envio? }
+        recusadas = por_nota.keys.select(&:recusada_no_envio?)
 
-        completa = total.positive? && encontradas.size == total
+        integra = unidades.any? && sem_nota.zero? && divididas.zero?
+
+        completa = integra && esperadas.any? && encontradas.size == esperadas.size
 
         {
-          referencias: [ total, referencias.size ].max,
+          referencias: esperadas.size,
+          sem_nota: sem_nota,
+          divididas: divididas,
           encontradas: encontradas,
           recusadas: recusadas,
           completa: completa,
           completa_com_exclusoes:
-            !completa && total.positive? && recusadas.any? &&
-              (encontradas.size + recusadas.size) == total
+            !completa && integra && recusadas.any? &&
+              (encontradas.size + recusadas.size) == esperadas.size
         }
-      end
+    end
+
+    def cobertura_sem_notas(payout, unidades, omie_totals)
+      referencias = referencias_for(payout)
+
+      encontradas = referencias.select { |ref| omie_totals.key?(ref) }
+
+      {
+        referencias: referencias.size,
+        sem_nota: 0,
+        divididas: 0,
+        encontradas: encontradas,
+        recusadas: [],
+        completa: unidades.any? && encontradas.size == unidades.size,
+        completa_com_exclusoes: false
+      }
+    end
+
+    # Quantos recebíveis cada nota tem NO TOTAL, para saber se este repasse
+    # levou todos. Uma consulta para o lote inteiro, não uma por nota.
+    def notas_divididas(por_nota)
+      return 0 if por_nota.empty?
+
+      totais = ReceivableUnit
+                 .where(tenant_id: tenant.id, invoice_id: por_nota.keys.map(&:id))
+                 .group(:invoice_id)
+                 .count
+
+      por_nota.count { |nota, unidades| totais[nota.id].to_i > unidades.size }
     end
 
     def unidades_de(payout)
@@ -306,7 +378,7 @@ module Conciliacao
           .filter_map { |allocation| allocation.receivable_unit&.external_id }
           .uniq
 
-      refs.presence || [payout.external_id].compact
+      refs.presence || [ payout.external_id ].compact
     end
 
     def notas_fiscais_for(payout)
@@ -342,6 +414,20 @@ module Conciliacao
       encontradas = cobertura[:encontradas].to_a.size
 
       referencias = cobertura[:referencias].to_i
+
+      # Cada motivo pede uma providência diferente, e "comparação incompleta"
+      # sozinho manda todo mundo procurar no lugar errado.
+      if cobertura[:sem_nota].to_i.positive?
+        return "#{cobertura[:sem_nota]} venda(s) deste repasse não têm nota fiscal vinculada. " \
+               "Sem elas, comparar o repasse com os títulos das outras acusaria uma " \
+               "diferença que não existe."
+      end
+
+      if cobertura[:divididas].to_i.positive?
+        return "#{cobertura[:divididas]} nota(s) deste repasse cobrem vendas que caíram em " \
+               "repasses diferentes. O valor da nota é do conjunto, e este repasse pagou " \
+               "só uma parte — comparar os dois acusaria diferença onde não há."
+      end
 
       return resultado.mensagem if referencias.zero?
 
@@ -427,7 +513,7 @@ module Conciliacao
 
       tipo = TIPO_DIVERGENCIA.fetch(resultado.status)
 
-      chave = [payout.financial_entry_id, tipo]
+      chave = [ payout.financial_entry_id, tipo ]
 
       return if divergencias_abertas.include?(chave)
 

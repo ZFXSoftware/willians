@@ -269,8 +269,9 @@ module Financeiro
 
       assert_nil registro.conciliation_metadata["valor_omie"],
                  "sem NF não há como saber QUAL título é o desta venda"
-      # A observação passa a dizer QUANTAS notas do repasse estão sem título —
-      # "nenhuma" e "algumas" pedem providências diferentes.
+      # Repasse em que NENHUMA venda tem nota cai no caminho de reserva, que
+      # casa pela referência do recebível — e a frase é sobre título ausente,
+      # não sobre nota faltando.
       assert_includes registro.observacao.to_s, "Nenhuma"
     end
 
@@ -295,7 +296,61 @@ module Financeiro
 
       assert_nil registro.conciliation_metadata["valor_omie"],
                  "comparar o repasse inteiro com parte dos títulos inventa divergência"
-      assert_includes registro.observacao.to_s, "Comparação incompleta"
+      assert_includes registro.observacao.to_s, "não têm nota fiscal vinculada"
+    end
+
+    # O pacote do Mercado Livre: o comprador leva dois itens, o ML cria duas
+    # vendas, e o Tiny emite UMA nota fiscal para o pacote.
+    #
+    # Contando recebíveis, o repasse tinha 2 vendas e 1 referência, `1 == 2`
+    # nunca era verdade, e ele ficava em "comparação incompleta" para sempre —
+    # por estar correto. O denominador tem que ser a NOTA.
+    test "duas vendas do mesmo pacote compartilham uma nota e fecham a cobertura" do
+      venda_com_taxa(pagamento: "PAY-A", bruto: 100, taxa: 10)
+      venda_com_taxa(pagamento: "PAY-B", bruto: 200, taxa: 20)
+      repasse
+
+      pacote = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PACK-1")
+      nota = criar_nota(tenant: @tenant, pedido: pacote, numero: "111", valor: 300)
+
+      ReceivableUnit.where(tenant: @tenant).find_each do |unidade|
+        unidade.update!(invoice: nota, order: pacote)
+      end
+
+      fechar
+
+      registro = conciliar([ { "numero_documento_fiscal" => "111", "valor_documento" => "300.00" } ])
+
+      assert_equal "300.0", registro.conciliation_metadata["valor_omie"].to_s,
+                   "uma nota para duas vendas é cobertura completa, não incompleta"
+      assert_equal "matched", registro.status
+    end
+
+    # Mas a nota do pacote só pode ser comparada quando o repasse levou TODAS
+    # as vendas dela. Se pagou uma de duas, somar o valor inteiro da nota
+    # contra meio repasse acusa diferença onde não há.
+    test "nota cujas vendas caíram em repasses diferentes não é comparada" do
+      venda_com_taxa(pagamento: "PAY-A", bruto: 100, taxa: 10)
+      venda_com_taxa(pagamento: "PAY-B", bruto: 200, taxa: 20, ocorrido: 1.hour.ago)
+      repasse
+
+      pacote = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PACK-1")
+      nota = criar_nota(tenant: @tenant, pedido: pacote, numero: "111", valor: 300)
+
+      ReceivableUnit.where(tenant: @tenant).find_each { |u| u.update!(invoice: nota, order: pacote) }
+
+      fechar
+
+      # A segunda venda fica FORA do lote: liberada depois do repasse.
+      fora = ReceivableUnit.where(tenant: @tenant).order(:id).last
+
+      FinancialEntryAllocation.where(receivable_unit_id: fora.id, allocation_type: "payout").delete_all
+
+      registro = conciliar([ { "numero_documento_fiscal" => "111", "valor_documento" => "300.00" } ])
+
+      assert_nil registro.conciliation_metadata["valor_omie"],
+                 "meio pacote contra a nota inteira inventa diferença"
+      assert_includes registro.observacao.to_s, "repasses diferentes"
     end
 
     # A regra acima manda esperar pelas notas que faltam. Mas nota emitida sem
@@ -356,7 +411,7 @@ module Financeiro
       registro = conciliar([ { "numero_documento_fiscal" => "111", "valor_documento" => "100.00" } ])
 
       assert_nil registro.conciliation_metadata["valor_omie"]
-      assert_includes registro.observacao.to_s, "Comparação incompleta"
+      assert_includes registro.observacao.to_s, "têm título no OMIE"
     end
   end
 end
