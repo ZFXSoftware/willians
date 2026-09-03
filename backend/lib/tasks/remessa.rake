@@ -106,6 +106,54 @@ namespace :conciliacao do
     puts "Nada foi gravado."
   end
 
+  def imprimir_notas_sem_titulo(tenant, unidades)
+    notas = unidades.filter_map(&:invoice).uniq
+
+    return if notas.empty?
+
+    cliente = Omie::Client.configured? ? Omie::Client.new : nil
+
+    return puts "  (OMIE não configurado; pulei a conferência de títulos.)" unless cliente
+
+    # A MESMA busca que a conciliação usa, com a mesma janela.
+    janela_inicio = notas.filter_map(&:issued_at).min&.to_date || Date.current
+
+    totais = Omie::Readers::ReceivableTotals.new(client: cliente).call(
+      start_date: janela_inicio - 30, end_date: Date.current
+    )
+
+    faltando = notas.reject do |nota|
+      chave = Omie::Readers::ReceivableTotals.normalizar(nota.number)
+
+      chave.present? && totais.key?(chave)
+    end
+
+    puts format("  Notas sem título no OMIE: %d de %d", faltando.size, notas.size)
+
+    return if faltando.empty?
+
+    puts format("    %-10s %-12s %-12s %s", "NF", "emitida", "enviada?", "código do OMIE")
+
+    faltando.first(10).each do |nota|
+      codigo = nota.metadata.to_h["omie_codigo_lancamento"]
+
+      recusa = nota.metadata.to_h.dig("omie_recusa", "motivo")
+
+      puts format("    %-10s %-12s %-12s %s",
+                  nota.number, nota.issued_at&.to_date,
+                  recusa ? "recusada" : (codigo ? "sim" : "NÃO"),
+                  codigo || recusa || "—")
+    end
+
+    puts "    ... (#{faltando.size - 10} outras)" if faltando.size > 10
+
+    puts
+    puts "  enviada=sim e sem título -> nós criamos, a busca não acha: é a JANELA."
+    puts "  enviada=NÃO              -> o contador de pendentes é que está errado."
+    puts "  recusada                 -> nunca vai ter título, e é esperado."
+    puts
+  end
+
   # A observação nomeia quantidades ("3 nota(s)..."), e agrupar pelo texto cru
   # criaria um grupo por repasse. O que interessa é a CLASSE do motivo.
   def resumir(observacao)
@@ -190,6 +238,15 @@ namespace :conciliacao do
     puts format("  soma das notas fiscais:         R$ %.2f", soma_nf)
     puts format("  diferença entre as duas:        R$ %.2f", soma_ml - soma_nf)
     puts
+
+    # As notas deste repasse que a conciliação NÃO encontrou no OMIE.
+    #
+    # "Todas as notas já foram enviadas" e "parte das notas não tem título"
+    # não podem ser verdade ao mesmo tempo. Uma das duas está errada, e a
+    # diferença está no carimbo: se a nota tem `omie_codigo_lancamento`, nós
+    # criamos o título e a BUSCA é que não o acha — provavelmente a janela de
+    # emissão. Se não tem, ela nunca foi enviada, e o contador é que mente.
+    imprimir_notas_sem_titulo(tenant, unidades)
 
     # De qual canal são as notas penduradas neste repasse.
     #
