@@ -39,6 +39,8 @@ namespace :ml do
     com_pacote = 0
     sem_pacote = 0
     nota_do_pacote = 0
+    no_tiny_faltando = 0
+    sem_nota_em_lugar_nenhum = 0
 
     sem_nota.each do |unidade|
       referencia = unidade.order&.external_id
@@ -67,24 +69,49 @@ namespace :ml do
                .where("invoices.metadata->>'numero_ecommerce' = ?", pack)
                .first
 
-      nota_do_pacote += 1 if nota
+      if nota
+        nota_do_pacote += 1
 
-      puts format("  %s: pacote %s -> %s", referencia, pack,
-                  nota ? "NF #{nota.number} JÁ ESTÁ no nosso banco" : "sem nota nossa para o pacote")
+        puts format("  %s: pacote %s -> NF %s JÁ ESTÁ no nosso banco", referencia, pack, nota.number)
+
+        next
+      end
+
+      # Pacote sem nota nossa ainda tem duas explicações: a nota existe no Tiny
+      # e não importamos, ou ela não existe. São consertos diferentes, e uma
+      # consulta separa.
+      sleep 1
+
+      no_tiny = Fiscal::Tiny::Reader.new.por_pedido(pack).first
+
+      if no_tiny
+        no_tiny_faltando += 1
+
+        puts format("  %s: pacote %s -> NF %s existe no TINY, não importamos",
+                    referencia, pack, no_tiny[:numero])
+      else
+        sem_nota_em_lugar_nenhum += 1
+
+        puts format("  %s: pacote %s -> nem o Tiny tem nota", referencia, pack)
+      end
     rescue StandardError => e
       puts "  #{referencia}: #{e.class} #{e.message}"
     end
 
     puts
-    puts "Com pacote:            #{com_pacote}"
-    puts "Sem pacote:            #{sem_pacote}"
-    puts "Pacote com nota nossa: #{nota_do_pacote}"
+    puts format("  %-46s %d", "tem pacote, e a nota do pacote está aqui", nota_do_pacote)
+    puts format("  %-46s %d", "tem pacote, nota está no Tiny e falta importar", no_tiny_faltando)
+    puts format("  %-46s %d", "tem pacote, e nem o Tiny tem nota", sem_nota_em_lugar_nenhum)
+    puts format("  %-46s %d", "não tem pacote nenhum", sem_pacote)
     puts
-    puts "Como ler:"
-    puts "  a maioria com pacote E com nota -> hipótese confirmada; o religamento"
-    puts "     por pack_id resolve, bastando ressincronizar os pedidos."
-    puts "  a maioria sem pacote            -> a hipótese cai, e a explicação é"
-    puts "     outra: venda cuja nota não foi emitida ou não foi importada."
+    puts "  (com pacote: #{com_pacote})"
+    puts
+    puts "Como ler cada linha:"
+    puts "  nota do pacote aqui   -> o religamento por pack_id resolve sozinho,"
+    puts "     bastando ressincronizar os pedidos para gravar o pack_id."
+    puts "  falta importar        -> importar o Tiny cobrindo a data resolve."
+    puts "  nem o Tiny tem        -> a nota não foi emitida; é assunto do cliente."
+    puts "  sem pacote            -> não é o caso do pacote; outra explicação."
     puts
     puts "Nada foi gravado."
   end
