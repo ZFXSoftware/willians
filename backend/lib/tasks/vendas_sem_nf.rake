@@ -74,6 +74,31 @@ namespace :conciliacao do
       end
     end
 
+    # Onde a corrente do PACOTE está parando.
+    #
+    # A nota do pacote só encontra a venda se o pedido carregar o `pack_id`, e
+    # quem grava isso é a sincronização com o Mercado Livre. Sem esse número, o
+    # religamento por pacote não tem por onde começar — e "543 sem nota"
+    # continua igual sem dizer que o problema é anterior.
+    pedidos_ml = Order.where(tenant_id: tenant.id, platform: "mercado_livre")
+
+    com_pack = pedidos_ml.where("orders.metadata->>'pack_id' IS NOT NULL").count
+
+    da_api = pedidos_ml.where("orders.metadata->>'origem' IS DISTINCT FROM 'tiny_invoice_sync'").count
+
+    puts "Pedidos do Mercado Livre: #{pedidos_ml.count}"
+    puts "  vindos da API do marketplace:  #{da_api}"
+    puts "  com pack_id gravado:           #{com_pack}"
+
+    if com_pack.zero?
+      puts
+      puts "  NENHUM pedido tem pack_id. O religamento por pacote não roda sem ele,"
+      puts "  e quem o grava é a sincronização com o Mercado Livre (VinculoDePedidos)."
+      puts "  Confira se a ingestão está rodando e se o token do ML está válido."
+    end
+
+    puts
+
     puts "Por que a nota não está ligada:"
     puts
     puts format("  %-46s %d", "a nota ESTÁ no nosso banco, sem vínculo", orfas)
