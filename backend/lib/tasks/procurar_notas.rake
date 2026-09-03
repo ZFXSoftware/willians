@@ -48,30 +48,39 @@ namespace :conciliacao do
     #
     # Quando o comprador leva dois itens numa compra só, o Mercado Livre cria
     # um "pack" com id próprio. O Tiny registra o PACK em numero_ecommerce
-    # (a nota é do pacote), e nós guardamos o id do pedido individual — o
-    # OrdersClient lê `pedido["id"]` e joga `pack_id` fora.
+    # (a nota é do pacote), e nós guardamos o id do pedido individual.
     #
-    # Se for isso, o InvoiceSync criou, a partir dessas notas, pedidos-fantasma
-    # com o id do pack: existem no banco, nunca receberam dinheiro nenhum, e
-    # carregam justamente as notas que estamos procurando.
+    # Se for isso, o InvoiceSync criou, a partir dessas notas, pedidos que
+    # nunca receberam dinheiro — eles existem, carregam a nota, e o id deles é
+    # o do pacote.
+    #
+    # Mas contar todos seria enganoso: a maioria desses pedidos-fantasma é de
+    # OUTROS CANAIS, que estão atribuídos ao Mercado Livre por causa do defeito
+    # de canal. A primeira versão desta checagem contou 2778 e não separava —
+    # os exemplos eram Amazon, Shopee e TikTok.
+    #
+    # O intermediador da nota diz qual é qual, com exatidão.
     fantasmas = Order
-                  .where(tenant_id: tenant.id, platform: "mercado_livre")
+                  .where(tenant_id: tenant.id)
                   .where("orders.metadata->>'origem' = 'tiny_invoice_sync'")
                   .where.missing(:financial_entries)
 
     puts "Pedidos criados a partir de nota que nunca receberam dinheiro: #{fantasmas.count}"
+    puts
 
-    com_nota = fantasmas.joins(:invoices).distinct.count
+    por_canal = Invoice
+                  .where(tenant_id: tenant.id, order_id: fantasmas.select(:id))
+                  .group(Arel.sql("COALESCE(invoices.metadata->'intermediador'->>'nome', '(ainda não lido)')"))
+                  .count
 
-    puts "  desses, com nota fiscal:  #{com_nota}"
-
-    fantasmas.limit(5).each do |pedido|
-      puts format("    %s (NF %s)", pedido.external_id, pedido.invoices.first&.number || "—")
+    puts "  por intermediador declarado na nota:"
+    por_canal.sort_by { |_, quantos| -quantos }.each do |canal, quantos|
+      puts format("    %-24s %d", canal, quantos)
     end
 
     puts
-    puts "  Se este número for próximo das vendas sem nota, a hipótese do PACK"
-    puts "  está certa: são as MESMAS compras, com dois números diferentes."
+    puts "  Só a linha do MERCADO LIVRE serve de candidata a pacote. As outras"
+    puts "  são o defeito de canal, e somem quando os pedidos forem reatribuídos."
     puts
 
     puts "Conferindo #{[ amostra, total ].min} SORTEADAS no Tiny, uma por segundo."
