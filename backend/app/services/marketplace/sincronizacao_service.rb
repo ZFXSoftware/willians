@@ -28,8 +28,17 @@ module Marketplace
       start_date: nil,
       end_date: nil,
       forcar: false,
-      intervalo_minimo: INTERVALO_MINIMO
+      intervalo_minimo: INTERVALO_MINIMO,
+      # Injetáveis para o teste, no mesmo estilo do `client:` dos leitores. O
+      # que precisa ser exercitado aqui é a ORDEM das etapas quando o extrato
+      # não está pronto, e isso não se prova com rede de verdade.
+      ingestor: nil,
+      vinculador: nil
     )
+      @ingestor = ingestor || Ingestors::MarketplaceIngestor
+
+      @vinculador = vinculador || VinculoDePedidos
+
       @tenant = tenant
 
       @platform_account = platform_account
@@ -64,7 +73,9 @@ module Marketplace
 
     private
 
-    attr_reader :tenant,
+    attr_reader :ingestor,
+                :vinculador,
+                :tenant,
                 :platform_account,
                 :start_date,
                 :end_date,
@@ -86,12 +97,27 @@ module Marketplace
 
       return ignorada(conta, motivo) if motivo
 
-      resumo = Ingestors::MarketplaceIngestor.new(
-        tenant: conta.tenant,
-        platform_account: conta,
-        start_date: start_date,
-        end_date: end_date
-      ).call
+      resumo =
+        begin
+          ingestor.new(
+            tenant: conta.tenant,
+            platform_account: conta,
+            start_date: start_date,
+            end_date: end_date
+          ).call
+        rescue Marketplace::AindaNaoPronto => e
+          # O extrato não está pronto — mas o vínculo de pedidos NÃO depende
+          # dele: ele fala com a API de pedidos, que está no ar.
+          #
+          # Deixar a exceção subir daqui abortava o método inteiro e pulava o
+          # vínculo. Na conta do cliente o relatório do Mercado Pago ficou
+          # "sendo gerado" por quatro dias, e nesses quatro dias nenhum pedido
+          # foi ligado e nenhum `pack_id` foi gravado — travando a nota fiscal
+          # de 543 vendas por um motivo sem relação nenhuma com elas.
+          vincular_pedidos(conta)
+
+          return pendente(conta, e)
+        end
 
       # Antes dos repasses, e depois da ingestão: o extrato identifica cada
       # linha pelo id do PAGAMENTO, e é aqui que ela ganha o PEDIDO — que é por
@@ -155,7 +181,7 @@ module Marketplace
     def vincular_pedidos(conta)
       return unless conta.mercado_livre?
 
-      VinculoDePedidos.new(
+      vinculador.new(
         tenant: conta.tenant,
         platform_account: conta,
         start_date: start_date,
