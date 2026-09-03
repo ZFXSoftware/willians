@@ -18,6 +18,21 @@ module Omie
         @client = client
       end
 
+      # Zero à esquerda não pode decidir se um título é encontrado.
+      #
+      # As notas do cliente saem em duas séries — "042054" e "852276" — e o
+      # OMIE guarda o número como o sistema que criou o título mandou. Comparar
+      # as strings cruas faz "042054" e "42054" serem títulos diferentes, e o
+      # repasse inteiro sai como "sem título correspondente" por causa de um
+      # zero. O `tiny:check` já normalizava dos dois lados; o motor não.
+      def self.normalizar(numero)
+        limpo = numero.to_s.strip
+
+        return if limpo.blank?
+
+        limpo.sub(/\A0+/, "").presence || limpo
+      end
+
       # => { "referencia" => BigDecimal }
       def call(start_date:, end_date:)
         totals = Hash.new(BigDecimal("0"))
@@ -85,8 +100,9 @@ module Omie
       # `codigo_lancamento_integracao` NÃO serve: pertence a quem criou o
       # título (hoje o TrackCash, com prefixo `R_`) e não é um dado de negócio.
       def reference_for(record)
-        record["numero_documento_fiscal"].presence ||
-          record["numero_documento"].presence
+        self.class.normalizar(
+          record["numero_documento_fiscal"].presence || record["numero_documento"]
+        )
       end
 
       def format_date(date)

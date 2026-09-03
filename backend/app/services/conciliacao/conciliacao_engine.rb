@@ -312,7 +312,7 @@ module Conciliacao
     def notas_fiscais_for(payout)
       payout
         .financial_entry_allocations
-        .filter_map { |allocation| allocation.receivable_unit&.invoice&.number.presence }
+        .filter_map { |allocation| Omie::Readers::ReceivableTotals.normalizar(allocation.receivable_unit&.invoice&.number) }
         .uniq
     end
 

@@ -33,7 +33,14 @@ namespace :conciliacao do
       next
     end
 
+    # Um repasse tem um registro POR EXECUÇÃO da conciliação — é o histórico
+    # de como ele foi conferido ao longo do tempo. Sem desduplicar, os três
+    # "mais divergentes" podem ser o mesmo repasse impresso três vezes.
+    vistos = Set.new
+
     registros.each do |registro|
+      next unless vistos.add?(registro.payout_batch_id)
+
       lote = PayoutBatch.find_by(id: registro.payout_batch_id)
 
       next if lote.blank?
@@ -55,6 +62,9 @@ namespace :conciliacao do
 
     puts "=" * 78
     puts "Repasse ##{lote.id} · ref #{lote.external_id} · pago em #{lote.paid_at}"
+    # A data do registro importa: se ele é anterior às correções do motor, o
+    # número na tela é fantasma de uma regra que já não vale.
+    puts "Conferido em #{registro.conciliated_at} (execução ##{registro.conciliation_run_id})"
     puts
     puts format("  dinheiro que entrou (extrato):  R$ %.2f", extrato&.amount.to_d)
     puts format("  lote: bruto R$ %.2f · taxa R$ %.2f · líquido R$ %.2f",
