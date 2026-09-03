@@ -41,6 +41,7 @@ namespace :ml do
     nota_do_pacote = 0
     no_tiny_faltando = 0
     sem_nota_em_lugar_nenhum = 0
+    status = Hash.new(0)
 
     sem_nota.each do |unidade|
       referencia = unidade.order&.external_id
@@ -56,7 +57,12 @@ namespace :ml do
       if pack.blank?
         sem_pacote += 1
 
-        puts "  #{referencia}: sem pacote"
+        status[pedido[:status].presence || "(sem status)"] += 1
+
+        # O status do pedido no Mercado Livre já vem na mesma resposta, e é
+        # grátis. Venda cancelada não tem nota fiscal, e isso encerra o caso
+        # sem precisar de mais nenhuma consulta.
+        puts format("  %s: sem pacote · status %s", referencia, pedido[:status] || "—")
 
         next
       end
@@ -106,6 +112,12 @@ namespace :ml do
     puts
     puts "  (com pacote: #{com_pacote})"
     puts
+
+    if status.any?
+      puts "  Status no Mercado Livre das que não têm pacote:"
+      status.sort_by { |_, quantos| -quantos }.each { |nome, quantos| puts format("    %-20s %d", nome, quantos) }
+      puts
+    end
     puts "Como ler cada linha:"
     puts "  nota do pacote aqui   -> o religamento por pack_id resolve sozinho,"
     puts "     bastando ressincronizar os pedidos para gravar o pack_id."
