@@ -115,7 +115,7 @@ namespace :conciliacao do
     when /repasses diferentes/ then "nota de pacote partida entre repasses"
     when /Nenhuma das/         then "nenhuma nota deste repasse tem título no OMIE"
     when /têm título no OMIE/  then "parte das notas ainda não tem título no OMIE"
-    when /não têm nota fiscal/ then "vendas sem nota fiscal"
+    when /sem nota fiscal/     then "vendas sem nota fiscal"
     when ""                    then "(sem observação)"
     else texto.truncate(56)
     end

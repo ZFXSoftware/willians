@@ -334,7 +334,7 @@ module Financeiro
       # regra existia para impedir.
       assert_equal "100.0", registro.conciliation_metadata["valor_omie"].to_s
 
-      assert_includes registro.observacao.to_s, "não têm nota fiscal"
+      assert_includes registro.observacao.to_s, "sem nota fiscal"
       assert_includes registro.observacao.to_s, "200.00",
                       "sem o valor sem nota, a diferença parece rombo"
       assert_includes registro.observacao.to_s, "diferença real",
@@ -429,10 +429,16 @@ module Financeiro
       assert_includes registro.observacao.to_s, "222", "diz QUAL nota corrigir no Tiny"
     end
 
-    # A exclusão vale só para o que nunca vai chegar. Nota que ainda está na
-    # fila de envio continua sendo motivo para esperar — senão a tela voltaria
-    # a inventar divergência enquanto o envio anda.
-    test "nota apenas pendente de envio continua travando a comparação" do
+    # Nota que ainda não virou título no OMIE também não trava mais.
+    #
+    # A regra antiga esperava por ela, e isso parecia razoável — o título vai
+    # chegar. Mas travava um repasse de 256 notas por UMA sem título, e a
+    # diferença que apareceria seria exatamente o valor dela. Esperar em
+    # silêncio por um envio que a própria tela dispara não é proteção.
+    #
+    # Compara e decompõe: quem lê vê quanto da diferença é título faltando e
+    # quanto é diferença de verdade.
+    test "nota pendente de envio é comparada, com o valor dela nomeado" do
       venda_com_taxa(pagamento: "PAY-A", bruto: 100, taxa: 10)
       venda_com_taxa(pagamento: "PAY-B", bruto: 200, taxa: 20)
       repasse
@@ -452,8 +458,11 @@ module Financeiro
 
       registro = conciliar([ { "numero_documento_fiscal" => "111", "valor_documento" => "100.00" } ])
 
-      assert_nil registro.conciliation_metadata["valor_omie"]
-      assert_includes registro.observacao.to_s, "têm título no OMIE"
+      assert_equal "100.0", registro.conciliation_metadata["valor_omie"].to_s
+
+      assert_includes registro.observacao.to_s, "sem título no OMIE"
+      assert_includes registro.observacao.to_s, "200.00",
+                      "o valor do título que falta é o que explica a diferença"
     end
   end
 end

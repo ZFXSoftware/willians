@@ -351,6 +351,20 @@ module Conciliacao
 
         encontradas = esperadas.select { |ref| omie_totals.key?(ref) }
 
+        # Quanto vale o que ainda não tem título no OMIE.
+        #
+        # Sem este número, 255 notas de 256 com título travavam o repasse
+        # inteiro — e a diferença que apareceria seria exatamente a nota que
+        # falta, não divergência. É a mesma lógica das vendas sem nota, e
+        # tratar os dois casos com regras diferentes era incoerência minha.
+        faltando = por_nota.keys.reject do |nota|
+          chave = Omie::Readers::ReceivableTotals.normalizar(nota.number)
+
+          chave.present? && omie_totals.key?(chave)
+        end
+
+        valor_sem_titulo = faltando.sum(BigDecimal("0")) { |nota| nota.total_amount.to_d }
+
         # As que não vão chegar: nota emitida sem valor não vira título nunca.
         # Contá-las como "faltando" deixa o repasse esperando para sempre.
         recusadas = por_nota.keys.select(&:recusada_no_envio?)
@@ -362,6 +376,8 @@ module Conciliacao
         {
           referencias: esperadas.size,
           sem_nota: sem_nota,
+          sem_titulo: faltando.size,
+          valor_sem_titulo: valor_sem_titulo,
           # Quanto do repasse está sem documento fiscal.
           #
           # Este número é o que permite comparar mesmo com vendas sem nota: a
@@ -384,10 +400,15 @@ module Conciliacao
           # A nota recusada não tem título e nunca vai ter: ela conta como
           # coberta para efeito de comparação, mas o valor dela não entra na
           # soma do OMIE — é isso que faz a diferença aparecer.
+          # Compara sempre que houver algo com que comparar e o pacote não
+          # estiver partido entre repasses — e explica o que ficou de fora.
+          #
+          # A regra antiga esperava pelo que falta. Funciona quando o que falta
+          # vai chegar; não funciona quando são vendas sem NF, que as buscas
+          # mostraram que não existem. E travar por UMA nota sem título entre
+          # 256 é esperar por um envio que a própria tela pode disparar.
           completa_com_exclusoes:
-            !completa && unidades.any? && divididas.zero? &&
-              (recusadas.any? || sem_nota.positive?) &&
-              esperadas.any? && (encontradas.size + recusadas.size) >= esperadas.size
+            !completa && unidades.any? && divididas.zero? && encontradas.any?
         }
     end
 
@@ -486,7 +507,7 @@ module Conciliacao
       if resultado.valor_omie.present?
         return resultado.mensagem unless cobertura[:completa_com_exclusoes]
 
-        return "#{resultado.mensagem}. #{exclusoes(cobertura)} #{sem_nota_frase(cobertura, resultado)}".squish
+        return "#{resultado.mensagem}. #{exclusoes(cobertura)} #{decomposicao(cobertura, resultado)}".squish
       end
 
       encontradas = cobertura[:encontradas].to_a.size
@@ -514,23 +535,37 @@ module Conciliacao
     #
     # É o que separa "falta dinheiro" de "falta nota": sem este número, uma
     # diferença de R$ 1.200 num repasse com seis vendas sem NF parece rombo.
-    def sem_nota_frase(cobertura, resultado)
-      quantas = cobertura[:sem_nota].to_i
-
-      return "" if quantas.zero?
-
+    # A diferença bruta, decomposta em suas causas.
+    #
+    # Duas parcelas explicam quase tudo e pedem providências opostas: venda sem
+    # NF é problema fiscal do cliente, nota sem título é envio ao OMIE que não
+    # alcançou. O que sobra depois das duas é a diferença de verdade — e é o
+    # único número que fala sobre dinheiro.
+    #
+    # Deixar a subtração para quem lê é deixar o número no ar: R$ 6.442 de
+    # diferença num repasse com R$ 6.442 sem nota é R$ 0,00 de divergência.
+    def decomposicao(cobertura, resultado)
       sem_nota = cobertura[:valor_sem_nota].to_d
 
-      # A subtração é o ponto.
-      #
-      # "Diferença de R$ 196,58" e "R$ 141,23 são vendas sem nota" deixavam a
-      # conta final para quem lê — e a conta final é a única coisa que importa:
-      # R$ 55,35 de diferença real num repasse de R$ 20 mil é outra história.
-      real = resultado.diferenca.to_d.abs - sem_nota
+      sem_titulo = cobertura[:valor_sem_titulo].to_d
 
-      "#{quantas} venda(s) deste repasse não têm nota fiscal, somando " \
-      "R$ #{format('%.2f', sem_nota)}. Descontando isso, a diferença real é " \
-      "R$ #{format('%.2f', real)}."
+      partes = []
+
+      if cobertura[:sem_nota].to_i.positive?
+        partes << "#{cobertura[:sem_nota]} venda(s) sem nota fiscal (R$ #{format('%.2f', sem_nota)})"
+      end
+
+      if cobertura[:sem_titulo].to_i.positive?
+        partes << "#{cobertura[:sem_titulo]} nota(s) ainda sem título no OMIE " \
+                  "(R$ #{format('%.2f', sem_titulo)})"
+      end
+
+      return "" if partes.empty?
+
+      real = resultado.diferenca.to_d.abs - sem_nota - sem_titulo
+
+      "Da diferença: #{partes.join(' e ')}. Descontando, sobra " \
+      "R$ #{format('%.2f', real)} de diferença real."
     end
 
     # O que ficou de fora e não vai entrar.
