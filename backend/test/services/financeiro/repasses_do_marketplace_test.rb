@@ -368,10 +368,16 @@ module Financeiro
       assert_equal "matched", registro.status
     end
 
-    # Mas a nota do pacote só pode ser comparada quando o repasse levou TODAS
-    # as vendas dela. Se pagou uma de duas, somar o valor inteiro da nota
-    # contra meio repasse acusa diferença onde não há.
-    test "nota cujas vendas caíram em repasses diferentes não é comparada" do
+    # Nota de pacote cujas vendas caíram em repasses diferentes.
+    #
+    # Comparar a nota INTEIRA contra o repasse que pagou metade inventaria
+    # diferença — mas recusar deixava o repasse travado sem saída. Dá para
+    # saber a parte: cada venda tem o valor dela no extrato, então a fatia da
+    # nota é a razão entre o que este repasse levou e o pacote inteiro.
+    #
+    # É rateio, não medição — a nota não diz quanto vale cada item. O erro é da
+    # ordem do frete, e a alternativa era não comparar nada.
+    test "nota de pacote partida entre repasses entra pela fração que coube" do
       venda_com_taxa(pagamento: "PAY-A", bruto: 100, taxa: 10)
       venda_com_taxa(pagamento: "PAY-B", bruto: 200, taxa: 20, ocorrido: 1.hour.ago)
       repasse
@@ -383,16 +389,16 @@ module Financeiro
 
       fechar
 
-      # A segunda venda fica FORA do lote: liberada depois do repasse.
+      # A segunda venda fica FORA do lote.
       fora = ReceivableUnit.where(tenant: @tenant).order(:id).last
 
       FinancialEntryAllocation.where(receivable_unit_id: fora.id, allocation_type: "payout").delete_all
 
       registro = conciliar([ { "numero_documento_fiscal" => "111", "valor_documento" => "300.00" } ])
 
-      assert_nil registro.conciliation_metadata["valor_omie"],
-                 "meio pacote contra a nota inteira inventa diferença"
-      assert_includes registro.observacao.to_s, "repasses diferentes"
+      # O repasse levou R$ 100 de um pacote de R$ 300: um terço da nota.
+      assert_equal "100.0", registro.conciliation_metadata["valor_omie"].to_s,
+                   "a fração é pelo VALOR das vendas, não pela contagem"
     end
 
     # A regra acima manda esperar pelas notas que faltam. Mas nota emitida sem

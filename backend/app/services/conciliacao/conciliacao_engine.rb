@@ -296,7 +296,13 @@ module Conciliacao
       # divergência de verdade.
       return unless cobertura[:completa] || cobertura[:completa_com_exclusoes]
 
-      cobertura[:encontradas].sum(BigDecimal("0")) { |ref| omie_totals[ref] }
+      # Cada título entra pela fração que cabe a este repasse. Para nota que
+      # não é de pacote a fração é 1, e a soma é a de sempre.
+      # Arredondado: a fração é uma divisão de BigDecimal e propaga trinta casas
+      # decimais até a tela, onde R$ 99,999999999999 não é um valor, é um susto.
+      cobertura[:encontradas].sum(BigDecimal("0")) do |ref|
+        omie_totals[ref] * (cobertura[:fracao_por_chave].to_h[ref] || 1)
+      end.round(2)
     end
 
     # Guardada por repasse porque a observação, montada depois, precisa dela
@@ -351,9 +357,27 @@ module Conciliacao
         # somar o valor inteiro da nota contra um repasse que pagou metade
         # acusa uma diferença que não existe — o mesmo erro da cobertura
         # parcial, um nível abaixo.
-        divididas = notas_divididas(por_nota)
+        # Quanto de cada nota cabe a ESTE repasse.
+        #
+        # A nota do pacote vale por várias vendas, e elas podem ser liberadas em
+        # dias diferentes. Recusar a comparação por isso deixava o repasse
+        # travado sem saída — mas dá para saber a parte: cada venda tem o valor
+        # dela no extrato, então a fatia da nota é a razão entre o que este
+        # repasse levou e o pacote inteiro.
+        #
+        # É rateio, não medição: a nota não diz quanto vale cada item. Mas o
+        # erro é da ordem do frete, e a alternativa era não comparar nada.
+        fracoes = fracoes_das_notas(por_nota)
+
+        divididas = fracoes.count { |_, fracao| fracao < 1 }
 
         esperadas = por_nota.keys.filter_map { |nota| Omie::Readers::ReceivableTotals.normalizar(nota.number) }.uniq
+
+        # A chave normalizada de cada nota, para o rateio saber a qual título
+        # aplicar a fração.
+        fracao_por_chave = por_nota.keys.to_h do |nota|
+          [ Omie::Readers::ReceivableTotals.normalizar(nota.number), fracoes[nota.id] || 1 ]
+        end
 
         encontradas = esperadas.select { |ref| omie_totals.key?(ref) }
 
@@ -381,6 +405,7 @@ module Conciliacao
 
         {
           referencias: esperadas.size,
+          fracao_por_chave: fracao_por_chave,
           sem_nota: sem_nota,
           sem_titulo: faltando.size,
           valor_sem_titulo: valor_sem_titulo,
@@ -414,7 +439,7 @@ module Conciliacao
           # mostraram que não existem. E travar por UMA nota sem título entre
           # 256 é esperar por um envio que a própria tela pode disparar.
           completa_com_exclusoes:
-            !completa && unidades.any? && divididas.zero? && encontradas.any?
+            !completa && unidades.any? && encontradas.any?
         }
     end
 
@@ -425,6 +450,8 @@ module Conciliacao
 
       {
         referencias: referencias.size,
+        # Sem nota não há pacote: nada a ratear.
+        fracao_por_chave: {},
         sem_nota: 0,
         divididas: 0,
         encontradas: encontradas,
@@ -434,17 +461,26 @@ module Conciliacao
       }
     end
 
-    # Quantos recebíveis cada nota tem NO TOTAL, para saber se este repasse
-    # levou todos. Uma consulta para o lote inteiro, não uma por nota.
-    def notas_divididas(por_nota)
-      return 0 if por_nota.empty?
+    # Que fração de cada nota este repasse liquidou, pelo VALOR das vendas.
+    #
+    # Uma consulta para o lote inteiro, não uma por nota.
+    def fracoes_das_notas(por_nota)
+      return {} if por_nota.empty?
 
       totais = ReceivableUnit
                  .where(tenant_id: tenant.id, invoice_id: por_nota.keys.map(&:id))
                  .group(:invoice_id)
-                 .count
+                 .sum(:gross_amount)
 
-      por_nota.count { |nota, unidades| totais[nota.id].to_i > unidades.size }
+      por_nota.to_h do |nota, unidades|
+        total = totais[nota.id].to_d
+
+        aqui = unidades.sum(BigDecimal("0")) { |u| u.gross_amount.to_d }
+
+        # Total zero seria divisão por zero; e uma nota cujas vendas somam zero
+        # não tem fração que faça sentido.
+        [ nota.id, total.positive? ? (aqui / total) : BigDecimal("1") ]
+      end
     end
 
     def unidades_de(payout)
@@ -520,12 +556,6 @@ module Conciliacao
 
       referencias = cobertura[:referencias].to_i
 
-      if cobertura[:divididas].to_i.positive?
-        return "#{cobertura[:divididas]} nota(s) deste repasse cobrem vendas que caíram em " \
-               "repasses diferentes. O valor da nota é do conjunto, e este repasse pagou " \
-               "só uma parte — comparar os dois acusaria diferença onde não há."
-      end
-
       return resultado.mensagem if referencias.zero?
 
       if encontradas.zero?
@@ -556,6 +586,11 @@ module Conciliacao
       sem_titulo = cobertura[:valor_sem_titulo].to_d
 
       partes = []
+
+      if cobertura[:divididas].to_i.positive?
+        partes << "#{cobertura[:divididas]} nota(s) de pacote entraram pela fração que coube a " \
+                  "este repasse — o resto delas caiu em outro"
+      end
 
       if cobertura[:sem_nota].to_i.positive?
         partes << "#{cobertura[:sem_nota]} venda(s) sem nota fiscal (R$ #{format('%.2f', sem_nota)})"

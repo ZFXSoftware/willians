@@ -112,7 +112,7 @@ namespace :conciliacao do
     texto = observacao.to_s
 
     case texto
-    when /repasses diferentes/ then "nota de pacote partida entre repasses"
+    when /fração que coube/    then "nota de pacote partida entre repasses (rateada)"
     when /Nenhuma das/         then "nenhuma nota deste repasse tem título no OMIE"
     when /têm título no OMIE/  then "parte das notas ainda não tem título no OMIE"
     when /sem nota fiscal/     then "vendas sem nota fiscal"
