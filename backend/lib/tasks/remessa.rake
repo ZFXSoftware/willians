@@ -14,6 +14,12 @@ namespace :conciliacao do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
+    # As chaves do OMIE são por EMPRESA. Sem definir o tenant, `configured?`
+    # olha só o ambiente e conclui que não há credencial — e a conferência de
+    # títulos era pulada em silêncio, justamente na tarefa feita para
+    # investigá-la. Mesmo erro de contexto que já corrigi em outras tarefas.
+    Current.tenant = tenant
+
     quantos = (ENV["QUANTOS"] || 3).to_i
 
     registros =
