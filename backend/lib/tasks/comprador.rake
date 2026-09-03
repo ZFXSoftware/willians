@@ -79,10 +79,16 @@ namespace :ml do
 
       janela = (unidade.expected_on || Date.current) - 60..(unidade.expected_on || Date.current)
 
+      # CPF sozinho não basta: comprador que volta tem várias notas, e uma
+      # delas veio com a chave de OUTRO pedido dele. Com o valor junto, o
+      # falso positivo some.
+      valor = unidade.gross_amount.to_d
+
       notas = Invoice
                 .where(tenant_id: tenant.id, operation_type: :sale)
                 .where(issued_at: janela)
                 .where("regexp_replace(invoices.metadata->>'comprador_documento', '\\D', '', 'g') = ?", documento)
+                .where(total_amount: (valor - 30)..(valor + 30))
                 .limit(3)
 
       if notas.none?
@@ -100,8 +106,9 @@ namespace :ml do
 
         chaves[chave == referencia ? "igual ao pedido" : classificar(chave)] += 1
 
-        puts format("  %s: comprador ...%s -> NF %s sob a chave %s",
-                    referencia, documento.last(3), nota.number, chave.presence || "vazia")
+        puts format("  %s: comprador ...%s -> NF %s sob a chave %s  [%s]",
+                    referencia, documento.last(3), nota.number, chave.presence || "vazia",
+                    classificar(chave))
       end
     rescue StandardError => e
       puts "  #{referencia}: #{e.class} #{e.message}"
@@ -160,7 +167,11 @@ namespace :ml do
   def classificar(chave)
     case chave
     when "" then "vazia"
-    when /\A20000146\d+\z/ then "pacote do Mercado Livre"
+    # Pacotes e pedidos vivem em FAIXAS diferentes: os pacotes observados vão
+    # de 20000141 a 20000147, os pedidos de 20000172 para cima. A primeira
+    # versão só reconhecia 20000146 e rotulou quatro pacotes como "outro
+    # pedido" — o classificador mentindo é pior que classificador nenhum.
+    when /\A2000014\d{9}\z/ then "PACOTE do Mercado Livre"
     when /\A2000\d{12}\z/ then "outro pedido do Mercado Livre"
     when /\A\d{17,19}\z/ then "18 dígitos (TikTok)"
     when /\A\d{3}-\d{7}-\d{7}\z/ then "Amazon"
