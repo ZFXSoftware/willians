@@ -68,7 +68,13 @@ namespace :tiny do
     puts
 
     grupos.sort_by { |_, quantas| -quantas }.each do |(nome, cnpj), quantas|
-      puts format("  %-24s %-22s %d nota(s)", nome || "(não informado)", cnpj || "—", quantas)
+      # Mapeado ou não é a informação que decide se há trabalho a fazer, e ela
+      # faltava: "atribuídas a mercado_livre" saía igual para o nome mapeado
+      # corretamente e para o que ninguém mapeou — que a reatribuição PULA.
+      canal = Fiscal::Tiny::Canal.para(nome, tenant: tenant)
+
+      puts format("  %-24s %-22s %d nota(s)  [%s]", nome || "(não informado)", cnpj || "—", quantas,
+                  canal ? "mapeado: #{canal}" : "SEM MAPEAMENTO — a reatribuição ignora")
 
       # A que plataforma essas notas foram atribuídas no nosso banco. Quando o
       # intermediador não é o marketplace atribuído, a venda está na
@@ -105,6 +111,14 @@ namespace :tiny do
     puts "Contas de marketplace cadastradas: " \
          "#{tenant.platform_accounts.where(status: :active).pluck(:platform).uniq.join(', ').presence || 'nenhuma'}"
     puts
+    faltando = Fiscal::Tiny::Canal.nao_mapeados(tenant)
+
+    if faltando.any?
+      puts "Nomes sem mapeamento (#{faltando.size}): #{faltando.join(', ')}"
+      puts "Mapeie em Configurações > Canais de venda e rode canais:reatribuir de novo."
+      puts
+    end
+
     puts "Como ler:"
     puts "  intermediador != plataforma atribuída  -> venda na conciliação errada."
     puts "  zero pedidos com lançamento            -> o sistema não lê o dinheiro"
