@@ -213,6 +213,20 @@ export default function Divergences() {
                       </td>
                     </tr>
 
+                    {/* A diferença, decomposta.
+                        Sem isto a tela mostra o valor bruto como se fosse
+                        dinheiro faltando — e a maior parte dele costuma ser
+                        venda sem NF ou título ainda não enviado ao OMIE, que
+                        são problemas de documento, não de repasse. */}
+                    {typeof row.metadata?.mensagem === "string" && (
+                      <tr className="border-t border-zinc-900">
+                        <td />
+                        <td colSpan={9} className="px-4 pb-3 text-xs text-zinc-400 leading-relaxed">
+                          {row.metadata.mensagem}
+                        </td>
+                      </tr>
+                    )}
+
                     {aberta && (
                       <tr className="border-t border-zinc-800 bg-zinc-950/40">
                         <td colSpan={10} className="px-6 pb-6">

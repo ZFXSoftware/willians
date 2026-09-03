@@ -123,6 +123,10 @@ module Conciliacao
     end
 
     def process_payouts!(omie_totals)
+      # A cobertura é memoizada por repasse e a linha de divergência precisa
+      # dela; guardar o índice evita passá-lo por mais três métodos.
+      @omie_totals_atual = omie_totals
+
       registros = []
 
       divergencias = []
@@ -197,6 +201,8 @@ module Conciliacao
 
       resolvidos.clear
     end
+
+    def omie_totals_atual = @omie_totals_atual || {}
 
     def resolvidos
       @resolvidos ||= Set.new
@@ -634,6 +640,16 @@ module Conciliacao
 
     # Divergências abertas não são recriadas a cada execução — o scheduler roda a
     # cada poucos minutos e duplicaria o backlog indefinidamente.
+    # O que sobra da diferença depois de descontar o que é falta de documento.
+    # É o único número da divergência que fala sobre dinheiro.
+    def diferenca_real(payout, resultado)
+      cobertura = cobertura_de(payout, omie_totals_atual)
+
+      (resultado.diferenca.to_d.abs -
+        cobertura[:valor_sem_nota].to_d -
+        cobertura[:valor_sem_titulo].to_d).to_s
+    end
+
     def divergencia_row(payout, resultado)
       return if resultado.ok?
 
@@ -668,7 +684,17 @@ module Conciliacao
           conciliation_run_id: run.id,
           payout_batch_id: payout.id,
           referencias: referencias_for(payout),
-          mensagem: resultado.mensagem
+          # A frase DECOMPOSTA, e não só "diferença de X".
+          #
+          # A tela de divergências mostrava o valor bruto como se fosse
+          # dinheiro faltando — e agora que todo repasse é comparado, a maior
+          # parte dessa diferença costuma ser venda sem NF ou título ainda não
+          # enviado. Sem a decomposição aqui, a tela vira a mesma armadilha que
+          # a de conciliação era.
+          mensagem: observacao_de(payout, resultado),
+          diferenca_real: diferenca_real(payout, resultado),
+          sem_nota: cobertura_de(payout, omie_totals_atual)[:valor_sem_nota],
+          sem_titulo: cobertura_de(payout, omie_totals_atual)[:valor_sem_titulo]
         },
 
         created_at: now,
