@@ -362,13 +362,32 @@ module Conciliacao
         {
           referencias: esperadas.size,
           sem_nota: sem_nota,
+          # Quanto do repasse está sem documento fiscal.
+          #
+          # Este número é o que permite comparar mesmo com vendas sem nota: a
+          # diferença que aparece é grande porque falta NF, não porque falta
+          # dinheiro, e sem dizer quanto é uma coisa vira a outra.
+          valor_sem_nota: unidades.reject(&:invoice).sum(BigDecimal("0")) { |u| u.gross_amount.to_d },
           divididas: divididas,
           encontradas: encontradas,
           recusadas: recusadas,
           completa: completa,
+          # Compara mesmo faltando nota, quando o que falta NUNCA vai chegar.
+          #
+          # Duas vendas sem NF entre 268 travavam o repasse inteiro em "sem
+          # comparação" — e as três buscas que fizemos dizem que a nota delas
+          # não existe em lugar nenhum. Esperar por ela é esperar para sempre.
+          #
+          # A diferença que aparece é real: é dinheiro que entrou sem documento
+          # fiscal. O `valor_sem_nota` acima diz quanto dela é isso, para
+          # ninguém confundir falta de nota com falta de dinheiro.
+          # A nota recusada não tem título e nunca vai ter: ela conta como
+          # coberta para efeito de comparação, mas o valor dela não entra na
+          # soma do OMIE — é isso que faz a diferença aparecer.
           completa_com_exclusoes:
-            !completa && integra && recusadas.any? &&
-              (encontradas.size + recusadas.size) == esperadas.size
+            !completa && unidades.any? && divididas.zero? &&
+              (recusadas.any? || sem_nota.positive?) &&
+              esperadas.any? && (encontradas.size + recusadas.size) >= esperadas.size
         }
     end
 
@@ -467,20 +486,12 @@ module Conciliacao
       if resultado.valor_omie.present?
         return resultado.mensagem unless cobertura[:completa_com_exclusoes]
 
-        return "#{resultado.mensagem} #{exclusoes(cobertura)}".strip
+        return "#{resultado.mensagem} #{exclusoes(cobertura)} #{sem_nota_frase(cobertura)}".squish
       end
 
       encontradas = cobertura[:encontradas].to_a.size
 
       referencias = cobertura[:referencias].to_i
-
-      # Cada motivo pede uma providência diferente, e "comparação incompleta"
-      # sozinho manda todo mundo procurar no lugar errado.
-      if cobertura[:sem_nota].to_i.positive?
-        return "#{cobertura[:sem_nota]} venda(s) deste repasse não têm nota fiscal vinculada. " \
-               "Sem elas, comparar o repasse com os títulos das outras acusaria uma " \
-               "diferença que não existe."
-      end
 
       if cobertura[:divididas].to_i.positive?
         return "#{cobertura[:divididas]} nota(s) deste repasse cobrem vendas que caíram em " \
@@ -497,6 +508,20 @@ module Conciliacao
         "têm título no OMIE. Comparar o repasse inteiro com uma parte dos títulos " \
         "acusaria uma diferença que não existe. #{exclusoes(cobertura)}".strip
       end
+    end
+
+    # Quanto do repasse entrou sem documento fiscal.
+    #
+    # É o que separa "falta dinheiro" de "falta nota": sem este número, uma
+    # diferença de R$ 1.200 num repasse com seis vendas sem NF parece rombo.
+    def sem_nota_frase(cobertura)
+      quantas = cobertura[:sem_nota].to_i
+
+      return "" if quantas.zero?
+
+      "#{quantas} venda(s) deste repasse não têm nota fiscal: " \
+      "R$ #{format('%.2f', cobertura[:valor_sem_nota].to_d)} da diferença é dinheiro que " \
+      "entrou sem documento fiscal, e não falta de repasse."
     end
 
     # O que ficou de fora e não vai entrar.

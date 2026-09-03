@@ -324,9 +324,19 @@ module Financeiro
 
       registro = conciliar([ { "numero_documento_fiscal" => "111", "valor_documento" => "100.00" } ])
 
-      assert_nil registro.conciliation_metadata["valor_omie"],
-                 "comparar o repasse inteiro com parte dos títulos inventa divergência"
-      assert_includes registro.observacao.to_s, "não têm nota fiscal vinculada"
+      # A regra mudou, e a razão é medida: duas vendas sem NF entre 268
+      # travavam um repasse inteiro em "sem comparação", e as três buscas que
+      # fizemos dizem que a nota delas não existe em lugar nenhum. Esperar por
+      # ela é esperar para sempre.
+      #
+      # Comparar mesmo assim é honesto DESDE QUE se diga quanto da diferença é
+      # falta de nota — senão volta a ser a divergência inventada que esta
+      # regra existia para impedir.
+      assert_equal "100.0", registro.conciliation_metadata["valor_omie"].to_s
+
+      assert_includes registro.observacao.to_s, "não têm nota fiscal"
+      assert_includes registro.observacao.to_s, "200.00",
+                      "sem o valor sem nota, a diferença parece rombo"
     end
 
     # O pacote do Mercado Livre: o comprador leva dois itens, o ML cria duas
