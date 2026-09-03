@@ -92,6 +92,14 @@ module Marketplace
         normalizar(parse!(com_retry(URI.join(api_host, "/orders/#{id}"))))
       end
 
+      # A resposta CRUA de um pedido.
+      #
+      # `normalizar` guarda só o que a ingestão usa, e para investigar é
+      # preciso ver o resto — foi assim que o `pack_id` passou despercebido.
+      def order_raw(id)
+        parse!(com_retry(URI.join(api_host, "/orders/#{id}")))
+      end
+
       private
 
       attr_reader :access_token, :seller_id, :sleeper
