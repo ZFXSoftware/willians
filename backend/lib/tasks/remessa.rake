@@ -48,6 +48,19 @@ namespace :conciliacao do
     end
     puts
 
+    # O motivo de CADA um, agrupado.
+    #
+    # Abrir só o maior respondia "por que este não fechou", e a pergunta é
+    # "por que treze não fecharam" — que pode ter três respostas diferentes ao
+    # mesmo tempo, com consertos opostos.
+    puts "Por que cada repasse não fechou:"
+
+    atuais.where(status: "manual_review").group_by { |r| resumir(r.observacao) }
+          .sort_by { |_, lista| -lista.size }
+          .each { |motivo, lista| puts format("  %-58s %d", motivo, lista.size) }
+
+    puts
+
     if registros.none?
       puts "Nenhum repasse DIVERGENTE."
       puts
@@ -91,6 +104,21 @@ namespace :conciliacao do
     puts "     o repasse recolheu recebível que ele não pagou."
     puts
     puts "Nada foi gravado."
+  end
+
+  # A observação nomeia quantidades ("3 nota(s)..."), e agrupar pelo texto cru
+  # criaria um grupo por repasse. O que interessa é a CLASSE do motivo.
+  def resumir(observacao)
+    texto = observacao.to_s
+
+    case texto
+    when /repasses diferentes/ then "nota de pacote partida entre repasses"
+    when /Nenhuma das/         then "nenhuma nota deste repasse tem título no OMIE"
+    when /têm título no OMIE/  then "parte das notas ainda não tem título no OMIE"
+    when /não têm nota fiscal/ then "vendas sem nota fiscal"
+    when ""                    then "(sem observação)"
+    else texto.truncate(56)
+    end
   end
 
   def imprimir_remessa(tenant, lote, registro)
