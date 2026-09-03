@@ -21,6 +21,7 @@ module Fiscal
 
     def call
       {
+        soltas: soltar_canceladas!,
         lancamentos: ligar!(FinancialEntry),
         recebiveis: ligar!(ReceivableUnit),
         por_pacote: ligar_por_pacote!
@@ -30,6 +31,25 @@ module Fiscal
     private
 
     attr_reader :tenant
+
+    # Nota cancelada não é a nota da venda.
+    #
+    # Ela foi emitida, grudou no recebível, e depois foi cancelada no Tiny —
+    # provavelmente com outra emitida no lugar. Nós continuávamos apontando
+    # para a morta: o envio ao OMIE a ignorava (certo, ninguém manda nota
+    # cancelada para a contabilidade) e a conciliação seguia esperando um
+    # título que nunca vai existir, contando a venda como "sem título".
+    #
+    # Soltar é o que permite o religamento logo abaixo encontrar a substituta.
+    def soltar_canceladas!
+      canceladas = Invoice.where(tenant_id: tenant.id, status: :cancelled).select(:id)
+
+      soltos = ReceivableUnit.where(tenant_id: tenant.id, invoice_id: canceladas)
+                             .update_all(invoice_id: nil, updated_at: Time.current)
+
+      soltos + FinancialEntry.where(tenant_id: tenant.id, invoice_id: canceladas)
+                             .update_all(invoice_id: nil, updated_at: Time.current)
+    end
 
     # A nota do PACOTE, para a venda que faz parte dele.
     #

@@ -121,6 +121,35 @@ module Fiscal
       assert_nil recebivel.reload.invoice_id
     end
 
+    # Nota cancelada continuava grudada na venda: o envio ao OMIE a ignorava
+    # (certo) e a conciliação seguia esperando um título que nunca viria,
+    # contando a venda como "sem título" e inchando a diferença.
+    test "nota cancelada é solta da venda" do
+      cancelada = criar_nota(tenant: @tenant, pedido: @pedido, numero: "999", valor: 100)
+      cancelada.update!(operation_type: :sale, status: :cancelled)
+
+      recebivel = criar_recebivel(tenant: @tenant, conta: @conta, pedido: @pedido, nota: cancelada)
+
+      religar
+
+      assert_nil recebivel.reload.invoice_id
+    end
+
+    # E, solta, ela dá lugar à substituta — que é o motivo de soltar.
+    test "a venda passa a apontar para a nota que substituiu a cancelada" do
+      cancelada = criar_nota(tenant: @tenant, pedido: @pedido, numero: "999", valor: 100)
+      cancelada.update!(operation_type: :sale, status: :cancelled)
+
+      nova = criar_nota(tenant: @tenant, pedido: @pedido, numero: "1000", valor: 100)
+      nova.update!(operation_type: :sale)
+
+      recebivel = criar_recebivel(tenant: @tenant, conta: @conta, pedido: @pedido, nota: cancelada)
+
+      religar
+
+      assert_equal nova.id, recebivel.reload.invoice_id
+    end
+
     test "não atravessa empresas" do
       outra_empresa = criar_tenant
 
