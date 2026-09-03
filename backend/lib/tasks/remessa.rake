@@ -117,6 +117,11 @@ namespace :conciliacao do
                 registro.diferenca.to_d)
     puts
 
+    # A frase que diz POR QUE não fechou. O motor já a calculava e a tela já a
+    # mostra; esta tarefa imprimia tudo menos ela, que é o que se procura.
+    puts "  MOTIVO: #{registro.observacao}"
+    puts
+
     unidades = lote
                  .financial_entry_allocations
                  .filter_map(&:receivable_unit)
@@ -130,11 +135,16 @@ namespace :conciliacao do
     soma_ml = BigDecimal("0")
     soma_nf = BigDecimal("0")
 
+    # A nota do PACOTE vale por várias vendas: somá-la uma vez por venda
+    # inflaria o total e faria parecer que as notas valem mais que as vendas.
+    # O motor já deduplica; esta soma precisava fazer o mesmo.
+    notas_somadas = Set.new
+
     unidades.sort_by { |u| u.expected_on || Date.new(1970) }.first(40).each do |unidade|
       nota = unidade.invoice
 
       soma_ml += unidade.gross_amount.to_d
-      soma_nf += nota&.total_amount.to_d
+      soma_nf += nota.total_amount.to_d if nota && notas_somadas.add?(nota.id)
 
       puts format("    %-24s %-12s %12.2f %-10s %12.2f",
                   unidade.order&.external_id.to_s[0, 24],
