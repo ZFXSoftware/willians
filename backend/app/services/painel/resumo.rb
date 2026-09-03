@@ -55,11 +55,21 @@ module Painel
         .sum(:valor)
     end
 
+    # Só o que é DINHEIRO.
+    #
+    # `difference_amount` é a diferença bruta, e desde que todo repasse passou
+    # a ser comparado ela é dominada por falta de documento: venda sem NF e
+    # nota sem título no OMIE. Somar isso e chamar de "divergências" põe
+    # dezenas de milhares no painel que não são dinheiro faltando — e é
+    # exatamente a leitura errada que este trabalho todo veio desfazer.
+    #
+    # `diferenca_real` é o que sobra depois de descontar as duas parcelas. Cai
+    # para o bruto nas divergências antigas, gravadas antes da decomposição
+    # existir.
     def divergencias_valor
       DivergenceReport
         .where(tenant_id: tenant.id, status: :open)
-        .sum(:difference_amount)
-        .abs
+        .sum(Arel.sql("ABS(COALESCE((metadata->>'diferenca_real')::numeric, difference_amount, 0))"))
     end
 
     def divergencias_abertas
