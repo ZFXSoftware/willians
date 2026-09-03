@@ -1,14 +1,16 @@
 import { Fragment, useState } from "react"
 import { Link } from "react-router-dom"
-import { RefreshCw, Search } from "lucide-react"
+import { ChevronDown, ChevronRight, RefreshCw, Search } from "lucide-react"
 
 import {
   fetchRegistros,
+  fetchVendasDoRepasse,
   janelaDe,
   PERIODOS,
   processarConciliacao,
   type ExecucaoConciliacao,
   type FiltrosRegistros,
+  type Registro,
 } from "../../api/conciliacoes"
 import { fetchFilas, ocupada } from "../../api/processos"
 import { errorMessage } from "../../api/client"
@@ -80,6 +82,9 @@ export default function ReconciliationDashboard() {
   // páginas antigas não existiam porque aqueles repasses jamais foram
   // conferidos.
   const [dias, setDias] = useState(30)
+  // Qual repasse está aberto. Um de cada vez: são centenas de vendas, e vários
+  // abertos ao mesmo tempo transformam a tabela num paredão.
+  const [aberto, setAberto] = useState<number | null>(null)
   const [processando, setProcessando] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
 
@@ -400,7 +405,15 @@ export default function ReconciliationDashboard() {
 
                     return (
                       <Fragment key={row.id}>
-                      <tr className="border-t border-zinc-800 hover:bg-zinc-800/30 transition">
+                      <tr
+                        onClick={() =>
+                          row.payout_batch_id &&
+                          setAberto(aberto === row.payout_batch_id ? null : row.payout_batch_id)
+                        }
+                        className={`border-t border-zinc-800 hover:bg-zinc-800/30 transition ${
+                          row.payout_batch_id ? "cursor-pointer" : ""
+                        }`}
+                      >
                         <td className="px-4 py-3">
                           <Selo status={row.status} texto={rotulo(row.status)} />
                         </td>
@@ -409,7 +422,13 @@ export default function ReconciliationDashboard() {
                               centena de vendas numa transferência só. Sem
                               dizer quantas, doze linhas para milhares de
                               lançamentos parecem cobrir quase nada. */}
-                          <span className="font-medium">
+                          <span className="font-medium flex items-center gap-1.5">
+                            {row.payout_batch_id &&
+                              (aberto === row.payout_batch_id ? (
+                                <ChevronDown size={14} className="text-zinc-500" />
+                              ) : (
+                                <ChevronRight size={14} className="text-zinc-500" />
+                              ))}
                             {row.vendas ? `${row.vendas} venda(s)` : "Repasse"}
                           </span>
                           <span
@@ -466,6 +485,14 @@ export default function ReconciliationDashboard() {
                           </td>
                         </tr>
                       )}
+
+                      {aberto === row.payout_batch_id && row.payout_batch_id && (
+                        <tr className="bg-zinc-950/60">
+                          <td colSpan={8} className="px-4 py-4">
+                            <VendasDoRepasseTabela repasseId={row.payout_batch_id} row={row} />
+                          </td>
+                        </tr>
+                      )}
                       </Fragment>
                     )
                   })}
@@ -505,6 +532,100 @@ export default function ReconciliationDashboard() {
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+// As vendas que compõem um repasse.
+//
+// Carregada sob demanda, e não junto da listagem: um repasse tem centenas de
+// vendas, e trazer todas de quinze repasses para mostrar nenhuma seria pagar o
+// custo inteiro pelo caso raro.
+function VendasDoRepasseTabela({ repasseId, row }: { repasseId: number; row: Registro }) {
+  const { data, loading, error, reload } = useResource(
+    () => fetchVendasDoRepasse(repasseId),
+    [repasseId],
+  )
+
+  if (loading) return <Carregando />
+
+  if (error) return <ErroAoCarregar mensagem={error} onRetry={reload} />
+
+  if (!data) return null
+
+  const semNota = Number(data.totais.sem_nota)
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
+        <span className="text-zinc-400">
+          Vendas: <strong className="text-zinc-200">{brl(data.totais.vendas)}</strong>
+        </span>
+        <span className="text-zinc-400">
+          Notas fiscais: <strong className="text-zinc-200">{brl(data.totais.notas)}</strong>
+        </span>
+        {semNota > 0 && (
+          <span className="text-amber-300">
+            {semNota} sem nota: {brl(data.totais.valor_sem_nota)}
+          </span>
+        )}
+        {row.pago_em && (
+          <span className="text-zinc-500">pago em {dataHoraBR(row.pago_em)}</span>
+        )}
+      </div>
+
+      <div className="max-h-96 overflow-y-auto rounded-xl border border-zinc-800">
+        <table className="w-full text-xs">
+          <thead className="bg-zinc-900 text-zinc-500 sticky top-0">
+            <tr>
+              <th className="text-left font-medium px-3 py-2">Pedido</th>
+              <th className="text-left font-medium px-3 py-2">Liberado</th>
+              <th className="text-right font-medium px-3 py-2">Venda</th>
+              <th className="text-left font-medium px-3 py-2">NF</th>
+              <th className="text-right font-medium px-3 py-2">Valor NF</th>
+              <th className="text-left font-medium px-3 py-2">Canal</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {data.items.map((venda) => (
+              <tr key={venda.id} className="border-t border-zinc-800/60">
+                <td className="px-3 py-2 font-mono text-zinc-300">{venda.pedido ?? "—"}</td>
+                <td className="px-3 py-2 text-zinc-500">{venda.liberado_em ?? "—"}</td>
+                <td className="px-3 py-2 text-right">{brl(venda.valor)}</td>
+                <td className="px-3 py-2">
+                  {venda.nf ? (
+                    <span className="text-zinc-300">
+                      {venda.nf}
+                      {/* Nota de pacote aparece em mais de uma venda com o
+                          valor do CONJUNTO. Sem esta marca, a linha parece ter
+                          NF maior que a venda — e parece erro. */}
+                      {venda.pacote && (
+                        <span className="text-sky-400 ml-1" title="Nota de um pacote: vale por mais de uma venda">
+                          pacote
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-amber-400">sem nota</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right text-zinc-400">
+                  {venda.nf ? brl(venda.valor_nf) : "—"}
+                </td>
+                <td className="px-3 py-2 text-zinc-500">{venda.canal ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {data.total > data.exibidas && (
+        <p className="text-xs text-zinc-500">
+          Mostrando {data.exibidas} de {data.total} vendas. Os totais acima são
+          do repasse inteiro.
+        </p>
+      )}
     </div>
   )
 }

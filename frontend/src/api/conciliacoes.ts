@@ -120,3 +120,42 @@ export function janelaDe(dias: number): { start_date: string; end_date: string }
     end_date: fim.toISOString().slice(0, 10),
   }
 }
+
+// As vendas que compõem um repasse.
+//
+// A tela mostrava "268 venda(s)" e o porquê da diferença ficava numa tarefa de
+// terminal. É abrindo a lista que se vê que a diferença inteira são as vendas
+// sem NF, e não dinheiro faltando.
+export interface VendaDoRepasse {
+  id: number
+  pedido: string | null
+  liberado_em: string | null
+  valor: string | null
+  nf: string | null
+  serie: string | null
+  valor_nf: string | null
+  canal: string | null
+  // Nota de pacote vale por várias vendas: sem dizer isso, a linha parece ter
+  // NF maior que a venda.
+  pacote: boolean
+}
+
+export interface VendasDoRepasse {
+  total: number
+  exibidas: number
+  totais: {
+    vendas: string
+    notas: string
+    sem_nota: number
+    valor_sem_nota: string
+  }
+  items: VendaDoRepasse[]
+}
+
+export async function fetchVendasDoRepasse(repasseId: number): Promise<VendasDoRepasse> {
+  const { data } = await api.get<VendasDoRepasse>(
+    `/conciliacoes/repasses/${repasseId}/vendas`,
+  )
+
+  return data
+}

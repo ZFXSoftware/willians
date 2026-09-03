@@ -53,6 +53,10 @@ Rails.application.routes.draw do
 
   get "conciliacoes/registros", to: "conciliacoes/registros#index"
 
+  # As vendas que compõem um repasse — é abrindo a lista que se vê se a
+  # diferença é falta de nota ou falta de dinheiro.
+  get "conciliacoes/repasses/:repasse_id/vendas", to: "conciliacoes/vendas#index"
+
   namespace :integracoes do
     post "mercado-livre/autorizar", to: "mercado_livre#autorizar"
     get  "mercado-livre/callback",  to: "mercado_livre#callback"
