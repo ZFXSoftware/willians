@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { Link } from "react-router-dom"
 import { RefreshCw, Search } from "lucide-react"
 
@@ -372,10 +372,8 @@ export default function ReconciliationDashboard() {
                     const dif = Number(row.diferenca ?? 0)
 
                     return (
-                      <tr
-                        key={row.id}
-                        className="border-t border-zinc-800 hover:bg-zinc-800/30 transition"
-                      >
+                      <Fragment key={row.id}>
+                      <tr className="border-t border-zinc-800 hover:bg-zinc-800/30 transition">
                         <td className="px-4 py-3">
                           <Selo status={row.status} texto={rotulo(row.status)} />
                         </td>
@@ -426,6 +424,22 @@ export default function ReconciliationDashboard() {
                           {dataHoraBR(row.data)}
                         </td>
                       </tr>
+
+                      {/* O motivo, por extenso.
+                          Ele já era calculado e gravado, e a tela nunca o
+                          mostrou: "por que este repasse não fechou?" só tinha
+                          resposta no banco. É a frase que diz se falta nota,
+                          se falta título, ou se a nota está dividida entre
+                          repasses — três providências diferentes. */}
+                      {row.observacao && (
+                        <tr className="border-t border-zinc-900">
+                          <td />
+                          <td colSpan={7} className="px-4 pb-3 text-xs text-zinc-400 leading-relaxed">
+                            {row.observacao}
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     )
                   })}
                 </tbody>
