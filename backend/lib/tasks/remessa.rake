@@ -153,6 +153,30 @@ namespace :conciliacao do
     puts format("  diferença entre as duas:        R$ %.2f", soma_ml - soma_nf)
     puts
 
+    # De qual canal são as notas penduradas neste repasse.
+    #
+    # O dinheiro é certamente do Mercado Livre — os recebíveis nascem do
+    # extrato daquela conta e o lote filtra por ela. A NOTA é outra história: o
+    # vínculo passa pelo pedido, e a atribuição de canal está errada em massa.
+    #
+    # Se aparecer Shopee ou TikTok aqui, uma nota de outro canal entrou na
+    # conciliação do Mercado Livre, e o valor esperado está contaminado.
+    canais = unidades
+               .filter_map { |u| u.invoice }
+               .group_by { |nota| (nota.metadata || {}).dig("intermediador", "nome") || "(não lido)" }
+               .transform_values(&:size)
+
+    if canais.any?
+      puts "  Canal das notas deste repasse:"
+      canais.sort_by { |_, quantas| -quantas }.each { |canal, quantas| puts format("    %-24s %d", canal, quantas) }
+
+      intrusos = canais.keys.reject { |nome| nome.nil? || nome.match?(/mercado livre|1333228810|\(não lido\)/i) }
+
+      puts "    ATENÇÃO: #{intrusos.join(', ')} não deveriam estar aqui." if intrusos.any?
+
+      puts
+    end
+
     datas = unidades.filter_map(&:expected_on)
 
     if datas.any?
