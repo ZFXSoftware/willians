@@ -56,6 +56,35 @@ module Marketplace
         assert_equal 1, ligar[:ligadas]
       end
 
+      # 13 de 30 notas do cliente estão sem `access_key` — a importação do Tiny
+      # não a trouxe. Casar só por chave as deixaria de fora para sempre, por
+      # falta de um dado que o marketplace tem em mãos.
+      test "nota sem chave é ligada pelo número, e a chave é preenchida" do
+        nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "041699", valor: 100)
+
+        nota.update!(operation_type: :sale, series: "2", access_key: nil)
+
+        resumo = ligar
+
+        assert_equal 1, resumo[:ligadas_pelo_numero]
+        assert_equal nota.id, @unidade.reload.invoice_id
+        assert_equal CHAVE, nota.reload.access_key
+      end
+
+      # Chave gravada é dado do documento: informação de terceiro não a
+      # sobrescreve.
+      test "não sobrescreve chave que já existe" do
+        outra = "35260741273506000151550020000000000000000000"
+
+        nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "041699", valor: 100)
+
+        nota.update!(operation_type: :sale, series: "2", access_key: outra)
+
+        ligar
+
+        assert_equal outra, nota.reload.access_key
+      end
+
       # Nota que existe no marketplace e não no nosso banco é RESPOSTA, não
       # fracasso: guardar o número e a série é o que permite ir buscá-la.
       test "nota que não temos fica registrada no pedido" do

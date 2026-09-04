@@ -108,11 +108,27 @@ module Marketplace
           marcar!(pedido, dados)
 
           if pelo_numero
-            resumo[:chave_nao_bate] += 1
+            # O marketplace diz, com autoridade, que ESTE envio saiu com ESTA
+            # nota. Número e série de uma fonte assim identificam tanto quanto
+            # a chave — e a chave que ele devolve é a peça que falta no nosso
+            # cadastro.
+            #
+            # Medido: 13 de 30 notas do cliente estão sem `access_key`, porque
+            # a importação do Tiny não a trouxe. Casar só por chave deixaria
+            # essas de fora para sempre, por falta de um dado que temos em mãos.
+            resumo[:ligadas_pelo_numero] += 1
 
             if resumo[:exemplos].size < 5
-              resumo[:exemplos] << "pedido #{pedido.external_id}: temos a NF #{pelo_numero.number}, " \
-                                   "mas a chave dela é #{pelo_numero.access_key.presence || 'VAZIA'}"
+              resumo[:exemplos] << "pedido #{pedido.external_id} -> NF #{pelo_numero.number} " \
+                                   "(chave preenchida a partir do marketplace)"
+            end
+
+            unless dry_run
+              unidade.update!(invoice_id: pelo_numero.id)
+
+              # Só preenche o que está vazio: chave gravada é dado do documento
+              # e não se sobrescreve com informação de terceiro.
+              pelo_numero.update!(access_key: dados[:chave]) if pelo_numero.access_key.blank?
             end
           else
             resumo[:nao_temos] += 1
