@@ -45,12 +45,28 @@ namespace :ml do
       puts "=" * 70
       puts "Pedido #{pedido}#{pack ? " · pacote #{pack}" : ''} · liberado em #{unidade.expected_on}"
 
+      # O id do ENVIO vem de dentro do pedido. `/orders/{id}/shipments` não é
+      # caminho do Mercado Livre — a primeira sonda perguntou nele, não deu
+      # erro, e eu quase li isso como resposta.
+      detalhe =
+        begin
+          cliente.bruto("/orders/#{pedido}")
+        rescue StandardError
+          {}
+        end
+
+      envio = detalhe.dig("shipping", "id")
+
       caminhos = [
         "/orders/#{pedido}",
         "/orders/#{pedido}/billing_info",
         ("/packs/#{pack}/fiscal_documents" if pack.present?),
-        "/orders/#{pedido}/shipments"
+        ("/shipments/#{envio}" if envio.present?),
+        ("/shipments/#{envio}/items" if envio.present?),
+        ("/shipments/#{envio}/invoice_data" if envio.present?)
       ].compact
+
+      puts "  envio: #{envio || 'o pedido não informa'}"
 
       caminhos.each do |caminho|
         sleep 1
@@ -82,6 +98,8 @@ namespace :ml do
     end
 
     puts "Como ler:"
+    puts "  404 ou 403 num caminho -> aquele endpoint não existe ou a conta não"
+    puts "     tem permissão; não é resposta sobre a nota."
     puts "  chave encontrada -> o marketplace sabe qual NF saiu com o pedido,"
     puts "     e é dele que vem a resposta sobre as vendas sem nota."
     puts "  nenhuma chave    -> ele não guarda, e a nota daquela venda não"
