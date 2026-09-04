@@ -206,10 +206,20 @@ namespace :sefaz do
     [ p12, ENV["CNPJ"].presence || p12.certificate.subject.to_s[/\d{14}/] ]
   end
 
-  # A data de emissão, para mapear NSU em tempo. Resumo e nota completa usam
-  # tags diferentes.
+  # A data do documento, para mapear NSU em tempo.
+  #
+  # Cada tipo usa uma tag: nota tem `dhEmi`, evento tem `dhEvento`, e o resumo
+  # de evento pode trazer só `dhRegEvento`. Procurar apenas `dhEmi` fez um lote
+  # inteiro de eventos parecer ter uma data só — e eu concluí, disso, que a
+  # retenção era de quinze dias. Era a minha leitura que estava cega.
   def emitida_em(xml)
-    (xml[%r{<dhEmi>([^<]+)</dhEmi>}, 1] || xml[%r{<dEmi>([^<]+)</dEmi>}, 1]).to_s[0, 10].presence
+    %w[dhEmi dEmi dhEvento dhRegEvento dhRecbto].each do |tag|
+      valor = xml[%r{<#{tag}>([^<]+)</#{tag}>}, 1]
+
+      return valor.to_s[0, 10] if valor.present?
+    end
+
+    nil
   end
 
   # O CNPJ da empresa aparece como emitente ou como destinatário neste XML?
