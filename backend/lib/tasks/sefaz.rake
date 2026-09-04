@@ -43,8 +43,24 @@ namespace :sefaz do
       next
     end
 
-    # De onde continuar: o marcador guardado, salvo se alguém pedir outro.
-    nsu = ENV["NSU"].present? ? ENV["NSU"].to_i : leitura.ultimo_nsu
+    # VOLTAR=N sonda o passado sem perder o lugar.
+    #
+    # A fila é por NSU e não aceita filtro de data: para saber se o último mês
+    # ainda está disponível, o jeito é pedir um pouco atrás e olhar as datas do
+    # que volta. O marcador NÃO é movido nessa sondagem — perder o lugar
+    # custaria outra hora de castigo.
+    sondagem = ENV["VOLTAR"].present?
+
+    nsu =
+      if sondagem
+        [ leitura.ultimo_nsu - ENV["VOLTAR"].to_i, 0 ].max
+      elsif ENV["NSU"].present?
+        ENV["NSU"].to_i
+      else
+        leitura.ultimo_nsu
+      end
+
+    puts "SONDAGEM: pedindo #{ENV['VOLTAR']} NSU atrás do marcador. Nada será gravado." if sondagem
 
     puts "Continuando do NSU #{nsu}#{nsu.zero? ? ' (primeira leitura desta empresa)' : ''}"
     puts "Faltam #{leitura.faltam || '?'} documento(s) para o fim da fila." if leitura.max_nsu
@@ -58,7 +74,7 @@ namespace :sefaz do
     # é de onde continuar. Pedir do zero foi erro meu no desenho — a consulta
     # é uma fila incremental, não uma busca.
     if resposta.codigo == "656"
-      leitura.bloquear!(resposta)
+      leitura.bloquear!(resposta) unless sondagem
 
       puts "Resposta da SEFAZ: 656 — #{resposta.motivo}"
       puts
@@ -74,7 +90,7 @@ namespace :sefaz do
       next
     end
 
-    leitura.avancar!(resposta)
+    leitura.avancar!(resposta) unless sondagem
 
     puts "Resposta da SEFAZ: #{resposta.codigo} — #{resposta.motivo}"
     puts "Último NSU lido: #{resposta.ultimo_nsu} · maior NSU disponível: #{resposta.max_nsu}"
@@ -100,12 +116,19 @@ namespace :sefaz do
 
       papeis[papel] += 1
 
-      next if indice >= 5
+      next if indice >= 10
 
-      puts format("  NSU %-8s %-28s papel: %s", doc.nsu, doc.schema, papel)
+      # A data é o que responde "o último mês ainda está na fila?".
+      puts format("  NSU %-8s %-10s %-22s papel: %s",
+                  doc.nsu, emitida_em(doc.xml), doc.schema.to_s[0, 22], papel)
     end
 
-    puts "  ... (#{resposta.documentos.size - 5} outros)" if resposta.documentos.size > 5
+    puts "  ... (#{resposta.documentos.size - 10} outros)" if resposta.documentos.size > 10
+
+    datas = resposta.documentos.filter_map { |doc| emitida_em(doc.xml) }.sort
+
+    puts
+    puts "Datas neste lote: #{datas.first} a #{datas.last}" if datas.any?
 
     puts
     puts "Papel da empresa nos documentos devolvidos:"
@@ -161,6 +184,12 @@ namespace :sefaz do
       end
 
     [ p12, ENV["CNPJ"].presence || p12.certificate.subject.to_s[/\d{14}/] ]
+  end
+
+  # A data de emissão, para mapear NSU em tempo. Resumo e nota completa usam
+  # tags diferentes.
+  def emitida_em(xml)
+    (xml[%r{<dhEmi>([^<]+)</dhEmi>}, 1] || xml[%r{<dEmi>([^<]+)</dEmi>}, 1]).to_s[0, 10].presence
   end
 
   # O CNPJ da empresa aparece como emitente ou como destinatário neste XML?
