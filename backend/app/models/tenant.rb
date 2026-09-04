@@ -1,6 +1,11 @@
 # app/models/tenant.rb
 
 class Tenant < ApplicationRecord
+  # Destruído junto com a empresa, e não órfão: é a identidade digital dela.
+  # Certificado sobrevivente a uma empresa apagada é chave privada sem dono no
+  # banco — o pior tipo de resíduo.
+  has_one :certificado_digital, dependent: :destroy
+
   has_many :tenant_users, dependent: :destroy
   has_many :users, through: :tenant_users
   has_many :platform_accounts, dependent: :destroy

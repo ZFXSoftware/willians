@@ -10,9 +10,25 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_26_210000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_04_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "certificados_digitais", force: :cascade do |t|
+    t.text "arquivo", null: false
+    t.string "cnpj"
+    t.datetime "created_at", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.text "senha", null: false
+    t.bigint "tenant_id", null: false
+    t.string "titular"
+    t.datetime "updated_at", null: false
+    t.datetime "valido_ate"
+    t.datetime "valido_de"
+    t.index ["tenant_id"], name: "idx_certificado_por_empresa", unique: true
+    t.index ["tenant_id"], name: "index_certificados_digitais_on_tenant_id"
+    t.index ["valido_ate"], name: "index_certificados_digitais_on_valido_ate"
+  end
 
   create_table "conciliacao_registros", force: :cascade do |t|
     t.datetime "conciliated_at"
@@ -457,6 +473,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_26_210000) do
     t.index ["status"], name: "index_users_on_status"
   end
 
+  add_foreign_key "certificados_digitais", "tenants"
   add_foreign_key "conciliacao_registros", "conciliation_runs"
   add_foreign_key "conciliacao_registros", "financial_entries"
   add_foreign_key "conciliacao_registros", "payout_batches"
