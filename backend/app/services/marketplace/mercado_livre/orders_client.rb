@@ -100,6 +100,36 @@ module Marketplace
         parse!(com_retry(URI.join(api_host, "/orders/#{id}")))
       end
 
+      # A nota fiscal que saiu com o envio.
+      #
+      # É a única fonte que conhece a VENDA e o DOCUMENTO ao mesmo tempo: a
+      # SEFAZ recusa entregar ao emitente as próprias notas (cStat 641), o
+      # SPED não existe para empresa do Simples, e o ERP só sabe do que ele
+      # mesmo emitiu. O marketplace exige a nota para despachar, e guarda a
+      # chave.
+      #
+      # `siteId` é obrigatório — sem ele a resposta é 400, que parece ausência
+      # e é só pedido incompleto.
+      #
+      # => { chave:, serie:, numero:, valor:, data: } ou nil
+      def invoice_data(shipment_id, site: "MLB")
+        payload = bruto("/shipments/#{shipment_id}/invoice_data?siteId=#{site}")
+
+        chave = payload.to_json[/\d{44}/]
+
+        return if chave.blank?
+
+        {
+          chave: chave,
+          serie: payload["invoice_serie"],
+          numero: payload["invoice_number"],
+          valor: payload["invoice_amount"],
+          data: payload["invoice_date"]
+        }
+      rescue StandardError
+        nil
+      end
+
       # Qualquer caminho da API, cru.
       #
       # Para investigar o que o Mercado Livre sabe sobre a nota fiscal de um

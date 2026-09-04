@@ -118,6 +118,10 @@ module Marketplace
 
           inferir_pacotes(conta)
 
+      # A nota que saiu com o envio. É a fonte mais precisa que temos: casa por
+      # CHAVE, não por semelhança.
+      notas_do_envio(conta)
+
           return pendente(conta, e)
         end
 
@@ -178,6 +182,22 @@ module Marketplace
       pendente(conta, e)
     rescue StandardError => e
       falha(conta, e)
+    end
+
+    # A nota fiscal que saiu com cada envio.
+    #
+    # Casa por chave de acesso, que é única — identidade, não inferência. Onde
+    # isto funciona, dispensa a heurística de CPF e valor.
+    #
+    # Falhar aqui não derruba a sincronização: é enriquecimento.
+    def notas_do_envio(conta)
+      return unless provider_de(conta)&.agrupa_pedidos?
+
+      MercadoLivre::NotaDoEnvio.new(tenant: conta.tenant, platform_account: conta).call
+    rescue StandardError => e
+      Rails.logger.error "#{LOG_PREFIX} conta ##{conta.id}: nota do envio falhou: #{e.message}"
+
+      { erro: e.message }
     end
 
     # O pacote que o Mercado Livre não informou.
