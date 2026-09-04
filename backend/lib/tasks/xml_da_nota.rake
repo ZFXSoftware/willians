@@ -22,7 +22,25 @@ namespace :fiscal do
     escopo = Invoice.where(tenant_id: tenant.id)
                     .where("invoices.metadata->>'numero_ecommerce' IS NOT NULL")
 
-    notas = ENV["NF"].present? ? escopo.where(number: ENV["NF"].to_s.split(",").map(&:strip)) : escopo.limit(3)
+    # Uma nota de CADA canal, e não três quaisquer.
+    #
+    # A primeira rodada pegou duas da Shopee e uma do Mercado Livre e revelou
+    # que o mesmo emissor usa dois caminhos: <xPed> quando o número cabe nos 15
+    # caracteres do campo, e texto dentro de <infAdProd> quando não cabe.
+    #
+    # Se o padrão for esse, ele vale por canal — e é o canal que determina o
+    # formato do número do pedido. Uma amostra por canal mostra a regra inteira.
+    notas =
+      if ENV["NF"].present?
+        escopo.where(number: ENV["NF"].to_s.split(",").map(&:strip))
+      else
+        escopo
+          .where("invoices.metadata->'intermediador'->>'nome' IS NOT NULL")
+          .order(issued_at: :desc)
+          .group_by { |nota| nota.metadata.dig("intermediador", "nome") }
+          .values
+          .filter_map(&:first)
+      end
 
     abort "Nenhuma nota com número de pedido para inspecionar." if notas.none?
 
@@ -32,7 +50,10 @@ namespace :fiscal do
       pedido = nota.metadata["numero_ecommerce"].to_s
 
       puts "=" * 70
-      puts "NF #{nota.number}/#{nota.series} · pedido no marketplace: #{pedido}"
+      canal = nota.metadata.dig("intermediador", "nome")
+
+      puts "NF #{nota.number}/#{nota.series} · #{canal || 'canal não lido'}"
+      puts "  pedido no marketplace: #{pedido} (#{pedido.length} caracteres)"
 
       sleep 1
 
@@ -55,6 +76,10 @@ namespace :fiscal do
     end
 
     puts "Como ler:"
+    puts "  <xPed> é campo estruturado da NF-e e aceita 15 caracteres. Pedido"
+    puts "  maior que isso não cabe, e o emissor precisa de outro lugar — foi"
+    puts "  o que vimos com o Mercado Livre, de 16 dígitos."
+    puts
     puts "  o pedido aparece numa TAG da NF-e -> a SEFAZ serve de fonte, e o"
     puts "     produto deixa de depender de qual ERP o cliente usa."
     puts "  o pedido NÃO aparece              -> a SEFAZ dá a nota e não dá a"
