@@ -10,18 +10,23 @@ import {
   RefreshCw,
   ShieldCheck,
   Store,
+  Upload,
   Trash2,
 } from "lucide-react"
 
 import {
   apagarConfiguracao,
+  enviarCertificado,
   fetchCanais,
+  fetchCertificado,
+  removerCertificado,
   fetchConfiguracoes,
   mapearCanal,
   salvarConfiguracao,
   type CampoConfiguracao,
   type ProvedorConfiguracao,
 } from "../../api/configuracoes"
+import { dataHoraBR } from "../../lib/format"
 import { errorMessage } from "../../api/client"
 import { useResource } from "../../hooks/useResource"
 import { Carregando, ErroAoCarregar } from "../../components/Estados"
@@ -89,6 +94,8 @@ export default function Settings() {
         <ErroAoCarregar mensagem={error} onRetry={reload} />
       ) : (
         <div className="space-y-4">
+          <CartaoCertificado />
+
           <CartaoCanais />
 
           {data?.provedores.map((provedor) => (
@@ -100,6 +107,170 @@ export default function Settings() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// O certificado digital A1 da empresa.
+//
+// É o arquivo que autentica a conversa com a SEFAZ, e é diferente de tudo mais
+// nesta tela: uma chave de API dá leitura de um extrato; um .pfx É a identidade
+// digital da empresa — quem o tem assina documentos como ela perante o fisco.
+//
+// Por isso ele entra e nunca mais sai. Não existe download, e o que a tela
+// mostra é só o que foi lido DE DENTRO do arquivo: titular, CNPJ e validade.
+function CartaoCertificado() {
+  const { data, loading, error, reload } = useResource(fetchCertificado)
+  const [arquivo, setArquivo] = useState<File | null>(null)
+  const [senha, setSenha] = useState("")
+  const [enviando, setEnviando] = useState(false)
+  const [aviso, setAviso] = useState<string | null>(null)
+
+  async function enviar() {
+    if (!arquivo || !senha) return
+
+    setEnviando(true)
+    setAviso(null)
+
+    try {
+      await enviarCertificado(arquivo, senha)
+      setArquivo(null)
+      setSenha("")
+      reload()
+    } catch (e) {
+      setAviso(errorMessage(e, "Não foi possível guardar o certificado"))
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  async function remover() {
+    setEnviando(true)
+
+    try {
+      await removerCertificado()
+      reload()
+    } catch (e) {
+      setAviso(errorMessage(e, "Não foi possível remover"))
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  if (loading) return null
+
+  if (error) return <ErroAoCarregar mensagem={error} onRetry={reload} />
+
+  const atual = data?.certificado
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl">
+      <div className="flex items-center gap-4">
+        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 shrink-0">
+          <ShieldCheck size={20} />
+        </div>
+
+        <div className="min-w-0">
+          <h2 className="font-semibold text-lg">Certificado digital (A1)</h2>
+          <p className="text-sm text-zinc-400 mt-0.5 max-w-xl">
+            É ele que autentica a leitura das notas na SEFAZ. Arquivo .pfx ou
+            .p12, o mesmo usado para emitir nota fiscal — normalmente está com
+            quem cuida da emissão ou com o contador.
+          </p>
+        </div>
+      </div>
+
+      {/* Certificado vencido não avisa sozinho: a leitura fiscal simplesmente
+          para no dia. O aviso vem do backend, com o prazo. */}
+      {data?.aviso && (
+        <p
+          className={`mt-4 text-sm rounded-xl px-4 py-3 border ${
+            atual?.vencido
+              ? "text-red-200 bg-red-500/10 border-red-500/20"
+              : "text-amber-200 bg-amber-500/10 border-amber-500/20"
+          }`}
+        >
+          {data.aviso}
+        </p>
+      )}
+
+      {aviso && <p className="mt-4 text-sm text-red-400">{aviso}</p>}
+
+      {atual && (
+        <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+          <div>
+            <p className="text-zinc-500 text-xs">Titular</p>
+            <p className="font-medium mt-1 truncate" title={atual.titular ?? ""}>
+              {atual.titular ?? "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-zinc-500 text-xs">CNPJ</p>
+            <p className="font-medium mt-1">{atual.cnpj ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-zinc-500 text-xs">Válido até</p>
+            <p className="font-medium mt-1">
+              {atual.valido_ate ? dataHoraBR(atual.valido_ate) : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-zinc-500 text-xs">Dias restantes</p>
+            <p className="font-medium mt-1">{atual.dias_para_vencer ?? "—"}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-5 flex flex-wrap items-end gap-3">
+        <label className="flex-1 min-w-[220px]">
+          <span className="text-xs text-zinc-500">
+            {atual ? "Substituir por outro arquivo" : "Arquivo do certificado"}
+          </span>
+
+          <input
+            type="file"
+            accept=".pfx,.p12"
+            onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
+            className="mt-1 block w-full text-sm text-zinc-300 file:mr-3 file:px-4 file:py-2 file:rounded-xl file:border-0 file:bg-zinc-800 file:text-zinc-200 hover:file:bg-zinc-700"
+          />
+        </label>
+
+        <label className="min-w-[180px]">
+          <span className="text-xs text-zinc-500">Senha do certificado</span>
+
+          <input
+            type="password"
+            value={senha}
+            onChange={(e) => setSenha(e.target.value)}
+            autoComplete="off"
+            className="mt-1 block w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 text-sm outline-none focus:border-zinc-600"
+          />
+        </label>
+
+        <button
+          onClick={enviar}
+          disabled={!arquivo || !senha || enviando}
+          className="flex items-center gap-2 bg-white text-black font-medium px-5 py-2.5 rounded-xl hover:opacity-90 transition disabled:opacity-40"
+        >
+          <Upload size={15} />
+          {enviando ? "Conferindo..." : "Guardar certificado"}
+        </button>
+
+        {atual && (
+          <button
+            onClick={remover}
+            disabled={enviando}
+            className="text-sm text-zinc-500 hover:text-red-400 transition"
+          >
+            remover
+          </button>
+        )}
+      </div>
+
+      <p className="mt-4 text-xs text-zinc-500">
+        O arquivo é guardado cifrado e nunca pode ser baixado de volta. A senha é
+        conferida na hora: se o certificado não abrir, nada é guardado.
+      </p>
     </div>
   )
 }

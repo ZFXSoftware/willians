@@ -88,6 +88,12 @@ Rails.application.routes.draw do
     get    "canais", to: "canais#index"
     put    "canais", to: "canais#update"
 
+    # O certificado digital da empresa. Não existe rota de download: o arquivo
+    # entra e nunca mais sai.
+    get    "certificado", to: "certificado#show"
+    post   "certificado", to: "certificado#create"
+    delete "certificado", to: "certificado#destroy"
+
     get    "configuracoes", to: "configuracoes#index"
     put    "configuracoes/:provedor", to: "configuracoes#update"
     delete "configuracoes/:provedor/:chave", to: "configuracoes#destroy"
