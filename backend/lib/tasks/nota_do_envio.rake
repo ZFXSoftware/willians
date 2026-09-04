@@ -31,6 +31,7 @@ namespace :ml do
 
     puts "Ligadas pela chave:                 #{resumo[:ligadas].to_i}"
     puts "Nota existe no ML e não no nosso:   #{resumo[:nao_temos].to_i}"
+    puts "Temos a nota, mas a CHAVE não bate:  #{resumo[:chave_nao_bate].to_i}"
     puts "Sem nota no marketplace:            #{resumo[:sem_nota_no_ml].to_i}"
     puts "Sem envio:                          #{resumo[:sem_envio].to_i}"
     puts "Falhas:                             #{resumo[:falhas].to_i}"

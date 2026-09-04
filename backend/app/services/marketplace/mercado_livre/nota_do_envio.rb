@@ -97,14 +97,29 @@ module Marketplace
         nota = procurar(dados[:chave])
 
         if nota.blank?
-          # A nota existe e nós não a temos. Guardar o que o marketplace disse
-          # é o que permite ir buscá-la depois — e é resposta, não fracasso.
+          # Duas situações opostas, e a chave sozinha não as separa: ou a nota
+          # não está no nosso banco, ou está e a CHAVE dela é que não bate.
+          #
+          # A segunda seria defeito nosso — chave ausente ou gravada diferente
+          # — e ficaria escondida atrás de "não temos essa nota", que manda
+          # procurar no lugar errado.
+          pelo_numero = procurar_por_numero(dados)
+
           marcar!(pedido, dados)
 
-          resumo[:nao_temos] += 1
+          if pelo_numero
+            resumo[:chave_nao_bate] += 1
 
-          if resumo[:exemplos].size < 5
-            resumo[:exemplos] << "pedido #{pedido.external_id}: NF #{dados[:numero]}/#{dados[:serie]} não está no nosso banco"
+            if resumo[:exemplos].size < 5
+              resumo[:exemplos] << "pedido #{pedido.external_id}: temos a NF #{pelo_numero.number}, " \
+                                   "mas a chave dela é #{pelo_numero.access_key.presence || 'VAZIA'}"
+            end
+          else
+            resumo[:nao_temos] += 1
+
+            if resumo[:exemplos].size < 5
+              resumo[:exemplos] << "pedido #{pedido.external_id}: NF #{dados[:numero]}/#{dados[:serie]} não está no nosso banco"
+            end
           end
 
           return
@@ -128,6 +143,20 @@ module Marketplace
         Invoice
           .where(tenant_id: tenant.id)
           .where("regexp_replace(COALESCE(access_key, ''), '\\D', '', 'g') = ?", chave)
+          .first
+      end
+
+      # O Tiny grava o número com zeros à esquerda ("044613") e o marketplace
+      # devolve sem ("44613"). Comparar cru faria a mesma nota parecer ausente.
+      def procurar_por_numero(dados)
+        numero = dados[:numero].to_s.sub(/\A0+/, "")
+
+        return if numero.blank?
+
+        Invoice
+          .where(tenant_id: tenant.id)
+          .where("regexp_replace(COALESCE(number, ''), '\\A0+', '') = ?", numero)
+          .where(series: [ dados[:serie].to_s, dados[:serie].to_s.sub(/\A0+/, ""), nil ])
           .first
       end
 
