@@ -57,7 +57,17 @@ namespace :fiscal do
 
       sleep 1
 
-      xml = client.obter_xml(nota.external_id)
+      xml =
+        begin
+          client.obter_xml(nota.external_id)
+        rescue Fiscal::Tiny::V2Client::ApiError => e
+          # O motivo da recusa importa: pode ser nota de outra série, XML ainda
+          # não disponível, ou permissão. Sem ele, "não veio" vira "não tem".
+          puts "  #{e.message}"
+          puts
+
+          next
+        end
 
       if xml.blank?
         puts "  O Tiny não devolveu o XML desta nota."

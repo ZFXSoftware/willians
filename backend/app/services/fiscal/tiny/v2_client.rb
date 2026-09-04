@@ -106,9 +106,23 @@ module Fiscal
 
         return if bruto.blank?
 
-        # O Tiny devolve ora o XML cru, ora em base64. Reconhecer pelo conteúdo
-        # é mais confiável que supor pelo campo.
-        bruto.to_s.lstrip.start_with?("<") ? bruto : decodificar(bruto)
+        # O Tiny devolve ora o XML cru, ora em base64.
+        texto = bruto.to_s.lstrip.start_with?("<") ? bruto.to_s : decodificar(bruto)
+
+        # E ora devolve um envelope de ERRO, que também começa com "<".
+        #
+        # Tratar qualquer coisa entre colchetes angulares como "o XML" fez a
+        # investigação concluir que cinco canais não trazem o número do pedido
+        # — quando o que voltou foram 208 bytes de recusa. Confiança alta em
+        # dado que nunca chegou é o pior desfecho possível num diagnóstico.
+        return texto if nfe?(texto)
+
+        raise ApiError, "O Tiny não devolveu a NF-e: #{texto.to_s.strip.truncate(300)}"
+      end
+
+      # Documento de verdade tem o grupo assinado da NF-e. Envelope de erro não.
+      def nfe?(texto)
+        texto.to_s.include?("<infNFe") || texto.to_s.include?("<nfeProc")
       end
 
       private
