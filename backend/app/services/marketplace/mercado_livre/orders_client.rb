@@ -100,6 +100,15 @@ module Marketplace
         parse!(com_retry(URI.join(api_host, "/orders/#{id}")))
       end
 
+      # Qualquer caminho da API, cru.
+      #
+      # Para investigar o que o Mercado Livre sabe sobre a nota fiscal de um
+      # pedido, é preciso experimentar mais de um endpoint — e a resposta crua
+      # é o que diz qual deles serve.
+      def bruto(caminho)
+        parse!(com_retry(URI.join(api_host, caminho)))
+      end
+
       # Dados fiscais do comprador.
       #
       # O Mercado Livre parou de devolver o documento dentro do pedido, mas o
