@@ -73,6 +73,7 @@ namespace :sefaz do
     total = Hash.new(0)
     esquemas = Hash.new(0)
     datas_vistas = []
+    chaves_nossas = Set.new
     resposta = nil
 
     lotes.times do |volta|
@@ -88,6 +89,22 @@ namespace :sefaz do
         data = emitida_em(doc.xml)
 
         datas_vistas << data if data
+
+        # A descoberta que sobra depois do 641.
+        #
+        # A SEFAZ não entrega ao emitente as próprias notas, mas entrega os
+        # EVENTOS sobre elas — e todo evento carrega a chave. Chave nossa que
+        # não está no nosso banco é prova de nota emitida fora do Tiny, que é
+        # exatamente a pergunta das ~190 vendas sem NF.
+        chave = doc.xml[%r{<chNFe>(\d{44})</chNFe>}, 1]
+
+        next if chave.blank?
+
+        # O CNPJ está nas posições 7 a 20 da chave: dá para saber se a nota é
+        # nossa sem abrir o documento.
+        next unless chave[6, 14] == cnpj
+
+        chaves_nossas << chave
       end
 
       nsu = resposta.ultimo_nsu.to_i
@@ -155,6 +172,8 @@ namespace :sefaz do
     total.sort_by { |_, quantos| -quantos }.each { |papel, quantos| puts format("  %-34s %d", papel, quantos) }
 
     puts
+
+    imprimir_chaves_desconhecidas(tenant, chaves_nossas)
     puts "Como ler:"
     puts "  aparece EMITENTE      -> a SEFAZ devolve as notas da própria empresa,"
     puts "     e ela serve como fonte fiscal independente de ERP."
@@ -204,6 +223,40 @@ namespace :sefaz do
       end
 
     [ p12, ENV["CNPJ"].presence || p12.certificate.subject.to_s[/\d{14}/] ]
+  end
+
+  # Notas NOSSAS que apareceram num evento e não estão no nosso banco.
+  #
+  # É o que a SEFAZ ainda oferece depois do 641: ela não entrega o documento,
+  # mas conta que ele existe. Chave desconhecida é nota emitida por fora — e
+  # com a chave dá para perguntar ao cliente qual sistema a emitiu.
+  def imprimir_chaves_desconhecidas(tenant, chaves)
+    return puts "Nenhum evento sobre nota nossa neste lote." if chaves.empty?
+
+    conhecidas = Invoice
+                   .where(tenant_id: tenant.id)
+                   .where("regexp_replace(COALESCE(access_key, \'\'), \'\\D\', \'\', \'g\') IN (?)", chaves.to_a)
+                   .pluck(Arel.sql("regexp_replace(access_key, \'\\D\', \'\', \'g\')"))
+                   .to_set
+
+    novas = chaves - conhecidas
+
+    puts "Eventos sobre notas nossas: #{chaves.size}"
+    puts "  já conhecemos:            #{chaves.size - novas.size}"
+    puts "  NÃO estão no nosso banco: #{novas.size}"
+
+    return if novas.empty?
+
+    puts
+    puts "  Chaves de notas que existem e nós não temos:"
+
+    novas.first(10).each { |chave| puts "    #{chave}" }
+
+    puts "    ... (#{novas.size - 10} outras)" if novas.size > 10
+
+    puts
+    puts "  Cada uma é uma nota emitida fora do Tiny. Com a chave dá para"
+    puts "  perguntar ao cliente qual sistema a emitiu."
   end
 
   # A data do documento, para mapear NSU em tempo.
