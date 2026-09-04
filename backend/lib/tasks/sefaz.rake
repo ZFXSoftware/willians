@@ -27,7 +27,35 @@ namespace :sefaz do
       pkcs12: p12, cnpj: cnpj, uf_autor: uf, producao: ENV["HOMOLOGACAO"].blank?
     )
 
-    resposta = cliente.consultar(ultimo_nsu: (ENV["NSU"] || 0).to_i)
+    # Sem NSU explícito a consulta começa do zero, e a SEFAZ trata isso como
+    # consumo indevido para quem já leu a fila. O aviso existe porque a
+    # penalidade é de uma hora, e descobri isso na primeira tentativa.
+    nsu = (ENV["NSU"] || 0).to_i
+
+    puts "Pedindo a partir do NSU #{nsu}#{nsu.zero? ? ' (do começo — a SEFAZ recusa se este CNPJ já leu a fila)' : ''}"
+    puts
+
+    resposta = cliente.consultar(ultimo_nsu: nsu)
+
+    # 656 é a SEFAZ dizendo "você já leu até aqui, não recomece do zero".
+    #
+    # Ela penaliza com uma hora de espera, e o `ultNSU` devolvido é a resposta:
+    # é de onde continuar. Pedir do zero foi erro meu no desenho — a consulta
+    # é uma fila incremental, não uma busca.
+    if resposta.codigo == "656"
+      puts "Resposta da SEFAZ: 656 — #{resposta.motivo}"
+      puts
+      puts "A conexão FUNCIONOU: o certificado foi aceito e a SEFAZ respondeu."
+      puts "Este CNPJ já consumiu até o NSU #{resposta.ultimo_nsu} — há pelo menos"
+      puts "#{resposta.ultimo_nsu.to_i} documentos distribuídos para ele."
+      puts
+      puts "Daqui a uma hora, continue de onde a fila parou:"
+      puts "  ./deploy/deploy.sh rake sefaz:testar TENANT=#{tenant.id} UF=#{uf} NSU=#{resposta.ultimo_nsu.to_i}"
+      puts
+      puts "Nada foi gravado."
+
+      next
+    end
 
     puts "Resposta da SEFAZ: #{resposta.codigo} — #{resposta.motivo}"
     puts "Último NSU lido: #{resposta.ultimo_nsu} · maior NSU disponível: #{resposta.max_nsu}"
