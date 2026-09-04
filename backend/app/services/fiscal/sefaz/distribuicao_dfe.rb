@@ -49,14 +49,23 @@ module Fiscal
       end
 
       def consultar(ultimo_nsu: 0)
-        corpo = envelope(ultimo_nsu)
+        responder(envelope(consulta: "<distNSU><ultNSU>#{format('%015d', ultimo_nsu.to_i)}</ultNSU></distNSU>"))
+      end
 
-        resposta = executar(corpo)
-
-        interpretar(resposta.body.to_s.dup.force_encoding("UTF-8"))
+      # Consulta por CHAVE, e não pela fila.
+      #
+      # Não passa pelo NSU, então não sofre a penalidade de consumo indevido — e
+      # é o caminho para buscar uma nota específica cuja chave se conhece, que é
+      # o caso quando as chaves vêm da escrituração (SPED).
+      def consultar_chave(chave)
+        responder(envelope(consulta: "<consChNFe><chNFe>#{chave.to_s.gsub(/\D/, '')}</chNFe></consChNFe>"))
       end
 
       private
+
+      def responder(corpo)
+        interpretar(executar(corpo).body.to_s.dup.force_encoding("UTF-8"))
+      end
 
       attr_reader :pkcs12, :cnpj, :uf_autor, :producao
 
@@ -65,7 +74,7 @@ module Fiscal
       # `tpAmb` 1 é produção. Consultar homologação com certificado de produção
       # devolve vazio — e vazio aqui seria lido como "não tem notas", que é a
       # conclusão errada mais fácil de tirar.
-      def envelope(ultimo_nsu)
+      def envelope(consulta:)
         <<~XML
           <?xml version="1.0" encoding="UTF-8"?>
           <soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
@@ -76,7 +85,7 @@ module Fiscal
                     <tpAmb>#{producao ? 1 : 2}</tpAmb>
                     <cUFAutor>#{uf_autor}</cUFAutor>
                     <CNPJ>#{cnpj}</CNPJ>
-                    <distNSU><ultNSU>#{format('%015d', ultimo_nsu.to_i)}</ultNSU></distNSU>
+                    #{consulta}
                   </distDFeInt>
                 </nfeDadosMsg>
               </nfeDistDFeInteresse>
