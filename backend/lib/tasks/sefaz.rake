@@ -1,4 +1,16 @@
 namespace :sefaz do
+  # Os eventos que aparecem na distribuição. Ciência e confirmação são de quem
+  # RECEBE; cancelamento e carta de correção são de quem EMITE — e é essa
+  # distinção que responde se a SEFAZ nos conta sobre as notas da empresa.
+  EVENTOS = {
+    "110110" => "carta de correção",
+    "110111" => "cancelamento",
+    "210200" => "confirmação da operação",
+    "210210" => "ciência da operação",
+    "210220" => "desconhecimento",
+    "210240" => "operação não realizada"
+  }.freeze
+
   desc "Pergunta à SEFAZ se ela devolve as notas que a empresa EMITIU (SOMENTE LEITURA)"
   task testar: :environment do
     # O fato que falta para decidir a arquitetura: o NFeDistribuicaoDFe devolve
@@ -66,7 +78,42 @@ namespace :sefaz do
     puts "Faltam #{leitura.faltam || '?'} documento(s) para o fim da fila." if leitura.max_nsu
     puts
 
-    resposta = cliente.consultar(ultimo_nsu: nsu)
+    lotes = (ENV["LOTES"] || 1).to_i
+
+    total = Hash.new(0)
+    esquemas = Hash.new(0)
+    datas_vistas = []
+    resposta = nil
+
+    lotes.times do |volta|
+      resposta = cliente.consultar(ultimo_nsu: nsu)
+
+      break if resposta.codigo == "656"
+
+      resposta.documentos.each do |doc|
+        total[papel_no_documento(doc.xml, cnpj)] += 1
+
+        esquemas[doc.schema.to_s.sub(/_v.*/, "")] += 1
+
+        data = emitida_em(doc.xml)
+
+        datas_vistas << data if data
+      end
+
+      nsu = resposta.ultimo_nsu.to_i
+
+      leitura.avancar!(resposta) unless sondagem
+
+      puts format("  lote %d: NSU até %s · %d documento(s)", volta + 1, resposta.ultimo_nsu, resposta.documentos.size)
+
+      break if resposta.documentos.empty? || nsu >= resposta.max_nsu.to_i
+
+      # A SEFAZ limita a frequência. Uma pausa entre lotes é o que separa
+      # varredura de consumo indevido.
+      sleep 2
+    end
+
+    puts
 
     # 656 é a SEFAZ dizendo "você já leu até aqui, não recomece do zero".
     #
@@ -90,49 +137,29 @@ namespace :sefaz do
       next
     end
 
-    leitura.avancar!(resposta) unless sondagem
-
-    puts "Resposta da SEFAZ: #{resposta.codigo} — #{resposta.motivo}"
-    puts "Último NSU lido: #{resposta.ultimo_nsu} · maior NSU disponível: #{resposta.max_nsu}"
-    puts "Documentos neste lote: #{resposta.documentos.size}"
+    puts "Resposta final: #{resposta.codigo} — #{resposta.motivo}"
+    puts "Marcador agora: #{leitura.reload.ultimo_nsu} · maior NSU: #{resposta.max_nsu}"
+    puts "Faltam #{leitura.faltam} documento(s) para o fim da fila."
     puts
 
-    if resposta.documentos.empty?
-      puts "Nenhum documento. Isso pode ser fim de fila (cStat 137) ou consulta"
-      puts "no ambiente errado — leia o motivo acima antes de concluir."
+    if total.empty?
+      puts "Nenhum documento nos lotes pedidos."
       puts
-      puts "Resposta crua (primeiros 800 caracteres):"
-      puts resposta.bruto.to_s[0, 800]
+      puts "Resposta crua (primeiros 600 caracteres):"
+      puts resposta.bruto.to_s[0, 600]
 
       next
     end
 
-    # A PERGUNTA. Para cada NF-e devolvida, o CNPJ da empresa está como
-    # emitente ou como destinatário?
-    papeis = Hash.new(0)
+    puts "Datas vistas: #{datas_vistas.min} a #{datas_vistas.max}" if datas_vistas.any?
+    puts
 
-    resposta.documentos.each_with_index do |doc, indice|
-      papel = papel_no_documento(doc.xml, cnpj)
-
-      papeis[papel] += 1
-
-      next if indice >= 10
-
-      # A data é o que responde "o último mês ainda está na fila?".
-      puts format("  NSU %-8s %-10s %-22s papel: %s",
-                  doc.nsu, emitida_em(doc.xml), doc.schema.to_s[0, 22], papel)
-    end
-
-    puts "  ... (#{resposta.documentos.size - 10} outros)" if resposta.documentos.size > 10
-
-    datas = resposta.documentos.filter_map { |doc| emitida_em(doc.xml) }.sort
+    puts "Tipos de documento:"
+    esquemas.sort_by { |_, quantos| -quantos }.each { |nome, quantos| puts format("  %-24s %d", nome, quantos) }
 
     puts
-    puts "Datas neste lote: #{datas.first} a #{datas.last}" if datas.any?
-
-    puts
-    puts "Papel da empresa nos documentos devolvidos:"
-    papeis.sort_by { |_, quantos| -quantos }.each { |papel, quantos| puts format("  %-24s %d", papel, quantos) }
+    puts "Papel da empresa:"
+    total.sort_by { |_, quantos| -quantos }.each { |papel, quantos| puts format("  %-34s %d", papel, quantos) }
 
     puts
     puts "Como ler:"
@@ -194,7 +221,16 @@ namespace :sefaz do
 
   # O CNPJ da empresa aparece como emitente ou como destinatário neste XML?
   def papel_no_documento(xml, cnpj)
-    return "resumo de evento" if xml.include?("<resEvento")
+    # Evento não tem <emit>/<dest>: tem o CNPJ do AUTOR e o tipo. Tratá-lo como
+    # "outro papel" jogava 28 documentos numa gaveta cega — e eram a maioria
+    # do lote.
+    if xml.include?("<resEvento") || xml.include?("<procEventoNFe") || xml.include?("<evento")
+      tipo = xml[%r{<tpEvento>(\d+)</tpEvento>}, 1]
+
+      autor = xml[%r{<CNPJ>(\d+)</CNPJ>}, 1]
+
+      return "evento #{EVENTOS[tipo] || tipo} (#{autor == cnpj ? 'nosso' : 'de terceiro'})"
+    end
 
     emitente = xml[%r{<emit>.*?<CNPJ>(\d+)</CNPJ>}m, 1]
 
