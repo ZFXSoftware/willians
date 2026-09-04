@@ -1,5 +1,6 @@
 require "net/http"
 require "json"
+require "base64"
 
 module Fiscal
   module Tiny
@@ -88,7 +89,35 @@ module Fiscal
         nota.is_a?(Hash) ? nota : nil
       end
 
+      # O XML da NF-e, como ela foi transmitida à SEFAZ.
+      #
+      # É a única forma de saber o que a nota carrega de verdade — o JSON do
+      # Tiny é a visão DELE do documento, não o documento. A pergunta que isto
+      # responde: o número do pedido no marketplace está dentro da NF-e, ou só
+      # existe no ERP?
+      #
+      # => a string do XML, ou nil.
+      def obter_xml(id)
+        retorno = post("nota.fiscal.obter.xml.php", id: id)
+
+        return if retorno.nil?
+
+        bruto = retorno["xml_nfe"] || retorno.dig("nota_fiscal", "xml") || retorno["xml"]
+
+        return if bruto.blank?
+
+        # O Tiny devolve ora o XML cru, ora em base64. Reconhecer pelo conteúdo
+        # é mais confiável que supor pelo campo.
+        bruto.to_s.lstrip.start_with?("<") ? bruto : decodificar(bruto)
+      end
+
       private
+
+      def decodificar(texto)
+        Base64.decode64(texto.to_s).force_encoding("UTF-8")
+      rescue StandardError
+        nil
+      end
 
       def vazio(pagina)
         { itens: [], pagina: pagina, total_paginas: 0 }
@@ -157,7 +186,14 @@ module Fiscal
 
       # Devolve o `retorno` em sucesso, ou nil quando a consulta não achou nada.
       def interpretar(resposta, caminho)
-        parsed = JSON.parse(resposta.body.to_s)
+        corpo = resposta.body.to_s
+
+        # O endpoint de XML responde o documento cru, sem envelope JSON. Sem
+        # este desvio ele morreria em "resposta não-JSON", que é verdade e não
+        # ajuda em nada.
+        return { "status" => "OK", "xml_nfe" => corpo } if corpo.lstrip.start_with?("<")
+
+        parsed = JSON.parse(corpo)
 
         retorno = parsed["retorno"] || parsed
 
