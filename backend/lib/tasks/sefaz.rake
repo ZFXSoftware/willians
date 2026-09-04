@@ -55,24 +55,14 @@ namespace :sefaz do
       next
     end
 
-    # VOLTAR=N sonda o passado sem perder o lugar.
+    # Só para frente.
     #
-    # A fila é por NSU e não aceita filtro de data: para saber se o último mês
-    # ainda está disponível, o jeito é pedir um pouco atrás e olhar as datas do
-    # que volta. O marcador NÃO é movido nessa sondagem — perder o lugar
-    # custaria outra hora de castigo.
-    sondagem = ENV["VOLTAR"].present?
-
-    nsu =
-      if sondagem
-        [ leitura.ultimo_nsu - ENV["VOLTAR"].to_i, 0 ].max
-      elsif ENV["NSU"].present?
-        ENV["NSU"].to_i
-      else
-        leitura.ultimo_nsu
-      end
-
-    puts "SONDAGEM: pedindo #{ENV['VOLTAR']} NSU atrás do marcador. Nada será gravado." if sondagem
+    # Existiu um modo de sondagem que pedia NSU atrás do marcador para descobrir
+    # se o mês passado ainda estava na fila. A resposta veio na primeira
+    # tentativa — 656 imediato — e o custo foi uma hora de bloqueio. A fila não
+    # anda para trás, e oferecer um botão que só serve para levar castigo é
+    # convite a repetir o erro.
+    nsu = ENV["NSU"].present? ? ENV["NSU"].to_i : leitura.ultimo_nsu
 
     puts "Continuando do NSU #{nsu}#{nsu.zero? ? ' (primeira leitura desta empresa)' : ''}"
     puts "Faltam #{leitura.faltam || '?'} documento(s) para o fim da fila." if leitura.max_nsu
@@ -102,7 +92,7 @@ namespace :sefaz do
 
       nsu = resposta.ultimo_nsu.to_i
 
-      leitura.avancar!(resposta) unless sondagem
+      leitura.avancar!(resposta)
 
       puts format("  lote %d: NSU até %s · %d documento(s)", volta + 1, resposta.ultimo_nsu, resposta.documentos.size)
 
@@ -121,7 +111,10 @@ namespace :sefaz do
     # é de onde continuar. Pedir do zero foi erro meu no desenho — a consulta
     # é uma fila incremental, não uma busca.
     if resposta.codigo == "656"
-      leitura.bloquear!(resposta) unless sondagem
+      # Sempre. O bloqueio é fato da SEFAZ, não modo nosso: na primeira vez eu
+      # deixei de gravá-lo numa execução "que não gravava nada", e a tarefa
+      # seguinte foi consultar dentro da penalidade e levou outra.
+      leitura.bloquear!(resposta)
 
       puts "Resposta da SEFAZ: 656 — #{resposta.motivo}"
       puts
