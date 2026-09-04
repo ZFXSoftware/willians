@@ -80,6 +80,13 @@ namespace :fiscal do
 
       procurar_pedido(xml, pedido)
 
+      # O que a nota REALMENTE carrega, independentemente do que eu procurava.
+      #
+      # A NF 044931 veio inteira e o número não apareceu — porque o que temos
+      # gravado é o PACOTE e a NF-e traz os PEDIDOS individuais. Procurar só
+      # pelo esperado esconde o que existe.
+      imprimir_pedidos_do_xml(xml)
+
       imprimir_intermediador(xml)
 
       puts
@@ -123,6 +130,23 @@ namespace :fiscal do
     ocorrencias.uniq.first(5).each do |tag, conteudo|
       puts format("    <%s> %s", tag, conteudo.to_s.strip.truncate(70))
     end
+  end
+
+  # Todo número de pedido que a NF-e carrega, em qualquer dos dois caminhos.
+  def imprimir_pedidos_do_xml(xml)
+    estruturados = xml.scan(%r{<xPed>([^<]+)</xPed>}).flatten
+
+    em_texto = xml.scan(/xPed:\s*([A-Za-z0-9\-]+)/).flatten
+
+    todos = (estruturados + em_texto).uniq
+
+    return puts "  A nota não traz número de pedido em lugar nenhum." if todos.empty?
+
+    puts "  Pedidos que a NF-e carrega:"
+
+    puts format("    <xPed> estruturado: %s", estruturados.uniq.join(", ")) if estruturados.any?
+
+    puts format("    xPed: em texto:     %s", em_texto.uniq.join(", ")) if em_texto.any?
   end
 
   def imprimir_intermediador(xml)

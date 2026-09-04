@@ -106,8 +106,12 @@ module Fiscal
 
         return if bruto.blank?
 
-        # O Tiny devolve ora o XML cru, ora em base64.
-        texto = bruto.to_s.lstrip.start_with?("<") ? bruto.to_s : decodificar(bruto)
+        # O corpo vem como ASCII-8BIT. Sem forçar a codificação, qualquer
+        # interpolação dele numa mensagem UTF-8 estoura — e estourou no meio da
+        # varredura, derrubando a tarefa inteira na segunda nota.
+        texto = bruto.to_s.dup.force_encoding("UTF-8")
+
+        texto = decodificar(bruto) unless texto.lstrip.start_with?("<")
 
         # E ora devolve um envelope de ERRO, que também começa com "<".
         #
