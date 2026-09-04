@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_04_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_04_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -246,6 +246,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_04_120000) do
     t.datetime "updated_at", null: false
     t.index ["order_id"], name: "index_invoices_on_order_id"
     t.index ["tenant_id"], name: "index_invoices_on_tenant_id"
+  end
+
+  create_table "leituras_sefaz", force: :cascade do |t|
+    t.datetime "bloqueado_ate"
+    t.datetime "consultado_em"
+    t.datetime "created_at", null: false
+    t.bigint "max_nsu"
+    t.jsonb "metadata", default: {}, null: false
+    t.bigint "tenant_id", null: false
+    t.string "ultimo_motivo"
+    t.bigint "ultimo_nsu", default: 0, null: false
+    t.string "ultimo_status"
+    t.datetime "updated_at", null: false
+    t.index ["tenant_id"], name: "idx_leitura_sefaz_por_empresa", unique: true
+    t.index ["tenant_id"], name: "index_leituras_sefaz_on_tenant_id"
   end
 
   create_table "marketplace_credentials", force: :cascade do |t|
@@ -506,6 +521,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_04_120000) do
   add_foreign_key "integration_settings", "users", column: "updated_by_id"
   add_foreign_key "invoices", "orders"
   add_foreign_key "invoices", "tenants"
+  add_foreign_key "leituras_sefaz", "tenants"
   add_foreign_key "marketplace_credentials", "platform_accounts"
   add_foreign_key "marketplace_credentials", "tenants"
   add_foreign_key "oauth_states", "platform_accounts"

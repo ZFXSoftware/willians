@@ -6,6 +6,9 @@ class Tenant < ApplicationRecord
   # banco — o pior tipo de resíduo.
   has_one :certificado_digital, dependent: :destroy
 
+  # Some com a empresa: é marcador de leitura dela, e não faz sentido sozinho.
+  has_one :leitura_sefaz, dependent: :destroy
+
   has_many :tenant_users, dependent: :destroy
   has_many :users, through: :tenant_users
   has_many :platform_accounts, dependent: :destroy

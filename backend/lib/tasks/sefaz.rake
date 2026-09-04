@@ -27,12 +27,27 @@ namespace :sefaz do
       pkcs12: p12, cnpj: cnpj, uf_autor: uf, producao: ENV["HOMOLOGACAO"].blank?
     )
 
-    # Sem NSU explícito a consulta começa do zero, e a SEFAZ trata isso como
-    # consumo indevido para quem já leu a fila. O aviso existe porque a
-    # penalidade é de uma hora, e descobri isso na primeira tentativa.
-    nsu = (ENV["NSU"] || 0).to_i
+    leitura = LeituraSefaz.find_or_create_by!(tenant_id: tenant.id)
 
-    puts "Pedindo a partir do NSU #{nsu}#{nsu.zero? ? ' (do começo — a SEFAZ recusa se este CNPJ já leu a fila)' : ''}"
+    # Bloqueio é respeitado, não registrado.
+    #
+    # Insistir antes da hora transforma penalidade ocasional em bloqueio
+    # recorrente — e o antiabuso da SEFAZ conta por CNPJ, então isso atrapalha
+    # também quem mais consome essa fila.
+    if leitura.bloqueada?
+      puts "A SEFAZ pediu para esperar. Faltam #{leitura.minutos_de_espera} minuto(s)."
+      puts "Último motivo: #{leitura.ultimo_motivo}"
+      puts
+      puts "Nada foi consultado."
+
+      next
+    end
+
+    # De onde continuar: o marcador guardado, salvo se alguém pedir outro.
+    nsu = ENV["NSU"].present? ? ENV["NSU"].to_i : leitura.ultimo_nsu
+
+    puts "Continuando do NSU #{nsu}#{nsu.zero? ? ' (primeira leitura desta empresa)' : ''}"
+    puts "Faltam #{leitura.faltam || '?'} documento(s) para o fim da fila." if leitura.max_nsu
     puts
 
     resposta = cliente.consultar(ultimo_nsu: nsu)
@@ -43,19 +58,23 @@ namespace :sefaz do
     # é de onde continuar. Pedir do zero foi erro meu no desenho — a consulta
     # é uma fila incremental, não uma busca.
     if resposta.codigo == "656"
+      leitura.bloquear!(resposta)
+
       puts "Resposta da SEFAZ: 656 — #{resposta.motivo}"
       puts
       puts "A conexão FUNCIONOU: o certificado foi aceito e a SEFAZ respondeu."
       puts "Este CNPJ já consumiu até o NSU #{resposta.ultimo_nsu} — há pelo menos"
       puts "#{resposta.ultimo_nsu.to_i} documentos distribuídos para ele."
       puts
-      puts "Daqui a uma hora, continue de onde a fila parou:"
-      puts "  ./deploy/deploy.sh rake sefaz:testar TENANT=#{tenant.id} UF=#{uf} NSU=#{resposta.ultimo_nsu.to_i}"
+      puts "O marcador foi guardado: a próxima chamada continua do #{leitura.ultimo_nsu}"
+      puts "sozinha, sem NSU na linha de comando. Basta esperar a hora."
       puts
       puts "Nada foi gravado."
 
       next
     end
+
+    leitura.avancar!(resposta)
 
     puts "Resposta da SEFAZ: #{resposta.codigo} — #{resposta.motivo}"
     puts "Último NSU lido: #{resposta.ultimo_nsu} · maior NSU disponível: #{resposta.max_nsu}"
