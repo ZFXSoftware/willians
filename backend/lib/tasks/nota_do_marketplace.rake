@@ -63,7 +63,9 @@ namespace :ml do
         ("/packs/#{pack}/fiscal_documents" if pack.present?),
         ("/shipments/#{envio}" if envio.present?),
         ("/shipments/#{envio}/items" if envio.present?),
-        ("/shipments/#{envio}/invoice_data" if envio.present?)
+        # 400 e não 404: o endpoint EXISTE e o pedido é que está incompleto.
+        # Ele exige o site, que no Brasil é MLB.
+        ("/shipments/#{envio}/invoice_data?siteId=MLB" if envio.present?)
       ].compact
 
       puts "  envio: #{envio || 'o pedido não informa'}"
