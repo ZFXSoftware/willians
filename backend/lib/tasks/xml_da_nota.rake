@@ -34,8 +34,16 @@ namespace :fiscal do
       if ENV["NF"].present?
         escopo.where(number: ENV["NF"].to_s.split(",").map(&:strip))
       else
+        # Nota recém-emitida ainda não foi autorizada pela SEFAZ e não tem XML.
+        #
+        # Ordenar por data decrescente pegava exatamente essas: cinco de seis
+        # canais voltaram "Nota Fiscal não autorizada", e eu quase li isso como
+        # "a NF-e não traz o pedido". Quarta vez hoje que amostro pelo topo e
+        # tomo ausência por fato.
         escopo
           .where("invoices.metadata->'intermediador'->>'nome' IS NOT NULL")
+          .where(status: :issued)
+          .where(issued_at: ..(Date.current - 7))
           .order(issued_at: :desc)
           .group_by { |nota| nota.metadata.dig("intermediador", "nome") }
           .values
@@ -93,9 +101,10 @@ namespace :fiscal do
     end
 
     puts "Como ler:"
-    puts "  <xPed> é campo estruturado da NF-e e aceita 15 caracteres. Pedido"
-    puts "  maior que isso não cabe, e o emissor precisa de outro lugar — foi"
-    puts "  o que vimos com o Mercado Livre, de 16 dígitos."
+    puts "  <xPed> aceita 15 caracteres. Medido numa nota do Mercado Livre: o"
+    puts "  campo estruturado veio TRUNCADO (200001826206180) e o número"
+    puts "  completo (2000018262061808) só existe no texto. Ler o estruturado"
+    puts "  sozinho dá número ERRADO, que é pior que ausente."
     puts
     puts "  o pedido aparece numa TAG da NF-e -> a SEFAZ serve de fonte, e o"
     puts "     produto deixa de depender de qual ERP o cliente usa."
