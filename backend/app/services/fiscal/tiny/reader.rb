@@ -45,6 +45,17 @@ module Fiscal
         notas_fiscais(start_date: start_date, end_date: end_date, tipo: ENTRADA)
       end
 
+      # Pergunta pelo NÚMERO da nota, que é o que o marketplace nos diz.
+      #
+      # Sem isto, "o Tiny não tem" e "o Tiny tem, sob outra chave de busca"
+      # produzem a mesma resposta vazia — e as providências são opostas:
+      # reimportar de um lado, conversar com o cliente do outro.
+      def por_numero(numero, serie: nil)
+        coletar do |pagina|
+          client.pesquisar_notas(pagina: pagina, numero: numero, serie: serie)
+        end
+      end
+
       def por_pedido(numero_ecommerce)
         coletar do |pagina|
           client.pesquisar_notas(pagina: pagina, numero_ecommerce: numero_ecommerce)

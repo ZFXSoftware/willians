@@ -52,14 +52,21 @@ module Fiscal
       end
 
       # => { itens: [...], pagina:, total_paginas: }
-      def pesquisar_notas(pagina: 1, data_inicial: nil, data_final: nil, numero_ecommerce: nil, tipo: "S")
+      def pesquisar_notas(pagina: 1, data_inicial: nil, data_final: nil, numero_ecommerce: nil,
+                          numero: nil, serie: nil, tipo: "S")
         retorno = post(
           "notas.fiscais.pesquisa.php",
           pagina: pagina,
           tipoNota: tipo,
           dataInicial: formatar(data_inicial),
           dataFinal: formatar(data_final),
-          numeroEcommerce: numero_ecommerce
+          numeroEcommerce: numero_ecommerce,
+          # Buscar pelo NÚMERO da nota é a única pergunta sem ambiguidade que
+          # temos aqui: procurar por `numeroEcommerce` devolve vazio tanto
+          # quando o Tiny não tem a nota quanto quando ele a guardou sob o
+          # PACOTE, que é o caso de toda venda de mais de um item.
+          numero: numero,
+          serie: serie
         )
 
         return vazio(pagina) if retorno.nil?

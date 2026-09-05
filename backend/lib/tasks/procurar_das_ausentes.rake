@@ -49,7 +49,8 @@ namespace :tiny do
 
     reader = Fiscal::Tiny::Reader.new
 
-    tem = 0
+    pelo_pedido = 0
+    pelo_numero = 0
     nao_tem = 0
     falhas = 0
 
@@ -84,8 +85,9 @@ namespace :tiny do
     end
 
     puts
-    puts "O Tiny TEM a nota:      #{tem}   -> a importação é que não alcançou; conserto nosso"
-    puts "O Tiny NÃO tem:         #{nao_tem}   -> emitida em outro sistema; pergunta para o cliente"
+    puts "Tiny acha pelo PEDIDO:  #{pelo_pedido}   -> a importação não alcançou; conserto nosso"
+    puts "Tiny acha pelo NÚMERO:  #{pelo_numero}   -> a nota existe, o elo com o pedido é que falta"
+    puts "Tiny NÃO tem:           #{nao_tem}   -> emitida em outro sistema; pergunta para o cliente"
     puts "Falhas na consulta:     #{falhas}" if falhas.positive?
     puts
     puts "Nada foi gravado."
