@@ -59,21 +59,47 @@ namespace :tiny do
 
       dados = pedido.metadata["nota_do_envio"]
 
+      # Duas perguntas, porque a primeira sozinha é ambígua: o Tiny guarda o
+      # PACOTE em `numeroEcommerce` quando a venda tem mais de um item, então
+      # "não conhece este pedido" cabe tanto em "não tenho a nota" quanto em
+      # "tenho, sob outra chave". A busca pelo NÚMERO não tem essa dúvida.
       notas = reader.por_pedido(pedido.external_id)
 
-
       if notas.any?
-        tem += 1
+        pelo_pedido += 1
 
-        notas.first(2).each do |nota|
-          puts format("  TEM   pedido %-20s ML diz NF %s/%s · Tiny responde NF %s/%s de %s",
-                      pedido.external_id, dados["numero"], dados["serie"],
-                      nota[:numero], nota[:serie], nota[:data_emissao])
-        end
+        nota = notas.first
+
+        puts format("  TEM   pedido %-20s ML diz NF %s/%s · Tiny acha pelo pedido: NF %s/%s de %s",
+                    pedido.external_id, dados["numero"], dados["serie"],
+                    nota[:numero], nota[:serie], nota[:data_emissao])
+
+        sleep 0.5
+
+        next
+      end
+
+      sleep 0.5
+
+      numero = dados["numero"].to_s.sub(/\A0+/, "")
+
+      achadas = reader.por_numero(numero, serie: dados["serie"])
+
+      # Só vale a nota cujo número é de fato o que pedimos: se o Tiny ignorar o
+      # filtro e devolver a página inteira, aceitar a primeira seria inventar
+      # uma resposta.
+      certa = achadas.find { |encontrada| encontrada[:numero].to_s.sub(/\A0+/, "") == numero }
+
+      if certa
+        pelo_numero += 1
+
+        puts format("  TEM   pedido %-20s NF %s/%s existe no Tiny (de %s, pedido lá: %s)",
+                    pedido.external_id, dados["numero"], dados["serie"],
+                    certa[:data_emissao], certa[:numero_ecommerce].presence || "em branco")
       else
         nao_tem += 1
 
-        puts format("  NÃO   pedido %-20s ML diz NF %s/%s · Tiny não conhece este pedido",
+        puts format("  NÃO   pedido %-20s NF %s/%s não existe no Tiny, por nenhuma das duas buscas",
                     pedido.external_id, dados["numero"], dados["serie"])
       end
 
