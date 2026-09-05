@@ -50,6 +50,13 @@ module Diagnostico
     def self.anunciar!(id_pedido = ENV["TENANT"])
       tenant = escolher(id_pedido)
 
+      # Escolher a empresa e não a tornar CORRENTE deixava as credenciais fora
+      # de alcance: o token do Tiny e o do OMIE são lidos de `Current.tenant`,
+      # e a tarefa quebrava dizendo "token não configurado" numa empresa que
+      # tem o token configurado. Cinco tarefas repetiam esta linha à mão e a
+      # sexta esqueceu — é responsabilidade de quem escolhe a empresa.
+      Current.tenant = tenant
+
       outras = Tenant.where.not(id: tenant.id).order(:id)
 
       puts "Empresa: ##{tenant.id} #{tenant.name}"

@@ -6,6 +6,17 @@ module Diagnostico
   # pedidos a corrigir" com milhares errados na empresa real — e quem lê um
   # diagnóstico acredita nele.
   class EmpresaAlvoTest < ActiveSupport::TestCase
+    # `anunciar!` imprime de propósito; aqui só o efeito interessa.
+    def silenciando
+      original = $stdout
+
+      $stdout = StringIO.new
+
+      yield
+    ensure
+      $stdout = original
+    end
+
     def configurar!(tenant)
       IntegrationSetting.create!(
         tenant: tenant, provider: "tiny", key: "token", value: "T-#{tenant.id}"
@@ -53,6 +64,19 @@ module Diagnostico
 
     test "TENANT inexistente é erro, e não silêncio" do
       assert_raises(EmpresaAlvo::NaoEncontrada) { EmpresaAlvo.escolher("999999") }
+    end
+
+    # Escolher a empresa sem torná-la corrente deixava as credenciais fora de
+    # alcance: o token do Tiny é lido de `Current.tenant`, e a tarefa abortava
+    # com "token não configurado" numa empresa que tem o token configurado.
+    test "anunciar torna a empresa corrente" do
+      tenant = criar_tenant
+
+      Current.tenant = nil
+
+      silenciando { EmpresaAlvo.anunciar!(tenant.id.to_s) }
+
+      assert_equal tenant.id, Current.tenant&.id
     end
 
     test "sem nenhuma configurada, diz isso" do

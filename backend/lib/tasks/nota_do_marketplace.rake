@@ -16,7 +16,6 @@ namespace :ml do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
-    Current.tenant = tenant
 
     conta = tenant.platform_accounts.where(status: :active, platform: "mercado_livre").first
 

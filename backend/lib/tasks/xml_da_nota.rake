@@ -17,7 +17,6 @@ namespace :fiscal do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
-    Current.tenant = tenant
 
     escopo = Invoice.where(tenant_id: tenant.id)
                     .where("invoices.metadata->>'numero_ecommerce' IS NOT NULL")

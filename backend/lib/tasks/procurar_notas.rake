@@ -19,7 +19,6 @@ namespace :conciliacao do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
-    Current.tenant = tenant
 
     amostra = (ENV["AMOSTRA"] || 30).to_i
 

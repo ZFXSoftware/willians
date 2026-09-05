@@ -143,7 +143,6 @@ namespace :tiny do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
-    Current.tenant = tenant
 
     notas = Invoice.where(tenant_id: tenant.id)
 
@@ -230,7 +229,6 @@ namespace :tiny do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
-    Current.tenant = tenant
 
     zeradas = Invoice.where(tenant_id: tenant.id)
                      .where(operation_type: :sale)
@@ -412,7 +410,6 @@ namespace :tiny do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
-    Current.tenant = tenant
 
     unless Fiscal::Tiny::Settings.configured?(tenant: tenant)
       abort "A empresa ##{tenant.id} não tem token do Tiny. No Tiny: instale a extensão " \

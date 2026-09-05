@@ -60,6 +60,7 @@ namespace :tiny do
 
       notas = reader.por_pedido(pedido.external_id)
 
+
       if notas.any?
         tem += 1
 

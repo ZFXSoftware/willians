@@ -11,7 +11,6 @@ namespace :omie do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
-    Current.tenant = tenant
 
     marco = Integracoes::Config.get("omie", :envio_a_partir_de, tenant: tenant).presence&.to_date
 

@@ -24,7 +24,6 @@ namespace :sefaz do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
-    Current.tenant = tenant
 
     p12, cnpj = carregar_certificado(tenant)
 

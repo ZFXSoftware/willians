@@ -11,7 +11,6 @@ namespace :omie do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
-    Current.tenant = tenant
 
     numeros = ENV["NF"].to_s.split(",").map(&:strip).compact_blank
 

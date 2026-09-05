@@ -14,7 +14,6 @@ namespace :sefaz do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
-    Current.tenant = tenant
 
     certificado = CertificadoDigital.find_by(tenant_id: tenant.id)
 
