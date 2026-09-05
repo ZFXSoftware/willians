@@ -193,7 +193,15 @@ module Marketplace
     def notas_do_envio(conta)
       return unless provider_de(conta)&.agrupa_pedidos?
 
-      MercadoLivre::NotaDoEnvio.new(tenant: conta.tenant, platform_account: conta).call
+      perguntadas = MercadoLivre::NotaDoEnvio.new(tenant: conta.tenant, platform_account: conta).call
+
+      # E religa, sem falar com ninguém, as vendas cuja resposta já está
+      # guardada e cuja nota chegou depois. A marca existe para não repetir a
+      # CHAMADA de API; o pareamento local é de graça e o nosso banco muda a
+      # cada importação do Tiny.
+      perguntadas.merge(
+        religadas: MercadoLivre::ReligarPeloEnvio.new(tenant: conta.tenant, dry_run: false).call
+      )
     rescue StandardError => e
       Rails.logger.error "#{LOG_PREFIX} conta ##{conta.id}: nota do envio falhou: #{e.message}"
 

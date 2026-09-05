@@ -83,20 +83,31 @@ namespace :conciliacao do
     puts "O marketplace NÃO tem nota:          #{sem_nota.size}"
     puts
 
-    achados.each do |regra, lista|
-      soltas = lista.reject(&:last)
+    soltas = achados.values.flatten(1).reject(&:last)
 
-      next if soltas.none?
+    # Nota cancelada solta é o comportamento CERTO: `soltar_canceladas!` a
+    # solta a cada ciclo de propósito, porque ela não é a nota da venda. Contar
+    # isso como falha de vínculo mandaria consertar o que está correto.
+    canceladas, falhas = soltas.partition { |_, _, nota, _| nota.status.to_s == "cancelled" }
 
-      puts "Achadas por #{regra} e NÃO ligadas (#{soltas.size}) — o vínculo é que falhou:"
+    if canceladas.any?
+      puts "Achadas, porém CANCELADAS (#{canceladas.size}) — soltas de propósito:"
+      puts "  Providência: o cliente precisa emitir a nota que substituiu cada uma."
+      puts
+    end
 
-      soltas.first(5).each do |pedido, dados, nota, _|
+    if falhas.any?
+      puts "Achadas no nosso banco e NÃO ligadas (#{falhas.size}) — o vínculo é que falhou:"
+
+      falhas.first(5).each do |pedido, dados, nota, _|
         puts format("  pedido %-20s ML diz NF %s/%s · nosso banco tem NF %s/%s (id %s, chave %s)",
                     pedido.external_id, dados["numero"], dados["serie"],
                     nota.number, nota.series, nota.id,
                     nota.access_key.presence ? "sim" : "VAZIA")
       end
 
+      puts
+      puts "  Providência: `rake ml:religar_pelo_envio` — é pareamento local, sem API."
       puts
     end
 
@@ -115,7 +126,32 @@ namespace :conciliacao do
 
       # A faixa diz se é buraco na importação ou nota de outro sistema: número
       # DENTRO de uma faixa que temos é lacuna nossa; fora dela, é outra origem.
-      puts "  Para comparar, o que temos no banco por série:"
+      # Onde os números caem decide a providência: ABAIXO do que importamos é
+      # janela de importação curta, e o conserto é nosso — buscar mais para
+      # trás no Tiny. DENTRO da faixa é nota que o Tiny não tem, e aí a
+      # pergunta é do cliente: qual sistema emitiu.
+      faixas = Invoice.where(tenant_id: tenant.id)
+                      .group(:series)
+                      .pluck(Arel.sql("series, MIN(NULLIF(regexp_replace(COALESCE(number,''),'\\D','','g'),'')::bigint), MAX(NULLIF(regexp_replace(COALESCE(number,''),'\\D','','g'),'')::bigint)"))
+                      .to_h { |serie, menor, maior| [ serie.to_s, [ menor, maior ] ] }
+
+      posicao = Hash.new(0)
+
+      ausentes.each do |_, dados|
+        faixa = faixas[dados["serie"].to_s]
+
+        numero = sem_zeros(dados["numero"]).to_i
+
+        posicao[faixa.nil? ? :serie_desconhecida : numero < faixa[0] ? :abaixo : numero > faixa[1] ? :acima : :dentro] += 1
+      end
+
+      puts "  Onde esses números caem na faixa que importamos:"
+      puts "    ABAIXO do menor que temos:  #{posicao[:abaixo]}   <- importação não foi longe o bastante"
+      puts "    DENTRO da faixa:            #{posicao[:dentro]}   <- o Tiny não tem; qual sistema emitiu?"
+      puts "    ACIMA do maior que temos:   #{posicao[:acima]}   <- mais nova que a última importação"
+      puts "    série que não temos:        #{posicao[:serie_desconhecida]}"
+      puts
+      puts "  O que temos no banco por série:"
 
       Invoice.where(tenant_id: tenant.id)
              .group(:series)
