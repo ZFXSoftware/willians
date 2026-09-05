@@ -49,6 +49,49 @@ namespace :tiny do
 
     reader = Fiscal::Tiny::Reader.new
 
+    # CONTROLE, antes de qualquer conclusão.
+    #
+    # Uma busca quebrada devolve vazio para TODA nota, e "não existe no Tiny"
+    # é exatamente como isso se parece. Então primeiro perguntamos por uma nota
+    # que veio do Tiny e está no nosso banco: se nem essa for encontrada, o que
+    # não presta é a busca, e o resto do relatório não vale nada.
+    controle = Invoice.where(tenant_id: tenant.id)
+                      .where.not(number: nil)
+                      .order(Arel.sql("RANDOM()"))
+                      .first
+
+    if controle.blank?
+      abort "Não há nota no banco para usar de controle."
+    end
+
+    numero_controle = controle.number.to_s.sub(/\A0+/, "")
+
+    com_serie = reader.por_numero(numero_controle, serie: controle.series)
+
+    # E sem a série: se ela for filtro não aceito, o Tiny responde erro e o
+    # nosso cliente lê erro como "nada encontrado" — vazio idêntico ao de uma
+    # nota ausente.
+    sem_serie = reader.por_numero(numero_controle)
+
+    bate = ->(lista) { lista.any? { |n| n[:numero].to_s.sub(/\A0+/, "") == numero_controle } }
+
+    puts "Controle — NF #{controle.number}/#{controle.series}, que veio do Tiny e está no nosso banco:"
+    puts "  buscando com série:  #{bate.call(com_serie) ? 'ACHOU' : 'não achou'}"
+    puts "  buscando sem série:  #{bate.call(sem_serie) ? 'ACHOU' : 'não achou'}"
+    puts
+
+    if !bate.call(com_serie) && !bate.call(sem_serie)
+      abort "A busca por número não encontra nem uma nota que sabemos existir no Tiny.\n" \
+            "O problema é a busca, não as notas. Não conclua nada da amostra abaixo."
+    end
+
+    # Se só a busca sem série funciona, é a série que atrapalha — e usar o
+    # filtro que não funciona geraria 236 falsos "não existe".
+    usar_serie = bate.call(com_serie)
+
+    puts "Usando a busca #{usar_serie ? 'com' : 'sem'} série."
+    puts
+
     pelo_pedido = 0
     pelo_numero = 0
     nao_tem = 0
@@ -83,7 +126,7 @@ namespace :tiny do
 
       numero = dados["numero"].to_s.sub(/\A0+/, "")
 
-      achadas = reader.por_numero(numero, serie: dados["serie"])
+      achadas = reader.por_numero(numero, serie: usar_serie ? dados["serie"] : nil)
 
       # Só vale a nota cujo número é de fato o que pedimos: se o Tiny ignorar o
       # filtro e devolver a página inteira, aceitar a primeira seria inventar
