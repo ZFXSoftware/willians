@@ -55,10 +55,29 @@ namespace :tiny do
     # é exatamente como isso se parece. Então primeiro perguntamos por uma nota
     # que veio do Tiny e está no nosso banco: se nem essa for encontrada, o que
     # não presta é a busca, e o resto do relatório não vale nada.
+    # E o controle tem de ser da MESMA série investigada. O primeiro que fiz
+    # caiu numa nota série 5 e passou, mas as ausentes são todas série 2 — se
+    # essa série vier de outra conta do Tiny, a busca funcionaria para uma e
+    # não para a outra, e o controle teria dado licença para a conclusão errada.
+    serie_investigada = ausentes.filter_map { |u| u.order.metadata.dig("nota_do_envio", "serie") }
+                                .tally.max_by(&:last)&.first
+
     controle = Invoice.where(tenant_id: tenant.id)
                       .where.not(number: nil)
+                      .where(series: serie_investigada)
                       .order(Arel.sql("RANDOM()"))
                       .first
+
+    if controle.blank? && serie_investigada.present?
+      puts "Não há nota da série #{serie_investigada} no nosso banco para usar de controle;"
+      puts "caindo para qualquer série — o controle fica mais fraco."
+      puts
+
+      controle = Invoice.where(tenant_id: tenant.id)
+                        .where.not(number: nil)
+                        .order(Arel.sql("RANDOM()"))
+                        .first
+    end
 
     if controle.blank?
       abort "Não há nota no banco para usar de controle."

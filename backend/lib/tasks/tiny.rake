@@ -361,10 +361,17 @@ namespace :tiny do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
+    # Janela explícita para buscar um período PASSADO.
+    #
+    # `DIAS` conta sempre a partir de hoje, então alcançar julho custaria reler
+    # todos os meses desde então — milhares de notas para reencontrar as
+    # mesmas. Com DE/ATE se lê só o pedaço que falta.
     dias = (ENV["DIAS"] || 30).to_i
 
-    fim = Date.current
-    inicio = fim - dias
+    fim = ENV["ATE"].present? ? Date.parse(ENV["ATE"]) : Date.current
+    inicio = ENV["DE"].present? ? Date.parse(ENV["DE"]) : (fim - dias)
+
+    abort "DE (#{inicio}) é depois de ATE (#{fim})." if inicio > fim
 
     puts
     puts "Empresa: ##{tenant.id} #{tenant.name}"
