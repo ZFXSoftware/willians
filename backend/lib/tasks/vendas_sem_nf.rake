@@ -41,18 +41,34 @@ namespace :conciliacao do
     # `numero_ecommerce` na nota, `external_id` no pedido.
     referencias = sem_nota.filter_map { |unidade| unidade.order&.external_id }.uniq
 
+    # Separadas de propósito: nota CANCELADA está no banco e não deve ser
+    # religada. O ciclo a solta da venda justamente porque ela não vale mais, e
+    # contá-la como "órfã" manda reimportar o Tiny para desfazer o conserto.
+    #
+    # Venda cuja nota foi cancelada não precisa de vínculo: precisa de OUTRA
+    # nota.
+    escopo_notas = Invoice
+                     .where(tenant_id: tenant.id)
+                     .where("invoices.metadata->>'numero_ecommerce' IN (?)", referencias.presence || [ "" ])
+
     notas_por_pedido =
-      Invoice
-        .where(tenant_id: tenant.id)
-        .where("invoices.metadata->>'numero_ecommerce' IN (?)", referencias.presence || [ "" ])
+      escopo_notas
+        .where.not(status: :cancelled)
+        .pluck(Arel.sql("invoices.metadata->>'numero_ecommerce'"), :number)
+        .to_h
+
+    canceladas_por_pedido =
+      escopo_notas
+        .where(status: :cancelled)
         .pluck(Arel.sql("invoices.metadata->>'numero_ecommerce'"), :number)
         .to_h
 
     orfas = 0
     ausentes = 0
     sem_pedido = 0
+    canceladas = 0
 
-    exemplos = { orfa: [], ausente: [] }
+    exemplos = { orfa: [], ausente: [], cancelada: [] }
 
     sem_nota.find_each do |unidade|
       referencia = unidade.order&.external_id
@@ -67,6 +83,12 @@ namespace :conciliacao do
         orfas += 1
 
         exemplos[:orfa] << "#{referencia} (NF #{notas_por_pedido[referencia]})" if exemplos[:orfa].size < 5
+      elsif canceladas_por_pedido.key?(referencia)
+        canceladas += 1
+
+        if exemplos[:cancelada].size < 5
+          exemplos[:cancelada] << "#{referencia} (NF #{canceladas_por_pedido[referencia]} cancelada)"
+        end
       else
         ausentes += 1
 
@@ -102,11 +124,13 @@ namespace :conciliacao do
     puts "Por que a nota não está ligada:"
     puts
     puts format("  %-46s %d", "a nota ESTÁ no nosso banco, sem vínculo", orfas)
+    puts format("  %-46s %d", "a nota foi CANCELADA (precisa de outra)", canceladas)
     puts format("  %-46s %d", "a nota não está no nosso banco", ausentes)
     puts format("  %-46s %d", "o recebível não tem pedido", sem_pedido)
     puts
 
-    exemplos[:orfa].each { |exemplo| puts "    órfã:   #{exemplo}" }
+    exemplos[:orfa].each { |exemplo| puts "    órfã:     #{exemplo}" }
+    exemplos[:cancelada].each { |exemplo| puts "    cancelada: #{exemplo}" }
     exemplos[:ausente].each { |exemplo| puts "    faltando: #{exemplo}" }
 
     puts
@@ -126,6 +150,8 @@ namespace :conciliacao do
     puts
     puts "Como consertar:"
     puts "  órfãs      -> reimportar do Tiny cobrindo a data delas religa o vínculo."
+    puts "  canceladas -> a venda precisa de OUTRA nota. Religar a cancelada"
+    puts "                desfaria o conserto: ela não vira título no OMIE."
     puts "  faltando   -> importar o Tiny com janela maior (DIAS)."
     puts "  sem pedido -> o recebível não achou o pedido no marketplace."
     puts
