@@ -174,6 +174,79 @@ namespace :conciliacao do
     end
   end
 
+  # "50 vendas sem nota" pode ser normal ou pode ser defeito novo, e o número
+  # sozinho não diz qual. Cada venda sem nota tem hoje uma explicação conhecida
+  # — ou nenhuma, e é essa última que interessa.
+  def explicar_sem_nota(tenant, unidades)
+    sem_nota = unidades.select { |unidade| unidade.invoice_id.blank? }
+
+    return if sem_nota.none?
+
+    # A série 2 do Tiny começa aqui; abaixo disso as notas foram emitidas em
+    # outro sistema, antes da troca de ERP em meados de julho de 2026.
+    piso = Invoice.where(tenant_id: tenant.id)
+                  .where.not(number: nil)
+                  .group(:series)
+                  .minimum(Arel.sql("NULLIF(regexp_replace(COALESCE(number,''),'\\D','','g'),'')::bigint"))
+
+    canceladas = Invoice.where(tenant_id: tenant.id, status: :cancelled)
+                        .where.not(order_id: nil)
+                        .pluck(:order_id, :number)
+                        .to_h
+
+    motivos = Hash.new(0)
+
+    novas = []
+
+    sem_nota.each do |unidade|
+      marca = unidade.order&.metadata&.dig("nota_do_envio")
+
+      if canceladas.key?(unidade.order_id)
+        motivos[:cancelada] += 1
+      elsif marca.is_a?(String)
+        motivos[:sem_nfe_no_marketplace] += 1
+      elsif marca.is_a?(Hash)
+        menor = piso[marca["serie"].to_s]
+
+        numero = marca["numero"].to_s.sub(/\A0+/, "").to_i
+
+        if menor && numero.positive? && numero < menor
+          motivos[:antes_do_tiny] += 1
+        else
+          motivos[:existe_e_nao_temos] += 1
+
+          novas << "#{unidade.order&.external_id} (NF #{marca['numero']}/#{marca['serie']})"
+        end
+      else
+        motivos[:nao_perguntado] += 1
+      end
+    end
+
+    puts "  Das #{sem_nota.size} venda(s) sem nota fiscal:"
+    puts "    nota CANCELADA, precisa de outra:            #{motivos[:cancelada]}" if motivos[:cancelada].positive?
+    puts "    sem NF-e registrada no marketplace:          #{motivos[:sem_nfe_no_marketplace]}" if motivos[:sem_nfe_no_marketplace].positive?
+    puts "    emitida ANTES da troca de ERP (não é Tiny):  #{motivos[:antes_do_tiny]}" if motivos[:antes_do_tiny].positive?
+    puts "    ainda não perguntadas ao marketplace:        #{motivos[:nao_perguntado]}" if motivos[:nao_perguntado].positive?
+
+    if motivos[:existe_e_nao_temos].positive?
+      puts "    A NOTA EXISTE E NÃO ESTÁ NO NOSSO BANCO:     #{motivos[:existe_e_nao_temos]}   <- isto é novo"
+
+      novas.first(5).each { |linha| puts "      #{linha}" }
+    end
+
+    puts
+
+    conhecidas = motivos.values.sum - motivos[:existe_e_nao_temos]
+
+    if motivos[:existe_e_nao_temos].zero?
+      puts "  Todas as #{conhecidas} têm explicação conhecida — nenhuma novidade aqui."
+    else
+      puts "  As #{motivos[:existe_e_nao_temos]} marcadas acima não se explicam pelo que já sabemos."
+    end
+
+    puts
+  end
+
   def imprimir_remessa(tenant, lote, registro)
     extrato = lote.financial_entry
 
@@ -237,6 +310,8 @@ namespace :conciliacao do
 
     puts "    ... (#{unidades.size - 40} outras)" if unidades.size > 40
     puts
+
+    explicar_sem_nota(tenant, unidades)
 
     # A decomposição que separa as duas causas.
     puts format("  soma das vendas no marketplace: R$ %.2f", soma_ml)
