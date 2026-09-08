@@ -143,6 +143,71 @@ module DiferencaDaRemessa
     puts
   end
 
+  # O que separa as vendas que divergem das que não divergem?
+  #
+  # A linha do relatório traz PAYMENT_METHOD_TYPE e as datas de aprovação e de
+  # liberação. Se as divergentes forem compras PARCELADAS e as iguais à vista,
+  # o valor a mais é juro do comprador — que o Mercado Livre soma no bruto e a
+  # nota fiscal, corretamente, não documenta.
+  #
+  # Compara as duas populações em vez de olhar só as divergentes: foi olhando
+  # só um lado que eu fechei quatro explicações erradas seguidas.
+  def separar_por_forma_de_pagamento(tenant, com_nota, linhas)
+    divergentes = linhas.map { |linha| linha[:nota].id }.to_set
+
+    grupos = com_nota.group_by { |unidade| divergentes.include?(unidade.invoice_id) ? :diferem : :iguais }
+
+    puts "Forma de pagamento das duas populações:"
+    puts
+
+    grupos.each do |rotulo, unidades|
+      contagem = Hash.new(0)
+
+      dias = []
+
+      unidades.each do |unidade|
+        cru = linha_do_relatorio(tenant, unidade)
+
+        next contagem["(sem a linha guardada)"] += 1 if cru.blank?
+
+        contagem[cru["PAYMENT_METHOD_TYPE"].presence || "(vazio)"] += 1
+
+        aprovado = cru["TRANSACTION_APPROVAL_DATE"]
+        liberado = cru["DATE"]
+
+        dias << (Date.parse(liberado) - Date.parse(aprovado)).to_i if aprovado.present? && liberado.present?
+      end
+
+      puts "  #{rotulo} (#{unidades.size}):"
+
+      contagem.sort_by { |_, quantas| -quantas }.each do |forma, quantas|
+        puts format("    %-24s %d", forma, quantas)
+      end
+
+      if dias.any?
+        puts format("    dias entre aprovação e liberação: mínimo %d, mediana %d, máximo %d",
+                    dias.min, dias.sort[dias.size / 2], dias.max)
+      end
+
+      puts
+    end
+
+    puts "  Se as que DIFEREM forem de um tipo e as IGUAIS de outro, o tipo é a causa."
+    puts
+  end
+
+  # A linha do relatório que deu origem à venda. Guardada desde o reimporte —
+  # antes disso não existe e a comparação não tem o que dizer.
+  def linha_do_relatorio(tenant, unidade)
+    entrada = FinancialEntry.find_by(tenant_id: tenant.id, external_id: unidade.external_id)
+
+    cru = entrada&.raw_payload
+
+    cru = (JSON.parse(cru) rescue nil) if cru.is_a?(String)
+
+    cru.is_a?(Hash) ? cru : nil
+  end
+
   # Compara cada NOTA com a soma das vendas que ela cobre.
   #
   # Agrupar por nota antes de comparar é obrigatório: a nota do PACOTE vale por
@@ -229,6 +294,8 @@ namespace :conciliacao do
     linhas = DiferencaDaRemessa.diferencas_por_nota(com_nota)
 
     DiferencaDaRemessa.comparar_com_a_taxa(com_nota, linhas)
+
+    DiferencaDaRemessa.separar_por_forma_de_pagamento(tenant, com_nota, linhas)
 
     soma_venda = com_nota.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d }
 

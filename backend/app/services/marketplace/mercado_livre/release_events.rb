@@ -399,8 +399,13 @@ module Marketplace
           # vira chamada de API por venda, ou chute. O relatório tem coluna
           # para cada tipo de valor e nós guardávamos quatro delas.
           #
-          # Só o que tem conteúdo: a planilha traz dezenas de colunas vazias.
-          raw_payload: linha.to_h.compact_blank
+          # A linha INTEIRA, colunas vazias inclusive.
+          #
+          # Eu tinha posto `compact_blank` para poupar espaço, e isso apaga a
+          # diferença entre "a coluna existe e veio vazia" e "a coluna não
+          # existe neste relatório" — que é exatamente a dúvida quando falta
+          # explicar um valor. Uma linha de CSV é barata; a dúvida não.
+          raw_payload: linha.to_h
         }
       end
 
