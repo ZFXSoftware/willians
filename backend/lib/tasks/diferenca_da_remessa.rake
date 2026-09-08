@@ -96,6 +96,61 @@ module DiferencaDaRemessa
     }
   end
 
+  # A diferença é o custo do PARCELAMENTO?
+  #
+  # Provado num pedido: GROSS_AMOUNT é o valor da mercadoria MAIS o
+  # FINANCING_FEE_AMOUNT — o comprador parcelou em 4x, o Mercado Livre soma o
+  # custo ao bruto e o cobra de volta como taxa. A nota documenta a mercadoria,
+  # então bruto menos parcelamento (e menos cupom) deveria dar a nota exata.
+  #
+  # Um pedido não faz regra. Isto confere as 45 do repasse, sem chamar API:
+  # as colunas agora estão guardadas.
+  def explicar_pelo_relatorio(tenant, linhas)
+    puts "Bruto menos parcelamento e cupom bate com a nota?"
+    puts
+
+    exatas = 0
+    sem_dados = 0
+    sobrando = []
+
+    linhas.each do |linha|
+      cru = linha_do_relatorio(tenant, linha[:unidades].first)
+
+      next sem_dados += 1 if cru.blank? || cru["FINANCING_FEE_AMOUNT"].nil?
+
+      parcelamento = cru["FINANCING_FEE_AMOUNT"].to_d.abs
+
+      cupom = cru["COUPON_AMOUNT"].to_d.abs
+
+      sobra = linha[:diferenca] - parcelamento - cupom
+
+      if sobra.abs < BigDecimal("0.01")
+        exatas += 1
+      else
+        sobrando << format("    NF %-10s dif %8.2f · parcelamento %8.2f · cupom %7.2f · parcelas %-3s · sobra %8.2f",
+                           linha[:nota].number, linha[:diferenca], parcelamento, cupom,
+                           cru["INSTALLMENTS"].to_s, sobra)
+      end
+    end
+
+    puts format("  explicadas exatamente:            %d de %d", exatas, linhas.size)
+    puts format("  sem as colunas novas ainda:       %d", sem_dados) if sem_dados.positive?
+    puts
+
+    if sobrando.any?
+      puts "  Ainda não explicadas (#{sobrando.size}):"
+
+      puts sobrando.first(10)
+
+      puts
+    end
+
+    if sem_dados.positive?
+      puts "  Para as sem colunas: rake marketplace:reimportar com REGERAR=1 no período delas."
+      puts
+    end
+  end
+
   # A diferença é a COMISSÃO?
   #
   # Medido num pedido: a nota bate exato com o valor do pedido no ML, e o nosso
@@ -370,6 +425,8 @@ namespace :conciliacao do
     linhas = DiferencaDaRemessa.diferencas_por_nota(com_nota)
 
     DiferencaDaRemessa.conferir_o_repasse(tenant, lote, unidades)
+
+    DiferencaDaRemessa.explicar_pelo_relatorio(tenant, linhas)
 
     DiferencaDaRemessa.comparar_com_a_taxa(com_nota, linhas)
 
