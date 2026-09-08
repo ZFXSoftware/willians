@@ -34,13 +34,18 @@ namespace :ml do
 
     bruto = client.bruto("/orders/#{externo}")
 
-    unidade = ReceivableUnit.find_by(tenant_id: tenant.id, order_id: pedido.id)
+    # TODAS as unidades do pedido, não a primeira: um pedido pago em dois
+    # pagamentos vira duas vendas, e mostrar só uma faz a venda parecer R$ 8,43
+    # quando ela é R$ 129,65 — número errado bem no relatório que existe para
+    # explicar números.
+    unidades = ReceivableUnit.where(tenant_id: tenant.id, order_id: pedido.id).to_a
 
-    nota = unidade&.invoice
+    nota = unidades.filter_map(&:invoice).first
 
     puts "Pedido #{externo}"
-    puts format("  no nosso banco: venda R$ %.2f · nota %s R$ %.2f",
-                unidade&.gross_amount.to_d, nota&.number || "(sem)", nota&.total_amount.to_d)
+    puts format("  no nosso banco: venda R$ %.2f em %d parte(s) · nota %s R$ %.2f",
+                unidades.sum(BigDecimal("0")) { |u| u.gross_amount.to_d }, unidades.size,
+                nota&.number || "(sem)", nota&.total_amount.to_d)
     puts
 
     puts "O que o Mercado Livre guarda:"

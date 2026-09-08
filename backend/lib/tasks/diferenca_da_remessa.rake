@@ -4,6 +4,63 @@ def valor_de(lote)
   (lote.gross_amount || lote.net_amount).to_d
 end
 
+# Pergunta ao Mercado Livre o cupom de cada venda que difere da nota.
+#
+# Medido em dois pedidos: a diferença é exatamente `coupon_amount` somado sobre
+# os pagamentos, e o relatório de liberações credita o valor CHEIO — ou seja, o
+# cupom é bancado pelo marketplace, o vendedor recebe tudo, e é a nota que sai
+# menor. Dois casos não fazem uma regra; isto confere o repasse inteiro.
+def conferir_cupons(conta, linhas)
+  return puts("  (sem conta de marketplace nas vendas; pulei a conferência de cupons.)") if conta.blank?
+
+  client = Marketplace::MercadoLivre::OrdersClient.new(
+    access_token: Marketplace::Credentials::TokenProvider.new(platform_account: conta).access_token,
+    seller_id: conta.external_id
+  )
+
+  puts "Conferindo o cupom de cada uma no Mercado Livre:"
+  puts
+
+  explicadas = 0
+  soma_cupom = BigDecimal("0")
+  sobrando = []
+
+  linhas.each do |linha|
+    cupom = linha[:pedidos].sum(BigDecimal("0")) { |externo| cupom_de(client, externo) }
+
+    soma_cupom += cupom
+
+    if (linha[:diferenca] - cupom).abs < BigDecimal("0.01")
+      explicadas += 1
+    else
+      sobrando << format("    NF %-10s diferença %8.2f · cupom %8.2f · sobra %8.2f",
+                         linha[:nota].number, linha[:diferenca], cupom, linha[:diferenca] - cupom)
+    end
+
+    sleep 0.3
+  rescue StandardError => e
+    sobrando << "    NF #{linha[:nota].number}: #{e.class} #{e.message}"
+  end
+
+  puts format("  explicadas pelo cupom do marketplace: %d de %d", explicadas, linhas.size)
+  puts format("  soma dos cupons:                      R$ %.2f", soma_cupom)
+  puts
+
+  if sobrando.any?
+    puts "  Não explicadas pelo cupom:"
+
+    puts sobrando.first(10)
+
+    puts
+  end
+end
+
+def cupom_de(client, externo)
+  bruto = client.bruto("/orders/#{externo}")
+
+  Array(bruto["payments"]).sum(BigDecimal("0")) { |pagamento| pagamento["coupon_amount"].to_d }
+end
+
 # Compara cada NOTA com a soma das vendas que ela cobre.
 #
 # Agrupar por nota antes de comparar é obrigatório: a nota do PACOTE vale por
@@ -117,6 +174,13 @@ namespace :conciliacao do
 
     puts "  ... (#{linhas.size - 25} outras)" if linhas.size > 25
     puts
+
+    # A conta sai das PRÓPRIAS vendas do repasse, e não de uma busca por
+    # plataforma: adivinhar qual conta usar é como este projeto já escolheu a
+    # empresa errada quatro vezes.
+    if ENV["COM_ML"] == "1"
+      conferir_cupons(PlatformAccount.find_by(id: com_nota.first&.platform_account_id), linhas)
+    end
 
     maiores = linhas.count { |linha| linha[:diferenca].positive? }
 
