@@ -96,6 +96,53 @@ module DiferencaDaRemessa
     }
   end
 
+  # A diferença é a COMISSÃO?
+  #
+  # Medido num pedido: a nota bate exato com o valor do pedido no ML, e o nosso
+  # bruto é o pedido MAIS a comissão. Se fosse regra geral, porém, toda venda
+  # divergiria — e no repasse #19 só 45 de 184 divergem. Ou o relatório manda a
+  # linha em dois formatos, ou há outra coisa separando os dois grupos, e é
+  # isso que esta conta mostra sem chamar API nenhuma.
+  def comparar_com_a_taxa(com_nota, linhas)
+    divergentes = linhas.map { |linha| linha[:nota].id }.to_set
+
+    iguais = com_nota.reject { |unidade| divergentes.include?(unidade.invoice_id) }
+
+    puts "Comparando a diferença com a COMISSÃO cobrada em cada venda:"
+    puts
+
+    perto = 0
+
+    linhas.each do |linha|
+      taxa = com_nota.select { |u| u.invoice_id == linha[:nota].id }
+                     .sum(BigDecimal("0")) { |u| u.fee_amount.to_d }
+
+      perto += 1 if (linha[:diferenca] - taxa).abs <= BigDecimal("1.00")
+    end
+
+    puts format("  divergentes cuja diferença é ~a comissão (±R$1): %d de %d", perto, linhas.size)
+    puts
+
+    # O outro grupo é o que decide: se as que NÃO divergem também têm comissão,
+    # então o bruto não inclui a comissão sempre — e a explicação é parcial.
+    com_taxa = iguais.count { |unidade| unidade.fee_amount.to_d.positive? }
+
+    puts format("  vendas que NÃO divergem: %d, das quais %d têm comissão cobrada",
+                iguais.size, com_taxa)
+    puts
+
+    if com_taxa.positive?
+      puts "  Ou seja: existe venda com comissão cujo bruto JÁ bate com a nota."
+      puts "  O bruto não inclui a comissão sempre — as duas populações vêm do"
+      puts "  mesmo relatório com formatos diferentes, e é isso que falta nomear."
+    else
+      puts "  Nenhuma venda sem divergência tem comissão: as duas coisas andam juntas,"
+      puts "  e o bruto inflado pela comissão explica a diferença inteira."
+    end
+
+    puts
+  end
+
   # Compara cada NOTA com a soma das vendas que ela cobre.
   #
   # Agrupar por nota antes de comparar é obrigatório: a nota do PACOTE vale por
@@ -180,6 +227,8 @@ namespace :conciliacao do
     puts
 
     linhas = DiferencaDaRemessa.diferencas_por_nota(com_nota)
+
+    DiferencaDaRemessa.comparar_com_a_taxa(com_nota, linhas)
 
     soma_venda = com_nota.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d }
 
