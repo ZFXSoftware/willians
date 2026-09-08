@@ -73,7 +73,45 @@ namespace :ml do
                   pagamento["coupon_amount"], pagamento["status"])
     end
 
-    puts
+    # O envio, que é onde o frete mora de verdade: `payments[].shipping_cost`
+    # veio zerado em todos os que olhei, e o pedido não traz o custo.
+    envio = bruto.dig("shipping", "id")
+
+    if envio.present?
+      dados = client.bruto("/shipments/#{envio}")
+
+      puts "Envio ##{envio}:"
+      puts format("  base_cost %-10s cost %-10s  (o que o comprador pagou de frete)",
+                  dados["base_cost"].inspect, dados["cost"].inspect)
+      puts format("  shipping_option.cost %-10s list_cost %s",
+                  dados.dig("shipping_option", "cost").inspect,
+                  dados.dig("shipping_option", "list_cost").inspect)
+      puts
+    end
+
+    # A conta que decide entre as duas leituras.
+    unidade = unidades.first
+
+    if unidade && nota
+      itens = Array(bruto["order_items"]).sum(BigDecimal("0")) do |item|
+        item["unit_price"].to_d * item["quantity"].to_i
+      end
+
+      puts "Qual dos nossos valores corresponde à nota:"
+      puts format("  nota fiscal            R$ %10.2f", nota.total_amount.to_d)
+      puts format("  itens do pedido (ML)   R$ %10.2f   diferença %8.2f", itens, itens - nota.total_amount.to_d)
+      puts format("  nosso BRUTO            R$ %10.2f   diferença %8.2f",
+                  unidades.sum(BigDecimal("0")) { |u| u.gross_amount.to_d },
+                  unidades.sum(BigDecimal("0")) { |u| u.gross_amount.to_d } - nota.total_amount.to_d)
+      puts format("  nosso LÍQUIDO          R$ %10.2f   diferença %8.2f",
+                  unidades.sum(BigDecimal("0")) { |u| u.net_amount.to_d },
+                  unidades.sum(BigDecimal("0")) { |u| u.net_amount.to_d } - nota.total_amount.to_d)
+      puts
+      puts "  Se o LÍQUIDO for o que bate com a nota, a conciliação compara o lado"
+      puts "  errado hoje — e a diferença nunca foi desconto nem frete."
+      puts
+    end
+
     puts "Como ler:"
     puts "  coupon_amount no PAGAMENTO       -> o marketplace bancou; a venda não muda para o vendedor."
     puts "  full_unit_price > unit_price     -> o VENDEDOR baixou o preço; a nota está certa e o"

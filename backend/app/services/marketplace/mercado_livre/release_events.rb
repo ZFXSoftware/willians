@@ -391,7 +391,16 @@ module Marketplace
             "external_reference" => linha["EXTERNAL_REFERENCE"].to_s.strip.presence,
             "record_type" => linha["RECORD_TYPE"].to_s.strip.presence,
             "payment_method" => linha["PAYMENT_METHOD"].to_s.strip.presence
-          }.compact
+          }.compact,
+          # A linha inteira do relatório, como veio.
+          #
+          # Sem ela, a pergunta "de onde vêm os R$ 28,01 que o ML creditou
+          # acima do valor do pedido?" não tem resposta no nosso banco — e
+          # vira chamada de API por venda, ou chute. O relatório tem coluna
+          # para cada tipo de valor e nós guardávamos quatro delas.
+          #
+          # Só o que tem conteúdo: a planilha traz dezenas de colunas vazias.
+          raw_payload: linha.to_h.compact_blank
         }
       end
 
