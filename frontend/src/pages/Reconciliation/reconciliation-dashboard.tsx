@@ -11,6 +11,7 @@ import {
   type ExecucaoConciliacao,
   type FiltrosRegistros,
   type Registro,
+  type VendaDoRepasse,
 } from "../../api/conciliacoes"
 import { fetchFilas, ocupada } from "../../api/processos"
 import { errorMessage } from "../../api/client"
@@ -555,6 +556,32 @@ function VendasDoRepasseTabela({ repasseId, row }: { repasseId: number; row: Reg
 
   const semNota = Number(data.totais.sem_nota)
 
+  // A diferença entre o que o marketplace pagou pela venda e o que a nota
+  // documenta. Estava só no terminal, e é ela que explica o resíduo que sobra
+  // depois de descontar as vendas sem nota.
+  //
+  // Nota de PACOTE fica de fora: ela vale por várias vendas, e subtrair o
+  // conjunto de uma venda só inventaria uma diferença do tamanho das outras.
+  const diferencaDe = (venda: VendaDoRepasse): number | null => {
+    if (!venda.nf || venda.pacote) return null
+
+    const valor = Number(venda.valor)
+    const valorNf = Number(venda.valor_nf)
+
+    if (!Number.isFinite(valor) || !Number.isFinite(valorNf)) return null
+
+    const diferenca = valor - valorNf
+
+    return Math.abs(diferenca) < 0.01 ? null : diferenca
+  }
+
+  const divergentes = data.items.filter((venda) => diferencaDe(venda) !== null)
+
+  const somaDivergencias = divergentes.reduce(
+    (total, venda) => total + (diferencaDe(venda) ?? 0),
+    0,
+  )
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
@@ -567,6 +594,12 @@ function VendasDoRepasseTabela({ repasseId, row }: { repasseId: number; row: Reg
         {semNota > 0 && (
           <span className="text-amber-300">
             {semNota} sem nota: {brl(data.totais.valor_sem_nota)}
+          </span>
+        )}
+        {divergentes.length > 0 && (
+          <span className="text-zinc-400">
+            {divergentes.length} com valor diferente da nota:{" "}
+            <strong className="text-zinc-200">{brl(String(somaDivergencias))}</strong>
           </span>
         )}
         {row.pago_em && (
@@ -583,6 +616,7 @@ function VendasDoRepasseTabela({ repasseId, row }: { repasseId: number; row: Reg
               <th className="text-right font-medium px-3 py-2">Venda</th>
               <th className="text-left font-medium px-3 py-2">NF</th>
               <th className="text-right font-medium px-3 py-2">Valor NF</th>
+              <th className="text-right font-medium px-3 py-2">Diferença</th>
               <th className="text-left font-medium px-3 py-2">Canal</th>
             </tr>
           </thead>
@@ -612,6 +646,22 @@ function VendasDoRepasseTabela({ repasseId, row }: { repasseId: number; row: Reg
                 </td>
                 <td className="px-3 py-2 text-right text-zinc-400">
                   {venda.nf ? brl(venda.valor_nf) : "—"}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  {(() => {
+                    const diferenca = diferencaDe(venda)
+
+                    if (diferenca === null) return <span className="text-zinc-600">—</span>
+
+                    return (
+                      <span
+                        className="text-amber-300"
+                        title="O marketplace pagou por esta venda um valor diferente do que a nota documenta"
+                      >
+                        {brl(String(diferenca))}
+                      </span>
+                    )
+                  })()}
                 </td>
                 <td className="px-3 py-2 text-zinc-500">{venda.canal ?? "—"}</td>
               </tr>
