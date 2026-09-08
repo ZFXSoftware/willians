@@ -1,116 +1,125 @@
-# O mesmo valor que o motor compara: bruto quando existe, líquido como reserva.
-# `total_amount` não existe em PayoutBatch — eu inventei a coluna.
-def valor_de(lote)
-  (lote.gross_amount || lote.net_amount).to_d
-end
+# Fechados num módulo porque `def` no topo de um .rake define em Object: todos
+# os arquivos de tarefa dividem o mesmo espaço, e `tiny.rake` já tinha um
+# `valores_de` de um argumento. O que carrega por último vence, e as 45
+# conferências morreram em "wrong number of arguments" — erro que aparece só na
+# VPS, com os dois arquivos carregados juntos.
+module DiferencaDaRemessa
+  module_function
 
-# Pergunta ao Mercado Livre o cupom de cada venda que difere da nota.
-#
-# Medido em dois pedidos: a diferença é exatamente `coupon_amount` somado sobre
-# os pagamentos, e o relatório de liberações credita o valor CHEIO — ou seja, o
-# cupom é bancado pelo marketplace, o vendedor recebe tudo, e é a nota que sai
-# menor. Dois casos não fazem uma regra; isto confere o repasse inteiro.
-def conferir_cupons(conta, linhas)
-  return puts("  (sem conta de marketplace nas vendas; pulei a conferência de cupons.)") if conta.blank?
-
-  client = Marketplace::MercadoLivre::OrdersClient.new(
-    access_token: Marketplace::Credentials::TokenProvider.new(platform_account: conta).access_token,
-    seller_id: conta.external_id
-  )
-
-  puts "Conferindo o cupom de cada uma no Mercado Livre:"
-  puts
-
-  explicadas = 0
-  por_frete = 0
-  soma_cupom = BigDecimal("0")
-  sobrando = []
-
-  linhas.each do |linha|
-    # `uniq` porque um pedido pago em DUAS parcelas vira duas vendas, e o mesmo
-    # pedido aparecia duas vezes aqui — somando o cupom em dobro e inventando
-    # uma sobra negativa exatamente do tamanho do cupom.
-    dinheiro = linha[:pedidos].uniq.map { |externo| valores_de(client, externo) }
-
-    cupom = dinheiro.sum(BigDecimal("0")) { |v| v[:cupom] }
-
-    frete = dinheiro.sum(BigDecimal("0")) { |v| v[:frete] }
-
-    soma_cupom += cupom
-
-    if (linha[:diferenca] - cupom).abs < BigDecimal("0.01")
-      explicadas += 1
-    elsif (linha[:diferenca] - cupom - frete).abs < BigDecimal("0.01")
-      por_frete += 1
-    else
-      sobrando << format("    NF %-10s dif %8.2f · cupom %7.2f · frete %7.2f · itens %8.2f · pago %8.2f · sobra %8.2f",
-                         linha[:nota].number, linha[:diferenca], cupom, frete,
-                         dinheiro.sum(BigDecimal("0")) { |v| v[:itens] },
-                         dinheiro.sum(BigDecimal("0")) { |v| v[:pago] },
-                         linha[:diferenca] - cupom - frete)
-    end
-
-    sleep 0.3
-  rescue StandardError => e
-    sobrando << "    NF #{linha[:nota].number}: #{e.class} #{e.message}"
+  # O mesmo valor que o motor compara: bruto quando existe, líquido como
+  # reserva. `total_amount` não existe em PayoutBatch — eu inventei a coluna.
+  def valor_de(lote)
+    (lote.gross_amount || lote.net_amount).to_d
   end
 
-  puts format("  explicadas só pelo cupom:             %d de %d", explicadas, linhas.size)
-  puts format("  explicadas por cupom + frete:         %d", por_frete)
-  puts format("  soma dos cupons:                      R$ %.2f", soma_cupom)
-  puts
+  # Pergunta ao Mercado Livre o cupom de cada venda que difere da nota.
+  #
+  # Medido em dois pedidos: a diferença é exatamente `coupon_amount` somado sobre
+  # os pagamentos, e o relatório de liberações credita o valor CHEIO — ou seja, o
+  # cupom é bancado pelo marketplace, o vendedor recebe tudo, e é a nota que sai
+  # menor. Dois casos não fazem uma regra; isto confere o repasse inteiro.
+  def conferir_cupons(conta, linhas)
+    return puts("  (sem conta de marketplace nas vendas; pulei a conferência de cupons.)") if conta.blank?
 
-  if sobrando.any?
-    puts "  Não explicadas pelo cupom:"
+    client = Marketplace::MercadoLivre::OrdersClient.new(
+      access_token: Marketplace::Credentials::TokenProvider.new(platform_account: conta).access_token,
+      seller_id: conta.external_id
+    )
 
-    puts sobrando.first(10)
-
+    puts "Conferindo o cupom de cada uma no Mercado Livre:"
     puts
-  end
-end
 
-# Os quatro valores que podem explicar a diferença, do pedido bruto.
-#
-# Imprimir a composição inteira em vez de testar uma hipótese por vez: eu já
-# concluí "é cupom" de dois pedidos, e o cupom explicava menos da metade.
-def valores_de(client, externo)
-  bruto = client.bruto("/orders/#{externo}")
+    explicadas = 0
+    por_frete = 0
+    soma_cupom = BigDecimal("0")
+    sobrando = []
 
-  pagamentos = Array(bruto["payments"])
+    linhas.each do |linha|
+      # `uniq` porque um pedido pago em DUAS parcelas vira duas vendas, e o mesmo
+      # pedido aparecia duas vezes aqui — somando o cupom em dobro e inventando
+      # uma sobra negativa exatamente do tamanho do cupom.
+      dinheiro = linha[:pedidos].uniq.map { |externo| valores_de(client, externo) }
 
-  {
-    cupom: pagamentos.sum(BigDecimal("0")) { |p| p["coupon_amount"].to_d },
-    frete: pagamentos.sum(BigDecimal("0")) { |p| p["shipping_cost"].to_d },
-    pago: pagamentos.sum(BigDecimal("0")) { |p| p["transaction_amount"].to_d },
-    itens: Array(bruto["order_items"]).sum(BigDecimal("0")) do |item|
-      item["unit_price"].to_d * item["quantity"].to_i
+      cupom = dinheiro.sum(BigDecimal("0")) { |v| v[:cupom] }
+
+      frete = dinheiro.sum(BigDecimal("0")) { |v| v[:frete] }
+
+      soma_cupom += cupom
+
+      if (linha[:diferenca] - cupom).abs < BigDecimal("0.01")
+        explicadas += 1
+      elsif (linha[:diferenca] - cupom - frete).abs < BigDecimal("0.01")
+        por_frete += 1
+      else
+        sobrando << format("    NF %-10s dif %8.2f · cupom %7.2f · frete %7.2f · itens %8.2f · pago %8.2f · sobra %8.2f",
+                           linha[:nota].number, linha[:diferenca], cupom, frete,
+                           dinheiro.sum(BigDecimal("0")) { |v| v[:itens] },
+                           dinheiro.sum(BigDecimal("0")) { |v| v[:pago] },
+                           linha[:diferenca] - cupom - frete)
+      end
+
+      sleep 0.3
+    rescue StandardError => e
+      sobrando << "    NF #{linha[:nota].number}: #{e.class} #{e.message}"
     end
-  }
-end
 
-# Compara cada NOTA com a soma das vendas que ela cobre.
-#
-# Agrupar por nota antes de comparar é obrigatório: a nota do PACOTE vale por
-# várias vendas, e confrontá-la inteira contra uma delas inventaria uma
-# diferença do tamanho das outras.
-def diferencas_por_nota(com_nota)
-  com_nota.group_by(&:invoice_id).filter_map do |_, lista|
-    nota = lista.first.invoice
+    puts format("  explicadas só pelo cupom:             %d de %d", explicadas, linhas.size)
+    puts format("  explicadas por cupom + frete:         %d", por_frete)
+    puts format("  soma dos cupons:                      R$ %.2f", soma_cupom)
+    puts
 
-    venda = lista.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d }
+    if sobrando.any?
+      puts "  Não explicadas pelo cupom:"
 
-    diferenca = venda - nota.total_amount.to_d
+      puts sobrando.first(10)
 
-    next if diferenca.abs < BigDecimal("0.01")
+      puts
+    end
+  end
+
+  # Os quatro valores que podem explicar a diferença, do pedido bruto.
+  #
+  # Imprimir a composição inteira em vez de testar uma hipótese por vez: eu já
+  # concluí "é cupom" de dois pedidos, e o cupom explicava menos da metade.
+  def valores_de(client, externo)
+    bruto = client.bruto("/orders/#{externo}")
+
+    pagamentos = Array(bruto["payments"])
 
     {
-      nota: nota,
-      pedidos: lista.filter_map { |unidade| unidade.order&.external_id },
-      vendas: lista.size,
-      venda: venda,
-      valor_nota: nota.total_amount.to_d,
-      diferenca: diferenca
+      cupom: pagamentos.sum(BigDecimal("0")) { |p| p["coupon_amount"].to_d },
+      frete: pagamentos.sum(BigDecimal("0")) { |p| p["shipping_cost"].to_d },
+      pago: pagamentos.sum(BigDecimal("0")) { |p| p["transaction_amount"].to_d },
+      itens: Array(bruto["order_items"]).sum(BigDecimal("0")) do |item|
+        item["unit_price"].to_d * item["quantity"].to_i
+      end
     }
+  end
+
+  # Compara cada NOTA com a soma das vendas que ela cobre.
+  #
+  # Agrupar por nota antes de comparar é obrigatório: a nota do PACOTE vale por
+  # várias vendas, e confrontá-la inteira contra uma delas inventaria uma
+  # diferença do tamanho das outras.
+  def diferencas_por_nota(com_nota)
+    com_nota.group_by(&:invoice_id).filter_map do |_, lista|
+      nota = lista.first.invoice
+
+      venda = lista.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d }
+
+      diferenca = venda - nota.total_amount.to_d
+
+      next if diferenca.abs < BigDecimal("0.01")
+
+      {
+        nota: nota,
+        pedidos: lista.filter_map { |unidade| unidade.order&.external_id },
+        vendas: lista.size,
+        venda: venda,
+        valor_nota: nota.total_amount.to_d,
+        diferenca: diferenca
+      }
+    end
   end
 end
 
@@ -146,7 +155,7 @@ namespace :conciliacao do
 
         com_nota = unidades.select(&:invoice_id)
 
-        divergentes = diferencas_por_nota(com_nota)
+        divergentes = DiferencaDaRemessa.diferencas_por_nota(com_nota)
 
         puts format("  #%-4d %-12s %10d %10d %8d %12.2f",
                     candidato.id, candidato.paid_at&.to_date, unidades.size, com_nota.size,
@@ -161,7 +170,7 @@ namespace :conciliacao do
 
     unidades = lote.financial_entry_allocations.filter_map(&:receivable_unit).uniq
 
-    puts "Repasse ##{lote.id} · pago em #{lote.paid_at} · R$ #{format('%.2f', valor_de(lote))}"
+    puts "Repasse ##{lote.id} · pago em #{lote.paid_at} · R$ #{format('%.2f', DiferencaDaRemessa.valor_de(lote))}"
     puts "#{unidades.size} venda(s) penduradas."
     puts
 
@@ -170,7 +179,7 @@ namespace :conciliacao do
     puts "Vendas com nota: #{com_nota.size} (as sem nota já têm relatório próprio)."
     puts
 
-    linhas = diferencas_por_nota(com_nota)
+    linhas = DiferencaDaRemessa.diferencas_por_nota(com_nota)
 
     soma_venda = com_nota.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d }
 
@@ -206,7 +215,7 @@ namespace :conciliacao do
     # plataforma: adivinhar qual conta usar é como este projeto já escolheu a
     # empresa errada quatro vezes.
     if ENV["COM_ML"] == "1"
-      conferir_cupons(PlatformAccount.find_by(id: com_nota.first&.platform_account_id), linhas)
+      DiferencaDaRemessa.conferir_cupons(PlatformAccount.find_by(id: com_nota.first&.platform_account_id), linhas)
     end
 
     maiores = linhas.count { |linha| linha[:diferenca].positive? }
