@@ -22,19 +22,32 @@ def conferir_cupons(conta, linhas)
   puts
 
   explicadas = 0
+  por_frete = 0
   soma_cupom = BigDecimal("0")
   sobrando = []
 
   linhas.each do |linha|
-    cupom = linha[:pedidos].sum(BigDecimal("0")) { |externo| cupom_de(client, externo) }
+    # `uniq` porque um pedido pago em DUAS parcelas vira duas vendas, e o mesmo
+    # pedido aparecia duas vezes aqui — somando o cupom em dobro e inventando
+    # uma sobra negativa exatamente do tamanho do cupom.
+    dinheiro = linha[:pedidos].uniq.map { |externo| valores_de(client, externo) }
+
+    cupom = dinheiro.sum(BigDecimal("0")) { |v| v[:cupom] }
+
+    frete = dinheiro.sum(BigDecimal("0")) { |v| v[:frete] }
 
     soma_cupom += cupom
 
     if (linha[:diferenca] - cupom).abs < BigDecimal("0.01")
       explicadas += 1
+    elsif (linha[:diferenca] - cupom - frete).abs < BigDecimal("0.01")
+      por_frete += 1
     else
-      sobrando << format("    NF %-10s diferença %8.2f · cupom %8.2f · sobra %8.2f",
-                         linha[:nota].number, linha[:diferenca], cupom, linha[:diferenca] - cupom)
+      sobrando << format("    NF %-10s dif %8.2f · cupom %7.2f · frete %7.2f · itens %8.2f · pago %8.2f · sobra %8.2f",
+                         linha[:nota].number, linha[:diferenca], cupom, frete,
+                         dinheiro.sum(BigDecimal("0")) { |v| v[:itens] },
+                         dinheiro.sum(BigDecimal("0")) { |v| v[:pago] },
+                         linha[:diferenca] - cupom - frete)
     end
 
     sleep 0.3
@@ -42,7 +55,8 @@ def conferir_cupons(conta, linhas)
     sobrando << "    NF #{linha[:nota].number}: #{e.class} #{e.message}"
   end
 
-  puts format("  explicadas pelo cupom do marketplace: %d de %d", explicadas, linhas.size)
+  puts format("  explicadas só pelo cupom:             %d de %d", explicadas, linhas.size)
+  puts format("  explicadas por cupom + frete:         %d", por_frete)
   puts format("  soma dos cupons:                      R$ %.2f", soma_cupom)
   puts
 
@@ -55,10 +69,23 @@ def conferir_cupons(conta, linhas)
   end
 end
 
-def cupom_de(client, externo)
+# Os quatro valores que podem explicar a diferença, do pedido bruto.
+#
+# Imprimir a composição inteira em vez de testar uma hipótese por vez: eu já
+# concluí "é cupom" de dois pedidos, e o cupom explicava menos da metade.
+def valores_de(client, externo)
   bruto = client.bruto("/orders/#{externo}")
 
-  Array(bruto["payments"]).sum(BigDecimal("0")) { |pagamento| pagamento["coupon_amount"].to_d }
+  pagamentos = Array(bruto["payments"])
+
+  {
+    cupom: pagamentos.sum(BigDecimal("0")) { |p| p["coupon_amount"].to_d },
+    frete: pagamentos.sum(BigDecimal("0")) { |p| p["shipping_cost"].to_d },
+    pago: pagamentos.sum(BigDecimal("0")) { |p| p["transaction_amount"].to_d },
+    itens: Array(bruto["order_items"]).sum(BigDecimal("0")) do |item|
+      item["unit_price"].to_d * item["quantity"].to_i
+    end
+  }
 end
 
 # Compara cada NOTA com a soma das vendas que ela cobre.
