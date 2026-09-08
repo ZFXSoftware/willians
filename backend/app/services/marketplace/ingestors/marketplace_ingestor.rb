@@ -268,8 +268,21 @@ module Marketplace
           # gravou o JSON como TEXTO dentro da coluna jsonb — `.to_json` numa
           # coluna que já serializa sozinha — e o resultado passa por
           # "preenchido" enquanto é inútil para ler. Isto reconserta essas.
-          .where("raw_payload IS NULL OR raw_payload = '{}'::jsonb " \
-                 "OR jsonb_typeof(raw_payload) <> 'object'")
+          #
+          # E também quando a linha CRESCEU. O relatório do Mercado Pago tem
+          # colunas configuráveis: depois de acrescentar frete e parcelamento,
+          # a mesma linha passou de 13 para 23 campos, e "só preencher o vazio"
+          # deixava as antigas pobres para sempre — foi o que fez 45 de 45
+          # conferências dizerem "sem as colunas novas ainda".
+          #
+          # Mais campos da MESMA linha é estritamente mais informação: não há
+          # o que perder ao substituir.
+          .where(
+            "raw_payload IS NULL OR raw_payload = '{}'::jsonb " \
+            "OR jsonb_typeof(raw_payload) <> 'object' " \
+            "OR (SELECT COUNT(*) FROM jsonb_object_keys(financial_entries.raw_payload)) < ?",
+            event[:raw_payload].to_h.size
+          )
           .update_all(raw_payload: event[:raw_payload], updated_at: Time.current)
       end
     end

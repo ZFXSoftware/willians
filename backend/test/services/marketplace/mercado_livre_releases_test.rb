@@ -356,6 +356,37 @@ module Marketplace
       end
     end
 
+    # O relatório do Mercado Pago tem colunas configuráveis: a mesma linha
+    # passou de 13 para 23 campos quando acrescentamos frete e parcelamento.
+    # "Só preencher o vazio" deixava as linhas antigas pobres para sempre.
+    test "linha que cresceu substitui a versão pobre" do
+      tenant = criar_tenant
+      conta = criar_conta(tenant: tenant)
+      fixos = eventos
+
+      ingerir = lambda do
+        Ingestors::MarketplaceIngestor.new(
+          tenant: tenant, platform_account: conta, start_date: DE, end_date: ATE
+        ).call
+      end
+
+      com_metodo(Providers::MercadoLivreProvider, :financial_events,
+                 ->(start_date:, end_date:) { fixos }) do
+        com_metodo(Providers::MercadoLivreProvider.singleton_class, :configured?, ->(_c) { true }) do
+          ingerir.call
+
+          entrada = FinancialEntry.where(tenant: tenant).where("external_id LIKE 'MLREL-%'").first
+
+          entrada.update_columns(raw_payload: { "GROSS_AMOUNT" => "1.00" })
+
+          ingerir.call
+
+          assert_operator entrada.reload.raw_payload.size, :>, 1,
+                          "a linha mais completa devia ter substituído a pobre"
+        end
+      end
+    end
+
     # Sobrescrever a procedência apagaria o que veio na importação que valeu.
     test "procedência já gravada não é sobrescrita" do
       tenant = criar_tenant
@@ -375,11 +406,15 @@ module Marketplace
 
           entrada = FinancialEntry.where(tenant: tenant).where("external_id LIKE 'MLREL-%'").first
 
-          entrada.update_columns(raw_payload: { "meu" => "valor" })
+          # Do mesmo tamanho: nada a ganhar em substituir, e substituir
+          # apagaria o que veio na importação que valeu.
+          igual = entrada.raw_payload.merge("MARCA" => "primeira importação")
+
+          entrada.update_columns(raw_payload: igual)
 
           ingerir.call
 
-          assert_equal({ "meu" => "valor" }, entrada.reload.raw_payload)
+          assert_equal igual, entrada.reload.raw_payload
         end
       end
     end
