@@ -1,3 +1,9 @@
+# O mesmo valor que o motor compara: bruto quando existe, líquido como reserva.
+# `total_amount` não existe em PayoutBatch — eu inventei a coluna.
+def valor_de(lote)
+  (lote.gross_amount || lote.net_amount).to_d
+end
+
 namespace :conciliacao do
   desc "De onde vem a diferença que sobrou num repasse, venda a venda (SOMENTE LEITURA)"
   task diferenca_da_remessa: :environment do
@@ -21,7 +27,7 @@ namespace :conciliacao do
 
       PayoutBatch.where(tenant_id: tenant.id).order(paid_at: :desc).limit(10).each do |candidato|
         puts format("  ##{candidato.id}  ref %-24s pago em %s  R$ %.2f",
-                    candidato.external_id.to_s[0, 24], candidato.paid_at, candidato.total_amount.to_d)
+                    candidato.external_id.to_s[0, 24], candidato.paid_at, valor_de(candidato))
       end
 
       next
@@ -29,7 +35,7 @@ namespace :conciliacao do
 
     unidades = lote.financial_entry_allocations.filter_map(&:receivable_unit).uniq
 
-    puts "Repasse ##{lote.id} · pago em #{lote.paid_at} · R$ #{format('%.2f', lote.total_amount.to_d)}"
+    puts "Repasse ##{lote.id} · pago em #{lote.paid_at} · R$ #{format('%.2f', valor_de(lote))}"
     puts "#{unidades.size} venda(s) penduradas."
     puts
 
