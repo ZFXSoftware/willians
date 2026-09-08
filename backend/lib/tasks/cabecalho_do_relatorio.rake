@@ -1,3 +1,5 @@
+require "csv"
+
 namespace :ml do
   desc "O cabeçalho e uma linha crua do relatório de liberações (SOMENTE LEITURA)"
   task cabecalho_do_relatorio: :environment do
@@ -24,9 +26,35 @@ namespace :ml do
     puts "Baixando o relatório de #{inicio} a #{fim} (reaproveita o já gerado)..."
     puts
 
+    # RELATORIO=liquidacao pede o outro arquivo da mesma API. O de liberações
+    # veio com 15 colunas e sem o número do pedido; o de liquidação promete
+    # ORDER_ID, PACK_ID e as deduções discriminadas.
+    caminho =
+      if ENV["RELATORIO"].to_s == "liquidacao"
+        Marketplace::MercadoLivre::ReleasesClient::LIQUIDACAO_PATH
+      else
+        Marketplace::MercadoLivre::ReleasesClient::BASE_PATH
+      end
+
+    puts "Relatório: #{caminho}"
+    puts
+
     client = Marketplace::MercadoLivre::ReleasesClient.new(
-      access_token: Marketplace::Credentials::TokenProvider.new(platform_account: conta).access_token
+      access_token: Marketplace::Credentials::TokenProvider.new(platform_account: conta).access_token,
+      caminho: caminho
     )
+
+    # Antes do arquivo, a configuração que decide o que entra nele.
+    begin
+      config = client.configuracao
+
+      puts "Configuração do relatório nesta conta:"
+      puts "  #{config.inspect.truncate(1500)}"
+      puts
+    rescue StandardError => e
+      puts "Não consegui ler a configuração: #{e.class} #{e.message}"
+      puts
+    end
 
     csv = client.csv_for(start_date: inicio, end_date: fim)
 

@@ -19,6 +19,14 @@ module Marketplace
     class ReleasesClient
       BASE_PATH = "/v1/account/release_report".freeze
 
+      # O outro relatório da mesma API, com a MESMA mecânica de criar/esperar/
+      # baixar. Ele traz o que o de liberações não tem: ORDER_ID, PACK_ID e as
+      # deduções discriminadas (frete, cupom, parcelamento).
+      #
+      # Medido no arquivo real: o de liberações vem com 15 colunas e nenhuma
+      # delas é o número do pedido — daí o "Com pedido: 0/3220" da importação.
+      LIQUIDACAO_PATH = "/v1/account/settlement_report".freeze
+
       OPEN_TIMEOUT = 5
 
       READ_TIMEOUT = 60
@@ -46,13 +54,28 @@ module Marketplace
         include Marketplace::AindaNaoPronto
       end
 
-      def initialize(access_token:, timeout: DEFAULT_TIMEOUT, sleeper: nil)
+      def initialize(access_token:, timeout: DEFAULT_TIMEOUT, sleeper: nil, caminho: BASE_PATH)
+        @caminho = caminho
+
         @access_token = access_token
 
         @timeout = timeout
 
         # Injetável para que o teste não espere de verdade.
         @sleeper = sleeper || ->(segundos) { sleep(segundos) }
+      end
+
+      # A configuração do relatório: quais colunas ele exporta.
+      #
+      # O arquivo que recebemos vem com 15 colunas e sem o número do pedido,
+      # enquanto o glossário oficial descreve frete, cupom, parcelamento e
+      # ORDER_ID. A diferença não é permissão do app nem defeito do nosso
+      # leitor: é esta configuração, que vive na CONTA e tem um padrão enxuto.
+      #
+      # Só leitura. Mudar as colunas é PUT no mesmo caminho e altera o relatório
+      # do cliente — decisão dele, não efeito colateral de um diagnóstico.
+      def configuracao
+        get("#{caminho}/config")
       end
 
       # Devolve o CSV do período, gerando o relatório se ainda não existir.
@@ -67,7 +90,7 @@ module Marketplace
       end
 
       def criar(start_date:, end_date:)
-        post(BASE_PATH,
+        post(caminho,
              begin_date: iso(inicio_instante(start_date)),
              end_date: iso(fim_instante(end_date)))
       end
@@ -77,7 +100,7 @@ module Marketplace
       # aparecer nessa lista, o formato inesperado viraria espera eterna sem
       # uma linha sequer no log.
       def relatorios
-        resposta = get("#{BASE_PATH}/list")
+        resposta = get("#{caminho}/list")
 
         return resposta if resposta.is_a?(Array)
 
@@ -99,14 +122,15 @@ module Marketplace
 
         raise Error, "Relatório sem nome de arquivo" if nome.blank?
 
-        corpo(get_raw("#{BASE_PATH}/#{nome}"))
+        corpo(get_raw("#{caminho}/#{nome}"))
       end
 
       private
 
       attr_reader :access_token,
                   :timeout,
-                  :sleeper
+                  :sleeper,
+                  :caminho
 
       def aguardar(start_date, end_date)
         limite = timeout
