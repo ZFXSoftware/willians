@@ -109,43 +109,65 @@ module DiferencaDaRemessa
     puts "Bruto menos parcelamento e cupom bate com a nota?"
     puts
 
-    exatas = 0
-    sem_dados = 0
+    veredito = Hash.new(0)
+
     sobrando = []
 
     linhas.each do |linha|
       cru = linha_do_relatorio(tenant, linha[:unidades].first)
 
-      next sem_dados += 1 if cru.blank? || cru["FINANCING_FEE_AMOUNT"].nil?
+      next veredito[:sem_dados] += 1 if cru.blank? || cru["FINANCING_FEE_AMOUNT"].nil?
 
       parcelamento = cru["FINANCING_FEE_AMOUNT"].to_d.abs
 
       cupom = cru["COUPON_AMOUNT"].to_d.abs
 
-      sobra = linha[:diferenca] - parcelamento - cupom
+      frete = cru["SHIPPING_FEE_AMOUNT"].to_d.abs
 
-      if sobra.abs < BigDecimal("0.01")
-        exatas += 1
+      # Em umas o bruto inclui o parcelamento, em outras a diferença é só o
+      # cupom. Testar as combinações e contar qual bate é mais honesto do que
+      # eu escolher uma e chamar de regra — foi assim que quatro explicações
+      # minhas caíram nesta investigação.
+      candidatos = {
+        "parcelamento" => parcelamento,
+        "cupom" => cupom,
+        "parcelamento + cupom" => parcelamento + cupom,
+        "frete" => frete,
+        "parcelamento + frete" => parcelamento + frete
+      }
+
+      acerto = candidatos.find { |_, valor| (linha[:diferenca] - valor).abs < BigDecimal("0.01") }
+
+      if acerto
+        veredito[acerto[0]] += 1
       else
-        sobrando << format("    NF %-10s dif %8.2f · parcelamento %8.2f · cupom %7.2f · parcelas %-3s · sobra %8.2f",
-                           linha[:nota].number, linha[:diferenca], parcelamento, cupom,
-                           cru["INSTALLMENTS"].to_s, sobra)
+        veredito[:nenhuma] += 1
+
+        sobrando << format("    NF %-10s dif %8.2f · parc %7.2f · cupom %6.2f · frete %6.2f · parcelas %-3s",
+                           linha[:nota].number, linha[:diferenca], parcelamento, cupom, frete,
+                           cru["INSTALLMENTS"].to_s)
       end
     end
 
-    puts format("  explicadas exatamente:            %d de %d", exatas, linhas.size)
-    puts format("  sem as colunas novas ainda:       %d", sem_dados) if sem_dados.positive?
+    puts "  Qual conta bate em cada uma:"
+
+    veredito.except(:nenhuma, :sem_dados).sort_by { |_, quantas| -quantas }.each do |formula, quantas|
+      puts format("    %-24s %d", formula, quantas)
+    end
+
+    puts format("    %-24s %d", "nenhuma", veredito[:nenhuma]) if veredito[:nenhuma].positive?
+    puts format("    %-24s %d", "sem as colunas ainda", veredito[:sem_dados]) if veredito[:sem_dados].positive?
     puts
 
     if sobrando.any?
-      puts "  Ainda não explicadas (#{sobrando.size}):"
+      puts "  As que nenhuma conta explica (#{sobrando.size}):"
 
-      puts sobrando.first(10)
+      puts sobrando.first(12)
 
       puts
     end
 
-    if sem_dados.positive?
+    if veredito[:sem_dados].positive?
       puts "  Para as sem colunas: rake marketplace:reimportar com REGERAR=1 no período delas."
       puts
     end
