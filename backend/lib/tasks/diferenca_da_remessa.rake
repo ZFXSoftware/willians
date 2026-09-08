@@ -4,6 +4,32 @@ def valor_de(lote)
   (lote.gross_amount || lote.net_amount).to_d
 end
 
+# Compara cada NOTA com a soma das vendas que ela cobre.
+#
+# Agrupar por nota antes de comparar é obrigatório: a nota do PACOTE vale por
+# várias vendas, e confrontá-la inteira contra uma delas inventaria uma
+# diferença do tamanho das outras.
+def diferencas_por_nota(com_nota)
+  com_nota.group_by(&:invoice_id).filter_map do |_, lista|
+    nota = lista.first.invoice
+
+    venda = lista.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d }
+
+    diferenca = venda - nota.total_amount.to_d
+
+    next if diferenca.abs < BigDecimal("0.01")
+
+    {
+      nota: nota,
+      pedidos: lista.filter_map { |unidade| unidade.order&.external_id },
+      vendas: lista.size,
+      venda: venda,
+      valor_nota: nota.total_amount.to_d,
+      diferenca: diferenca
+    }
+  end
+end
+
 namespace :conciliacao do
   desc "De onde vem a diferença que sobrou num repasse, venda a venda (SOMENTE LEITURA)"
   task diferenca_da_remessa: :environment do
@@ -23,12 +49,28 @@ namespace :conciliacao do
     lote = PayoutBatch.find_by(tenant_id: tenant.id, id: ENV["REPASSE"])
 
     if lote.blank?
-      puts "Diga qual repasse com REPASSE=<id>. Os últimos:"
+      # Varre todos em vez de pedir para escolher no escuro: o resíduo que a
+      # gente persegue está em três repasses, e ninguém sabe quais.
+      puts "Sem REPASSE=<id>: uma linha por repasse, para achar onde a diferença mora."
+      puts
 
-      PayoutBatch.where(tenant_id: tenant.id).order(paid_at: :desc).limit(10).each do |candidato|
-        puts format("  ##{candidato.id}  ref %-24s pago em %s  R$ %.2f",
-                    candidato.external_id.to_s[0, 24], candidato.paid_at, valor_de(candidato))
+      puts format("  %-5s %-12s %10s %10s %8s %12s",
+                  "id", "pago em", "vendas", "c/ nota", "diferem", "soma dif.")
+
+      PayoutBatch.where(tenant_id: tenant.id).order(paid_at: :desc).limit(30).each do |candidato|
+        unidades = candidato.financial_entry_allocations.filter_map(&:receivable_unit).uniq
+
+        com_nota = unidades.select(&:invoice_id)
+
+        divergentes = diferencas_por_nota(com_nota)
+
+        puts format("  #%-4d %-12s %10d %10d %8d %12.2f",
+                    candidato.id, candidato.paid_at&.to_date, unidades.size, com_nota.size,
+                    divergentes.size, divergentes.sum { |linha| linha[:diferenca] })
       end
+
+      puts
+      puts "Depois abra o que interessar com REPASSE=<id>."
 
       next
     end
@@ -44,38 +86,11 @@ namespace :conciliacao do
     puts "Vendas com nota: #{com_nota.size} (as sem nota já têm relatório próprio)."
     puts
 
-    # A nota do PACOTE vale por várias vendas: compará-la inteira contra UMA
-    # delas inventaria uma diferença que não existe.
-    por_nota = com_nota.group_by(&:invoice_id)
+    linhas = diferencas_por_nota(com_nota)
 
-    linhas = []
+    soma_venda = com_nota.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d }
 
-    soma_venda = BigDecimal("0")
-    soma_nota = BigDecimal("0")
-
-    por_nota.each do |invoice_id, lista|
-      nota = lista.first.invoice
-
-      venda = lista.sum { |unidade| unidade.gross_amount.to_d }
-
-      valor_nota = nota.total_amount.to_d
-
-      soma_venda += venda
-      soma_nota += valor_nota
-
-      diferenca = venda - valor_nota
-
-      next if diferenca.abs < BigDecimal("0.01")
-
-      linhas << {
-        nota: nota,
-        pedidos: lista.map { |unidade| unidade.order&.external_id }.compact,
-        vendas: lista.size,
-        venda: venda,
-        valor_nota: valor_nota,
-        diferenca: diferenca
-      }
-    end
+    soma_nota = com_nota.map(&:invoice).uniq.sum(BigDecimal("0")) { |nota| nota.total_amount.to_d }
 
     puts format("Soma das vendas (ML):  R$ %.2f", soma_venda)
     puts format("Soma das notas (NF):   R$ %.2f", soma_nota)
