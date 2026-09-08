@@ -166,7 +166,14 @@ module Marketplace
         known = known_external_ids(events)
 
         events.each do |event|
-          next summary[:skipped] += 1 if known.include?(event[:external_id])
+          if known.include?(event[:external_id])
+            # Já existe: nada a criar, mas talvez falte a procedência. O
+            # `rescue RecordNotUnique` lá embaixo só pega corrida entre
+            # processos; o caminho normal do reimporte é este aqui.
+            preencher_procedencia(event)
+
+            next summary[:skipped] += 1
+          end
 
           create_entry!(event, orders)
         end
@@ -228,10 +235,37 @@ module Marketplace
         summary[:created] += 1
       rescue ActiveRecord::RecordNotUnique
         summary[:skipped] += 1
+
+        # Preenche a procedência que falta, e SÓ ela.
+        #
+        # O lançamento é imutável de propósito: valor, data e tipo são o que o
+        # marketplace disse, e reimportar não pode reescrevê-los. Mas a linha
+        # original do relatório não é valor — é a prova de onde o valor veio, e
+        # nós a descartávamos.
+        #
+        # Sem isso, "de onde vêm os R$ 28,01 que o ML creditou acima do valor
+        # do pedido?" não tem resposta para nada que já foi importado, e o
+        # histórico inteiro fica cego para sempre.
+        preencher_procedencia(event)
       rescue ActiveRecord::RecordInvalid => e
         Rails.logger.warn "[MarketplaceIngestor] Evento #{event[:external_id]} inválido: #{e.message}"
 
         summary[:failed] += 1
+      end
+
+      # Só grava onde está vazio, e só este campo.
+      #
+      # Sobrescrever procedência já registrada apagaria o que veio na primeira
+      # importação, que é a que valeu; e mexer em qualquer outra coluna faria
+      # desta função uma reescrita de lançamento imutável pela porta dos
+      # fundos.
+      def preencher_procedencia(event)
+        return if event[:raw_payload].blank?
+
+        FinancialEntry
+          .where(tenant_id: tenant.id, external_id: event[:external_id])
+          .where("raw_payload IS NULL OR raw_payload = '{}'::jsonb")
+          .update_all(raw_payload: event[:raw_payload].to_json, updated_at: Time.current)
       end
     end
   end

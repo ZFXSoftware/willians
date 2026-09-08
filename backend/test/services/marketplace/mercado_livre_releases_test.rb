@@ -319,5 +319,69 @@ module Marketplace
         end
       end
     end
+
+    # A linha original do relatório não era guardada, e sem ela nenhuma
+    # pergunta sobre a PROCEDÊNCIA de um valor tem resposta depois da
+    # importação. Reimportar preenche o que falta — e não pode fazer mais que
+    # isso: lançamento é imutável, valor e data são o que o marketplace disse.
+    test "reimportar preenche a procedência que falta e não reescreve o lançamento" do
+      tenant = criar_tenant
+      conta = criar_conta(tenant: tenant)
+      fixos = eventos
+
+      ingerir = lambda do
+        Ingestors::MarketplaceIngestor.new(
+          tenant: tenant, platform_account: conta, start_date: DE, end_date: ATE
+        ).call
+      end
+
+      com_metodo(Providers::MercadoLivreProvider, :financial_events,
+                 ->(start_date:, end_date:) { fixos }) do
+        com_metodo(Providers::MercadoLivreProvider.singleton_class, :configured?, ->(_c) { true }) do
+          ingerir.call
+
+          entrada = FinancialEntry.where(tenant: tenant).where("external_id LIKE 'MLREL-%'").first
+
+          valor_antes = entrada.amount
+
+          entrada.update_columns(raw_payload: {})
+
+          ingerir.call
+
+          entrada.reload
+
+          assert entrada.raw_payload.present?, "a procedência devia ter sido preenchida"
+          assert_equal valor_antes, entrada.amount, "o valor não pode mudar na reimportação"
+        end
+      end
+    end
+
+    # Sobrescrever a procedência apagaria o que veio na importação que valeu.
+    test "procedência já gravada não é sobrescrita" do
+      tenant = criar_tenant
+      conta = criar_conta(tenant: tenant)
+      fixos = eventos
+
+      ingerir = lambda do
+        Ingestors::MarketplaceIngestor.new(
+          tenant: tenant, platform_account: conta, start_date: DE, end_date: ATE
+        ).call
+      end
+
+      com_metodo(Providers::MercadoLivreProvider, :financial_events,
+                 ->(start_date:, end_date:) { fixos }) do
+        com_metodo(Providers::MercadoLivreProvider.singleton_class, :configured?, ->(_c) { true }) do
+          ingerir.call
+
+          entrada = FinancialEntry.where(tenant: tenant).where("external_id LIKE 'MLREL-%'").first
+
+          entrada.update_columns(raw_payload: { "meu" => "valor" })
+
+          ingerir.call
+
+          assert_equal({ "meu" => "valor" }, entrada.reload.raw_payload)
+        end
+      end
+    end
   end
 end
