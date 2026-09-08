@@ -113,6 +113,23 @@ module DiferencaDaRemessa
 
     sobrando = []
 
+    # Nota partida entre repasses não é divergência: a comparação é que está
+    # somando só uma parte contra a nota inteira. Contar junto com as outras
+    # esconderia uma causa dentro da outra.
+    partidas, linhas = linhas.partition { |linha| linha[:partida] }
+
+    if partidas.any?
+      puts "  #{partidas.size} nota(s) de PACOTE partida(s) entre repasses — não são divergência:"
+
+      partidas.first(5).each do |linha|
+        puts format("    NF %-10s %d de %d venda(s) neste repasse · aqui %8.2f · nota inteira %8.2f",
+                    linha[:nota].number, linha[:vendas], linha[:vendas_da_nota],
+                    linha[:venda], linha[:valor_nota])
+      end
+
+      puts
+    end
+
     linhas.each do |linha|
       cru = linha_do_relatorio(tenant, linha[:unidades].first)
 
@@ -367,7 +384,7 @@ module DiferencaDaRemessa
   # várias vendas, e confrontá-la inteira contra uma delas inventaria uma
   # diferença do tamanho das outras.
   def diferencas_por_nota(com_nota)
-    com_nota.group_by(&:invoice_id).filter_map do |_, lista|
+    com_nota.group_by(&:invoice_id).filter_map do |invoice_id, lista|
       nota = lista.first.invoice
 
       venda = lista.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d }
@@ -376,11 +393,21 @@ module DiferencaDaRemessa
 
       next if diferenca.abs < BigDecimal("0.01")
 
+      # A nota do pacote pode estar PARTIDA entre repasses: as vendas dela caem
+      # em remessas diferentes, e aqui só estão as deste repasse. Comparar a
+      # parte contra a nota inteira inventa uma diferença do tamanho do que
+      # ficou de fora — e ela aparece com o sinal invertido, venda MENOR que a
+      # nota, que foi como a NF 851533 do repasse #11 virou "produto
+      # diferente" na minha leitura.
+      todas = ReceivableUnit.where(tenant_id: nota.tenant_id, invoice_id: invoice_id).count
+
       {
         nota: nota,
         unidades: lista,
         pedidos: lista.filter_map { |unidade| unidade.order&.external_id },
         vendas: lista.size,
+        vendas_da_nota: todas,
+        partida: todas > lista.size,
         venda: venda,
         valor_nota: nota.total_amount.to_d,
         diferenca: diferenca
