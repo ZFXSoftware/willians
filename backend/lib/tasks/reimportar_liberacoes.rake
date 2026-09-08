@@ -33,6 +33,29 @@ namespace :marketplace do
     puts "vazia é preenchida. Valor, data e tipo não são tocados."
     puts
 
+    # Depois de mudar as colunas, o relatório já gerado continua no formato
+    # antigo — e a sincronização o reaproveitaria, dando a impressão de que a
+    # mudança não pegou. REGERAR=1 pede um arquivo novo antes de ingerir.
+    if ENV["REGERAR"] == "1"
+      contas.select { |c| c.platform == "mercado_livre" }.each do |conta|
+        puts "Pedindo um relatório NOVO para a conta ##{conta.id} (pode levar alguns minutos)..."
+
+        client = Marketplace::MercadoLivre::ReleasesClient.new(
+          access_token: Marketplace::Credentials::TokenProvider.new(platform_account: conta).access_token
+        )
+
+        csv = client.csv_for(start_date: inicio, end_date: fim, regerar: true)
+
+        puts "  arquivo novo com #{csv.lines.first.to_s.strip.split(';').size} coluna(s)."
+      rescue Marketplace::MercadoLivre::ReleasesClient::ReportPending => e
+        puts "  ainda sendo gerado: #{e.message}"
+      rescue StandardError => e
+        puts "  falhou: #{e.class} #{e.message}"
+      end
+
+      puts
+    end
+
     contas.each do |conta|
       puts "Conta ##{conta.id} (#{conta.platform})..."
 

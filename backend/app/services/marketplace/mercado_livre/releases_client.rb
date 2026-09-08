@@ -78,9 +78,38 @@ module Marketplace
         get("#{caminho}/config")
       end
 
+      # Acrescenta colunas ao relatório, preservando as que já existem.
+      #
+      # Isto muda a configuração da CONTA do cliente no Mercado Pago: o arquivo
+      # que ele mesmo baixa passa a ter as colunas novas. Só acrescenta — tirar
+      # coluna quebraria quem já lê o formato atual, inclusive nós.
+      #
+      # O PUT substitui a configuração inteira, então mandamos de volta tudo o
+      # que veio, com `columns` trocado. Enviar só as colunas apagaria prefixo
+      # do arquivo, separador e fuso.
+      def acrescentar_colunas(chaves)
+        atual = configuracao
+
+        existentes = Array(atual["columns"]).map { |coluna| coluna["key"].to_s }
+
+        novas = chaves.map(&:to_s) - existentes
+
+        return { alterado: false, colunas: existentes, novas: [] } if novas.empty?
+
+        corpo = atual.merge("columns" => (existentes + novas).map { |chave| { "key" => chave } })
+
+        put("#{caminho}/config", corpo)
+
+        { alterado: true, colunas: existentes + novas, novas: novas }
+      end
+
       # Devolve o CSV do período, gerando o relatório se ainda não existir.
-      def csv_for(start_date:, end_date:)
-        existente = encontrar(start_date, end_date)
+      #
+      # `regerar:` pula o reaproveitamento. Depois de mudar as colunas, o
+      # relatório já gerado continua no formato antigo — e reaproveitá-lo daria
+      # a impressão de que a mudança não funcionou.
+      def csv_for(start_date:, end_date:, regerar: false)
+        existente = regerar ? nil : encontrar(start_date, end_date)
 
         return download(existente) if existente
 
@@ -189,9 +218,25 @@ module Marketplace
 
         # Entre os que servem, o mais justo: sem isso um relatório de um ano
         # atenderia um pedido de trinta dias, e baixaríamos o ano inteiro.
+        #
+        # E entre dois igualmente justos, o mais NOVO. Depois de acrescentar
+        # colunas passam a existir dois relatórios do mesmo período, um em cada
+        # formato, e o desempate arbitrário devolveria o antigo — a mudança
+        # pareceria não ter funcionado.
         relatorios
           .select { |relatorio| cobre?(relatorio, inicio, fim) }
-          .min_by { |relatorio| duracao(relatorio) }
+          .min_by { |relatorio| [ duracao(relatorio), -gerado_em(relatorio) ] }
+      end
+
+      # Quando o relatório foi gerado. A lista não promete um nome só para
+      # isto, então tentamos os conhecidos e devolvemos 0 quando nenhum
+      # aparece — sem data, o desempate volta a ser o de antes, e não piora.
+      def gerado_em(relatorio)
+        bruto = relatorio["date_created"] || relatorio["created_from"] || relatorio["generation_date"]
+
+        instante(bruto).to_i
+      rescue StandardError
+        0
       end
 
       def cobre?(relatorio, inicio, fim)
@@ -246,6 +291,16 @@ module Marketplace
 
       def get_raw(path)
         executar(Net::HTTP::Get.new(URI.join(api_host, path)))
+      end
+
+      def put(path, body)
+        requisicao = Net::HTTP::Put.new(URI.join(api_host, path))
+
+        requisicao["Content-Type"] = "application/json"
+
+        requisicao.body = body.to_json
+
+        verificar!(executar(requisicao), requisicao)
       end
 
       def post(path, **body)
