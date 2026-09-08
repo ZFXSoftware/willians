@@ -66,7 +66,11 @@ namespace :conciliacao do
       # O relatório de liberações tem coluna própria para cada tipo de valor, e
       # o frete seria uma delas. Guardamos a linha inteira em `raw_payload`, e
       # é a única fonte que pode nomear os R$ 28,01 sem chamar API.
-      cru = lancamento.raw_payload.to_h
+      cru = lancamento.raw_payload
+
+      cru = JSON.parse(cru) rescue {} if cru.is_a?(String)
+
+      cru = cru.to_h
 
       interessantes = cru.select do |chave, valor|
         chave.to_s.match?(/SHIP|FREIGHT|FRETE|COUPON|DISCOUNT|FEE|AMOUNT/i) && valor.to_s.strip.present?
@@ -79,6 +83,39 @@ namespace :conciliacao do
     puts format("  soma dos lançamentos: R$ %.2f",
                 lancamentos.sum(BigDecimal("0")) { |l| l.direction.to_s == "debit" ? -l.amount.to_d : l.amount.to_d })
     puts
+
+    # TODAS as linhas do mesmo pagamento, e não só as ligadas ao pedido.
+    #
+    # O relatório identifica cada linha pelo SOURCE_ID (o pagamento no Mercado
+    # Pago) e, segundo o próprio log da importação, NENHUMA linha traz o número
+    # do pedido. Filtrar por pedido mostra a venda e esconde as deduções — e as
+    # deduções são justamente o que falta explicar: a linha da venda diz
+    # NET_CREDIT_AMOUNT 145,75 sobre um bruto de 222,66 menos taxa de 27,25,
+    # que daria 195,41.
+    fontes = unidades.filter_map { |u| u.external_id.to_s[/MLREL-(\d+)-/, 1] }.uniq
+
+    fontes.each do |fonte|
+      irmas = FinancialEntry.where(tenant_id: tenant.id)
+                            .where("external_id LIKE ?", "MLREL-#{fonte}-%")
+                            .order(:id)
+
+      puts "Todas as linhas do pagamento #{fonte} (#{irmas.count}):"
+
+      irmas.each do |irma|
+        puts format("  %-12s %-8s %10.2f  %s",
+                    irma.entry_type, irma.direction, irma.amount.to_d, irma.external_id)
+
+        bruto_linha = irma.raw_payload
+
+        bruto_linha = (JSON.parse(bruto_linha) rescue {}) if bruto_linha.is_a?(String)
+
+        # A linha INTEIRA, sem filtro meu. Escolher quais colunas mostrar já me
+        # fez esconder a resposta uma vez neste mesmo relatório.
+        puts "      #{bruto_linha.to_h.inspect}" if bruto_linha.present?
+      end
+
+      puts
+    end
 
     puts "Como ler: se existe linha SEPARADA de frete, o valor comparado precisa"
     puts "excluí-la — a nota fiscal documenta a mercadoria, não o transporte."

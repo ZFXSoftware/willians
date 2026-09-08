@@ -264,8 +264,13 @@ module Marketplace
 
         FinancialEntry
           .where(tenant_id: tenant.id, external_id: event[:external_id])
-          .where("raw_payload IS NULL OR raw_payload = '{}'::jsonb")
-          .update_all(raw_payload: event[:raw_payload].to_json, updated_at: Time.current)
+          # `jsonb_typeof <> 'object'` e não só "vazio": a primeira versão disto
+          # gravou o JSON como TEXTO dentro da coluna jsonb — `.to_json` numa
+          # coluna que já serializa sozinha — e o resultado passa por
+          # "preenchido" enquanto é inútil para ler. Isto reconserta essas.
+          .where("raw_payload IS NULL OR raw_payload = '{}'::jsonb " \
+                 "OR jsonb_typeof(raw_payload) <> 'object'")
+          .update_all(raw_payload: event[:raw_payload], updated_at: Time.current)
       end
     end
   end
