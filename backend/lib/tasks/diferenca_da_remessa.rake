@@ -143,6 +143,82 @@ module DiferencaDaRemessa
     puts
   end
 
+  # A soma do que REALMENTE caiu bate com o repasse?
+  #
+  # A linha do relatório diz NET_CREDIT_AMOUNT 145,75 onde o nosso líquido diz
+  # 195,41. Se a soma dos NET_CREDIT for o valor do repasse, então é o nosso
+  # líquido que está errado — e isso não é problema de conciliação, é o saldo
+  # da tela mostrando dinheiro que não existe.
+  #
+  # SALE e FEE são dois lançamentos que dividem a MESMA linha do relatório, e
+  # os dois carregam a linha inteira. Somar por lançamento contaria cada valor
+  # duas vezes: a soma é por SOURCE_ID único.
+  def conferir_o_repasse(tenant, lote, unidades)
+    fontes = {}
+
+    sem_linha = 0
+
+    unidades.each do |unidade|
+      cru = linha_do_relatorio(tenant, unidade)
+
+      next sem_linha += 1 if cru.blank?
+
+      fonte = cru["SOURCE_ID"].to_s
+
+      next if fonte.blank? || fontes.key?(fonte)
+
+      fontes[fonte] = cru
+    end
+
+    puts "O que o relatório diz que caiu, contra o valor do repasse:"
+    puts
+
+    if fontes.none?
+      puts "  Nenhuma linha guardada ainda — rode `rake marketplace:reimportar` para o período."
+      puts
+
+      return
+    end
+
+    somar = ->(coluna) { fontes.values.sum(BigDecimal("0")) { |cru| cru[coluna].to_d } }
+
+    bruto_relatorio = somar.call("GROSS_AMOUNT")
+    liquido_relatorio = somar.call("NET_CREDIT_AMOUNT")
+    taxa_relatorio = somar.call("MP_FEE_AMOUNT").abs
+
+    puts format("  pagamentos distintos:            %d (de %d vendas)", fontes.size, unidades.size)
+    puts format("  sem a linha guardada:            %d", sem_linha) if sem_linha.positive?
+    puts
+    puts format("  soma GROSS_AMOUNT:               R$ %12.2f", bruto_relatorio)
+    puts format("  soma MP_FEE_AMOUNT:              R$ %12.2f", taxa_relatorio)
+    puts format("  soma NET_CREDIT_AMOUNT:          R$ %12.2f", liquido_relatorio)
+    puts
+    puts format("  nosso bruto somado:              R$ %12.2f", unidades.sum(BigDecimal("0")) { |u| u.gross_amount.to_d })
+    puts format("  nosso líquido somado:            R$ %12.2f", unidades.sum(BigDecimal("0")) { |u| u.net_amount.to_d })
+    puts
+    puts format("  REPASSE bruto:                   R$ %12.2f", lote.gross_amount.to_d)
+    puts format("  REPASSE líquido:                 R$ %12.2f", lote.net_amount.to_d)
+    puts
+
+    candidatos = {
+      "soma GROSS_AMOUNT" => bruto_relatorio,
+      "soma NET_CREDIT_AMOUNT" => liquido_relatorio,
+      "nosso bruto" => unidades.sum(BigDecimal("0")) { |u| u.gross_amount.to_d },
+      "nosso líquido" => unidades.sum(BigDecimal("0")) { |u| u.net_amount.to_d }
+    }
+
+    [ [ "bruto", lote.gross_amount.to_d ], [ "líquido", lote.net_amount.to_d ] ].each do |rotulo, alvo|
+      next if alvo.zero?
+
+      perto = candidatos.min_by { |_, valor| (valor - alvo).abs }
+
+      puts format("  O que mais se aproxima do repasse %s (R$ %.2f): %s, distância R$ %.2f",
+                  rotulo, alvo, perto[0], (perto[1] - alvo).abs)
+    end
+
+    puts
+  end
+
   # O que separa as vendas que divergem das que não divergem?
   #
   # A linha do relatório traz PAYMENT_METHOD_TYPE e as datas de aprovação e de
@@ -292,6 +368,8 @@ namespace :conciliacao do
     puts
 
     linhas = DiferencaDaRemessa.diferencas_por_nota(com_nota)
+
+    DiferencaDaRemessa.conferir_o_repasse(tenant, lote, unidades)
 
     DiferencaDaRemessa.comparar_com_a_taxa(com_nota, linhas)
 
