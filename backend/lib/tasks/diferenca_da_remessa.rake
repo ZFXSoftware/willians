@@ -356,6 +356,7 @@ module DiferencaDaRemessa
 
       {
         nota: nota,
+        unidades: lista,
         pedidos: lista.filter_map { |unidade| unidade.order&.external_id },
         vendas: lista.size,
         venda: venda,
