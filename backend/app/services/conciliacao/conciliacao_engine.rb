@@ -415,6 +415,12 @@ module Conciliacao
           # diferença que aparece é grande porque falta NF, não porque falta
           # dinheiro, e sem dizer quanto é uma coisa vira a outra.
           valor_sem_nota: unidades.reject(&:invoice).sum(BigDecimal("0")) { |u| u.gross_amount.to_d },
+          # O que o marketplace somou ao bruto e o que a nota abateu.
+          #
+          # Sem isto, esses valores apareciam como "diferença real" — dinheiro
+          # inexplicado — quando são a soma de três coisas conhecidas. Ver
+          # `ajustes_conhecidos`.
+          valor_ajustes: ajustes_conhecidos(unidades),
           divididas: divididas,
           encontradas: encontradas,
           recusadas: recusadas,
@@ -483,6 +489,57 @@ module Conciliacao
       end
     end
 
+    # A diferença entre o que o marketplace pagou pela venda e o que a nota
+    # documenta, quando ela tem explicação.
+    #
+    # São três coisas, medidas e provadas no repasse #19:
+    #
+    #   FINANCING_FEE_AMOUNT  o comprador parcelou; o Mercado Livre soma o custo
+    #                         do parcelamento ao GROSS_AMOUNT e o cobra de volta
+    #                         como taxa. A nota, corretamente, não documenta isso.
+    #   COUPON_AMOUNT         desconto concedido ao comprador.
+    #   valor_desconto        desconto na própria nota: a venda é igual ao
+    #                         `valor_produtos` e a NF sai com o desconto abatido.
+    #
+    # Enquanto isso não era descontado, 45 de 184 vendas de um repasse
+    # apareciam como divergência e o repasse ia para revisão manual por R$ 468
+    # que nunca foram dinheiro faltando.
+    #
+    # Os dois primeiros vivem na linha do relatório e o terceiro na nota. Onde o
+    # dado ainda não foi reimportado eles vêm zerados — e aí a diferença volta a
+    # aparecer como real, que é o comportamento honesto: melhor pedir revisão do
+    # que abater um valor que ninguém mediu.
+    def ajustes_conhecidos(unidades)
+      com_nota = unidades.select(&:invoice)
+
+      return BigDecimal("0") if com_nota.empty?
+
+      # Uma consulta para o lote, e não uma por venda: o motor roda sobre todos
+      # os repasses da janela.
+      linhas = FinancialEntry
+                 .where(tenant_id: tenant.id, external_id: com_nota.map(&:external_id))
+                 .pluck(:external_id, :raw_payload)
+                 .to_h
+
+      do_marketplace = com_nota.sum(BigDecimal("0")) do |unidade|
+        cru = linhas[unidade.external_id]
+
+        cru = (JSON.parse(cru) rescue nil) if cru.is_a?(String)
+
+        next BigDecimal("0") unless cru.is_a?(Hash)
+
+        cru["FINANCING_FEE_AMOUNT"].to_d.abs + cru["COUPON_AMOUNT"].to_d.abs
+      end
+
+      # O desconto é da NOTA, não da venda: contá-lo por venda somaria em dobro
+      # a nota de pacote, que vale por várias.
+      da_nota = com_nota.map(&:invoice).uniq.sum(BigDecimal("0")) do |nota|
+        nota.metadata.to_h.dig("fiscal", "valor_desconto").to_d
+      end
+
+      do_marketplace + da_nota
+    end
+
     def unidades_de(payout)
       payout
         .financial_entry_allocations
@@ -547,9 +604,21 @@ module Conciliacao
       cobertura = @coberturas[payout.id] || {}
 
       if resultado.valor_omie.present?
-        return resultado.mensagem unless cobertura[:completa_com_exclusoes]
+        # A decomposição vale para QUALQUER repasse comparado, não só para o que
+        # teve exclusões.
+        #
+        # Antes ela só aparecia no caminho `completa_com_exclusoes`, então um
+        # repasse com cobertura completa e diferença dizia apenas "Diferença de
+        # R$ 468" — o número sem nenhuma causa, que é o que manda alguém abrir
+        # uma investigação para descobrir que eram parcelamento e desconto.
+        detalhe = [
+          cobertura[:completa_com_exclusoes] ? exclusoes(cobertura) : nil,
+          decomposicao(cobertura, resultado)
+        ].compact_blank.join(" ")
 
-        return "#{resultado.mensagem}. #{exclusoes(cobertura)} #{decomposicao(cobertura, resultado)}".squish
+        return resultado.mensagem if detalhe.blank?
+
+        return "#{resultado.mensagem}. #{detalhe}".squish
       end
 
       encontradas = cobertura[:encontradas].to_a.size
@@ -601,9 +670,17 @@ module Conciliacao
                   "(R$ #{format('%.2f', sem_titulo)})"
       end
 
+      ajustes = cobertura[:valor_ajustes].to_d
+
+      if ajustes.positive?
+        partes << "R$ #{format('%.2f', ajustes)} de parcelamento, cupom e desconto na nota " \
+                  "— o marketplace soma o custo do parcelamento ao valor da venda, e a nota " \
+                  "documenta a mercadoria"
+      end
+
       return "" if partes.empty?
 
-      real = resultado.diferenca.to_d.abs - sem_nota - sem_titulo
+      real = resultado.diferenca.to_d.abs - sem_nota - sem_titulo - ajustes
 
       "Da diferença: #{partes.join(' e ')}. Descontando, sobra " \
       "R$ #{format('%.2f', real)} de diferença real."
