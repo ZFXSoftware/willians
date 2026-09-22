@@ -2,7 +2,7 @@ require "test_helper"
 
 module Fiscal
   module Tiny
-    class IntermediadorSyncTest < ActiveSupport::TestCase
+    class DetalheDaNotaTest < ActiveSupport::TestCase
       def setup
         @tenant = criar_tenant
         @conta = criar_conta(tenant: @tenant)
@@ -32,7 +32,68 @@ module Fiscal
       end
 
       def sincronizar(client, limite: 10)
-        IntermediadorSync.new(tenant: @tenant, client: client, limite: limite, pausa: 0).call
+        DetalheDaNota.new(tenant: @tenant, client: client, limite: limite, pausa: 0).call
+      end
+
+      # O desconto da nota é o que explica a diferença entre a venda no
+      # marketplace e o valor da NF: a venda é igual ao `valor_produtos`.
+      # Descartar este campo custou seis rodadas de hipótese errada.
+      test "guarda os valores fiscais que a nota declara" do
+        registro = nota("1")
+
+        detalhe = {
+          "intermediador" => { "nome" => "Mercado Livre", "cnpj" => "10" },
+          "regime_tributario" => "1",
+          "valor_produtos" => "184.65",
+          "valor_desconto" => "6.00",
+          "valor_nota" => "178.65",
+          "valor_icms_st" => "0.00",
+          "itens" => [ { "item" => { "cfop" => "6108", "ncm" => "6404.19.00" } } ]
+        }
+
+        sincronizar(TinyFalso.new("TINY-1" => detalhe))
+
+        fiscal = registro.reload.metadata["fiscal"]
+
+        assert_equal "6.00", fiscal["valor_desconto"]
+        assert_equal "184.65", fiscal["valor_produtos"]
+        assert_equal "1", fiscal["regime_tributario"]
+        assert_equal [ "6108" ], fiscal["cfops"]
+        assert_equal [ "6404.19.00" ], fiscal["ncms"]
+      end
+
+      # Nome, CPF e endereço do comprador vêm na MESMA resposta. Não há por que
+      # copiá-los para dentro da nossa nota para responder uma pergunta fiscal.
+      test "não copia dado do comprador" do
+        registro = nota("1")
+
+        detalhe = {
+          "intermediador" => { "nome" => "Mercado Livre", "cnpj" => "10" },
+          "valor_desconto" => "6.00",
+          "cliente" => { "nome" => "Alguém", "cpf_cnpj" => "073.209.915-35" }
+        }
+
+        sincronizar(TinyFalso.new("TINY-1" => detalhe))
+
+        guardado = registro.reload.metadata.to_json
+
+        assert_not_includes guardado, "073.209.915-35"
+        assert_not_includes guardado, "Alguém"
+      end
+
+      # As notas já lidas têm intermediador e não têm `fiscal`. Sem reperguntar,
+      # o dado fiscal valeria só para nota nova e a base histórica ficaria cega.
+      test "nota já lida sem os valores fiscais volta para a fila" do
+        registro = nota("1")
+
+        registro.update!(metadata: { "intermediador" => { "nome" => "Shopee", "cnpj" => "35" } })
+
+        client = TinyFalso.new
+
+        sincronizar(client)
+
+        assert_equal [ "TINY-1" ], client.chamadas
+        assert registro.reload.metadata["fiscal"].present?
       end
 
       test "grava o intermediador na nota" do

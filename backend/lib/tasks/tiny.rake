@@ -10,7 +10,7 @@ namespace :tiny do
 
     tenant = Diagnostico::EmpresaAlvo.anunciar!
 
-    limite = (ENV["LIMITE"] || Fiscal::Tiny::IntermediadorSync::LOTE_PADRAO).to_i
+    limite = (ENV["LIMITE"] || Fiscal::Tiny::DetalheDaNota::LOTE_PADRAO).to_i
 
     # Sem isto a tarefa fica muda por minutos: é uma consulta por segundo, e o
     # buffer do docker segura até o pouco que ela imprimiria.
@@ -22,7 +22,7 @@ namespace :tiny do
     puts "Leva uns #{(limite / 60.0).ceil} minuto(s). Pode parar no meio: o progresso fica gravado."
     puts
 
-    resumo = Fiscal::Tiny::IntermediadorSync.new(tenant: tenant, limite: limite).call
+    resumo = Fiscal::Tiny::DetalheDaNota.new(tenant: tenant, limite: limite).call
 
     puts "Canais encontrados nesta leva:"
     resumo[:canais].sort_by { |_, quantas| -quantas }.each do |canal, quantas|

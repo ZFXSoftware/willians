@@ -53,7 +53,7 @@ module Fiscal
     # cabe numa volta do ciclo nem num terminal que cai por inatividade. Cada
     # volta lê um pedaço e o progresso fica gravado nota a nota.
     def ler_intermediadores
-      Tiny::IntermediadorSync.new(tenant: tenant).call
+      Tiny::DetalheDaNota.new(tenant: tenant).call
     rescue StandardError => e
       Rails.logger.error "#{LOG_PREFIX} empresa ##{tenant.id}: leitura de canais falhou: #{e.message}"
 

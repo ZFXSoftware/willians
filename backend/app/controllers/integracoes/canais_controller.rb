@@ -38,7 +38,7 @@ module Integracoes
         sem_canal: encontrados.count { |item| item[:canal].blank? },
         # Quantas notas ainda não foram perguntadas ao Tiny. O ciclo automático
         # lê em lotes, então esta lista cresce sozinha nas primeiras horas.
-        aguardando_leitura: Fiscal::Tiny::IntermediadorSync
+        aguardando_leitura: Fiscal::Tiny::DetalheDaNota
                               .new(tenant: current_tenant)
                               .pendentes
                               .count

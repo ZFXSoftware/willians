@@ -1,7 +1,7 @@
 namespace :tiny do
   desc "O que o Tiny devolve sobre uma nota, inteiro (SOMENTE LEITURA)"
   task detalhe_da_nota: :environment do
-    # O `IntermediadorSync` já busca este detalhe nota por nota e guarda APENAS
+    # O `DetalheDaNota` já busca este detalhe nota por nota e guarda APENAS
     # o intermediador. Se o desconto, o frete e a situação tributária por item
     # estiverem aqui, a conciliação fiscal não precisa de 4221 downloads de XML
     # — precisa parar de descartar o que já chega.
