@@ -61,7 +61,26 @@ module Marketplace
       # O relatório do cliente confirma o pareamento: 18 `reserve_for_payout`
       # para 9 `payout` — dois por transferência, um reservando e outro
       # liberando.
-      MOVIMENTO_INTERNO = %w[reserve_for_payout reserve_for_payment].freeze
+      #
+      # As RESERVAS entram aqui: dinheiro bloqueado dentro da conta, por
+      # garantia, por dívida ou por devolução de envio. Não é venda, não é
+      # receita, e o bloqueio é depois liberado — o par se anula.
+      #
+      # Ficavam em `ignorados`, como se fossem tipo desconhecido. Não são: a
+      # gente sabe o que é reserva de garantia, e a decisão é não importar.
+      # Enquanto a classificação lia RECORD_TYPE elas entraram como VENDA, e
+      # 1.709 reservas viraram "venda sem nota fiscal" na base do cliente.
+      #
+      # `reserve_for_dispute` NÃO entra: disputa é contestação, tem tipo próprio
+      # no razão e é por ela que a devolução é rastreada até a nota de origem.
+      MOVIMENTO_INTERNO = %w[
+        reserve_for_payout
+        reserve_for_payment
+        reserve_for_guarantee
+        reserve_for_debt_payment
+        reserve_for_refund
+        reserve_for_bpp_shipping_return
+      ].freeze
 
       # Contestação e estorno forçado. O razão já tem esses tipos, e é por eles
       # que a devolução vai ser rastreada até a NF de origem (briefing 2.8).
@@ -154,11 +173,22 @@ module Marketplace
 
       attr_reader :csv
 
-      # O arquivo real não tem RECORD_TYPE: quem carrega o tipo é DESCRIPTION,
-      # e com os mesmos códigos (payment, payout, reserve_for_payout). Não é
-      # descrição em prosa, é o campo do tipo com outro nome.
+      # `DESCRIPTION` primeiro, e `RECORD_TYPE` só como reserva.
+      #
+      # As duas colunas respondem perguntas DIFERENTES: `RECORD_TYPE` é a
+      # espécie do registro no arquivo — liberação, total, saldo inicial — e
+      # `DESCRIPTION` é o que o movimento É: venda, reserva de garantia, disputa,
+      # saque.
+      #
+      # A ordem estava invertida, e o dano só apareceu quando `RECORD_TYPE`
+      # passou a ser exportado: antes a coluna não existia, a classificação caía
+      # em `DESCRIPTION` e funcionava. Com ela presente, TODA linha de liberação
+      # virou `release` — que está na lista de venda — e reserva de garantia, de
+      # dívida e de disputa entraram no razão como venda. As vendas da base
+      # saltaram de 1.579 para 4.499, e 1.709 delas eram reservas sem nota
+      # fiscal, porque reserva não tem nota.
       def tipo_da(linha)
-        valor = linha["RECORD_TYPE"].to_s.strip.presence || linha["DESCRIPTION"].to_s.strip
+        valor = linha["DESCRIPTION"].to_s.strip.presence || linha["RECORD_TYPE"].to_s.strip
 
         valor.downcase
       end

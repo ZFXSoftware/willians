@@ -13,15 +13,27 @@ module Marketplace
 
     # Colunas conferidas na documentação. Traz de propósito: uma venda com
     # deduções, um estorno, um saque e as linhas de resumo.
+    # Montada como o arquivo REAL do Mercado Pago, e isto importa mais que
+    # parecer: `RECORD_TYPE` diz a espécie do registro (release, total, saldo) e
+    # `DESCRIPTION` diz o que o movimento é (payment, reserve_for_guarantee,
+    # payout, chargeback).
+    #
+    # A versão anterior tinha os dois invertidos — o classificador em
+    # RECORD_TYPE e texto livre em DESCRIPTION — e foi ela que sustentou a
+    # leitura errada no código: quando RECORD_TYPE passou a ser exportado de
+    # verdade, toda liberação virou "release", entrou como venda, e 1.709
+    # reservas de garantia e de dívida foram para o razão como venda sem nota.
     CSV_RELATORIO = <<~CSV
       DATE,SOURCE_ID,EXTERNAL_REFERENCE,ORDER_ID,RECORD_TYPE,DESCRIPTION,GROSS_AMOUNT,MP_FEE_AMOUNT,SHIPPING_FEE_AMOUNT,TAXES_AMOUNT,NET_CREDIT_AMOUNT,NET_DEBIT_AMOUNT,PAYMENT_METHOD
-      2026-08-01T10:00:00Z,,,,initial_available_balance,Saldo anterior,0,0,0,0,0,0,
-      2026-08-02T10:00:00Z,PAY-111,,2000000111,release,Venda,150.00,-15.50,-8.00,-2.25,124.25,0,credit_card
-      2026-08-03T10:00:00Z,PAY-222,,2000000222,release,Estorno,-40.00,4.10,0,0,0,35.90,credit_card
-      2026-08-04T10:00:00Z,PAY-333,,,payout,Transferência bancária,0,0,0,0,0,100.00,
-      2026-08-05T10:00:00Z,PAY-444,,2000000444,chargeback,Contestação,-30.00,0,0,0,0,30.00,
-      2026-08-06T10:00:00Z,PAY-555,,2000000555,tipo_novo_do_ml,Algo que não conhecemos,-5.00,0,0,0,0,5.00,
-      2026-08-07T10:00:00Z,,,,total,Valor líquido total,0,0,0,0,124.25,0,
+      2026-08-01T10:00:00Z,,,,initial_available_balance,,0,0,0,0,0,0,
+      2026-08-02T10:00:00Z,PAY-111,,2000000111,release,payment,150.00,-15.50,-8.00,-2.25,124.25,0,credit_card
+      2026-08-03T10:00:00Z,PAY-222,,2000000222,release,payment,-40.00,4.10,0,0,0,35.90,credit_card
+      2026-08-04T10:00:00Z,PAY-333,,,release,payout,0,0,0,0,0,100.00,
+      2026-08-05T10:00:00Z,PAY-444,,2000000444,release,chargeback,-30.00,0,0,0,0,30.00,
+      2026-08-06T10:00:00Z,PAY-555,,2000000555,release,tipo_novo_do_ml,-5.00,0,0,0,0,5.00,
+      2026-08-08T10:00:00Z,PAY-666,,2000000666,release,reserve_for_guarantee,90.00,0,0,0,0,90.00,credit_card
+      2026-08-09T10:00:00Z,PAY-777,,2000000777,release,reserve_for_debt_payment,70.00,0,0,0,0,70.00,credit_card
+      2026-08-07T10:00:00Z,,,,total,,0,0,0,0,124.25,0,
     CSV
 
     def eventos(csv = CSV_RELATORIO)
@@ -247,15 +259,38 @@ module Marketplace
       assert_empty leitor.diagnostico[:saldos]
     end
 
+    # A regressão que custou 1.709 vendas inventadas: enquanto a classificação
+    # lia RECORD_TYPE, toda linha de liberação virava "release" — que está na
+    # lista de venda — e reserva de garantia entrava no razão como venda.
+    test "reserva de garantia não é venda, mesmo com RECORD_TYPE release" do
+      vendas = eventos.select { |e| e[:entry_type] == :sale }
+
+      referencias = vendas.map { |e| e[:external_order_id] }
+
+      assert_not_includes referencias, "2000000666", "reserva de garantia entrou como venda"
+      assert_not_includes referencias, "2000000777", "reserva de dívida entrou como venda"
+
+      # E não é "tipo desconhecido": a gente sabe o que é, e decide não importar.
+      leitor = ML::ReleaseEvents.new(csv: CSV_RELATORIO)
+      leitor.call
+
+      assert_equal 1, leitor.diagnostico[:internos]["reserve_for_guarantee"]
+      assert_not_includes leitor.ignorados.keys, "reserve_for_guarantee"
+    end
+
     test "o diagnóstico conta todos os tipos vistos, não só os desconhecidos" do
       leitor = ML::ReleaseEvents.new(csv: CSV_RELATORIO)
       leitor.call
 
       tipos = leitor.diagnostico[:tipos]
 
-      assert_equal 2, tipos["release"]
+      # `payment`, e não `release`: o tipo do movimento vem de DESCRIPTION.
+      # RECORD_TYPE diz só que a linha é uma liberação, o que vale para venda,
+      # reserva e saque igualmente.
+      assert_equal 2, tipos["payment"]
       assert_equal 1, tipos["payout"]
       assert_equal 1, tipos["tipo_novo_do_ml"]
+      assert_equal 1, tipos["reserve_for_guarantee"]
       assert_equal %w[initial_available_balance total], leitor.diagnostico[:saldos].sort
     end
 
