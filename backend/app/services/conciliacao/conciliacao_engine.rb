@@ -682,6 +682,19 @@ module Conciliacao
 
       real = resultado.diferenca.to_d.abs - sem_nota - sem_titulo - ajustes
 
+      # Sobra NEGATIVA não é um valor: é a decomposição descontando mais do que
+      # a diferença tem. Imprimir "sobra R$ -500,00" apresenta um defeito do
+      # nosso cálculo como se fosse informação sobre o dinheiro do cliente.
+      #
+      # Acontece quando duas parcelas contam o mesmo dinheiro. Suspeita medida
+      # em 2026-09-23: `COUPON_AMOUNT` do relatório e `valor_desconto` da nota
+      # podem ser o MESMO desconto, visto de dois lados.
+      if real.negative?
+        return "Da diferença: #{partes.join(' e ')}. Mas isso soma R$ " \
+               "#{format('%.2f', real.abs)} MAIS que a diferença — duas dessas parcelas " \
+               "estão contando o mesmo dinheiro, e o número acima não pode ser usado."
+      end
+
       "Da diferença: #{partes.join(' e ')}. Descontando, sobra " \
       "R$ #{format('%.2f', real)} de diferença real."
     end
