@@ -130,8 +130,42 @@ namespace :tiny do
       puts "  e nós as descartamos por não saber a qual pedido pertencem. O elo"
       puts "  existe do outro lado: o marketplace nos deu número, série e valor."
     else
-      puts "  Nenhuma. Ou o período está errado, ou elas não estão no Tiny."
-      puts "  Tente outro DE/ATE antes de concluir: eu já errei exatamente assim."
+      # "Zero" com as faixas se SOBREPONDO não é ausência: é o cruzamento errado.
+      #
+      # Aconteceu: o que falta vai de 40075 a 46159 na série 2 e o Tiny devolveu
+      # 40037 a 41905 na mesma série. Uma nota numerada 40075 tinha que estar
+      # ali. Em vez de escolher entre "período errado" e "não existe", isto
+      # mostra o caso: o número exato, o que o Tiny tem perto dele, e como cada
+      # lado escreve o número.
+      puts "  Nenhuma — e as faixas se sobrepõem, o que aponta para o CRUZAMENTO."
+      puts
+
+      puts "  Os dez primeiros que faltam, contra o que o Tiny tem perto:"
+
+      chaves_tiny = por_numero.keys.map(&:to_i).sort
+
+      faltando.keys.sort_by(&:to_i).first(10).each do |numero|
+        alvo = numero.to_i
+
+        vizinhos = chaves_tiny.min_by(3) { |k| (k - alvo).abs }.sort
+
+        puts format("    falta %-8s (ML série %-3s) · Tiny tem por perto: %s · idêntico? %s",
+                    numero, faltando[numero][:serie], vizinhos.join(", "),
+                    por_numero.key?(numero) ? "SIM" : "não")
+      end
+
+      puts
+
+      puts "  E como cada lado escreve o número, cru:"
+
+      puts format("    ML (metadata):  %s", faltando.keys.first(5).inspect)
+
+      puts format("    Tiny (listagem): %s", notas.first(5).map { |n| n[:numero] }.inspect)
+
+      puts
+      puts "  Número igual em um lado e não no outro = formato. Faixas próximas mas"
+      puts "  sem coincidir = são numerações diferentes, e o número do ML não é o"
+      puts "  número da nota no Tiny."
     end
 
     puts
