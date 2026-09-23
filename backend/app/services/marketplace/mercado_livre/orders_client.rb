@@ -139,6 +139,17 @@ module Marketplace
         parse!(com_retry(URI.join(api_host, caminho)))
       end
 
+      # A resposta SEM interpretar: status e corpo, como vieram.
+      #
+      # Existe porque nem tudo é JSON. Os endpoints fiscais devolvem XML da NF-e
+      # e PDF do DANFE, e `parse!` morreria em "resposta não-JSON" — que é
+      # verdade e não ajuda a descobrir qual caminho funciona.
+      def resposta_crua(caminho)
+        resposta = com_retry(URI.join(api_host, caminho))
+
+        [ resposta.code.to_i, resposta.body.to_s, resposta["content-type"] ]
+      end
+
       # Dados fiscais do comprador.
       #
       # O Mercado Livre parou de devolver o documento dentro do pedido, mas o
