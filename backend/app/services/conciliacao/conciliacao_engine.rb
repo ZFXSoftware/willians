@@ -420,7 +420,7 @@ module Conciliacao
           # Sem isto, esses valores apareciam como "diferença real" — dinheiro
           # inexplicado — quando são a soma de três coisas conhecidas. Ver
           # `ajustes_conhecidos`.
-          valor_ajustes: ajustes_conhecidos(unidades),
+          valor_ajustes: ajustes_conhecidos(por_nota, encontradas, fracao_por_chave),
           divididas: divididas,
           encontradas: encontradas,
           recusadas: recusadas,
@@ -489,55 +489,40 @@ module Conciliacao
       end
     end
 
-    # A diferença entre o que o marketplace pagou pela venda e o que a nota
-    # documenta, quando ela tem explicação.
+    # A diferença entre o que o marketplace pagou pelas vendas de uma nota e o
+    # que a nota documenta.
     #
-    # São três coisas, medidas e provadas no repasse #19:
+    # MEDIDA, e não somada de componentes. A primeira versão somava
+    # FINANCING_FEE_AMOUNT, COUPON_AMOUNT e o desconto da nota, e contava o mesmo
+    # dinheiro duas vezes: em nota de PACOTE o cupom vem rateado por venda
+    # (1,56 + 2,44) e o desconto da nota é o total (4,00) — os dois lados do
+    # mesmo abatimento. A sobra ficava negativa em sete repasses.
     #
-    #   FINANCING_FEE_AMOUNT  o comprador parcelou; o Mercado Livre soma o custo
-    #                         do parcelamento ao GROSS_AMOUNT e o cobra de volta
-    #                         como taxa. A nota, corretamente, não documenta isso.
-    #   COUPON_AMOUNT         desconto concedido ao comprador.
-    #   valor_desconto        desconto na própria nota: a venda é igual ao
-    #                         `valor_produtos` e a NF sai com o desconto abatido.
+    # Aqui a conta é direta: o bruto das vendas desta nota neste repasse, menos
+    # o valor da nota rateado pela fração que couber. Não há como contar em
+    # dobro, porque não há parcela a somar.
     #
-    # Enquanto isso não era descontado, 45 de 184 vendas de um repasse
-    # apareciam como divergência e o repasse ia para revisão manual por R$ 468
-    # que nunca foram dinheiro faltando.
+    # Os componentes continuam valendo para EXPLICAR a causa — parcelamento que
+    # o Mercado Livre soma ao bruto, cupom, desconto na nota —, e é isso que a
+    # frase diz. Explicar não é calcular.
     #
-    # Os dois primeiros vivem na linha do relatório e o terceiro na nota. Onde o
-    # dado ainda não foi reimportado eles vêm zerados — e aí a diferença volta a
-    # aparecer como real, que é o comportamento honesto: melhor pedir revisão do
-    # que abater um valor que ninguém mediu.
-    def ajustes_conhecidos(unidades)
-      com_nota = unidades.select(&:invoice)
+    # Só entram as notas que TÊM título no OMIE: a nota sem título já é contada
+    # em `valor_sem_titulo`, e somá-la aqui também seria contar duas vezes de
+    # novo, pelo outro caminho.
+    def ajustes_conhecidos(por_nota, encontradas, fracao_por_chave)
+      achadas = encontradas.to_a.to_set
 
-      return BigDecimal("0") if com_nota.empty?
+      por_nota.sum(BigDecimal("0")) do |nota, lista|
+        chave = Omie::Readers::ReceivableTotals.normalizar(nota.number)
 
-      # Uma consulta para o lote, e não uma por venda: o motor roda sobre todos
-      # os repasses da janela.
-      linhas = FinancialEntry
-                 .where(tenant_id: tenant.id, external_id: com_nota.map(&:external_id))
-                 .pluck(:external_id, :raw_payload)
-                 .to_h
+        next BigDecimal("0") unless chave.present? && achadas.include?(chave)
 
-      do_marketplace = com_nota.sum(BigDecimal("0")) do |unidade|
-        cru = linhas[unidade.external_id]
+        bruto = lista.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d }
 
-        cru = (JSON.parse(cru) rescue nil) if cru.is_a?(String)
+        documentado = nota.total_amount.to_d * (fracao_por_chave[chave] || 1)
 
-        next BigDecimal("0") unless cru.is_a?(Hash)
-
-        cru["FINANCING_FEE_AMOUNT"].to_d.abs + cru["COUPON_AMOUNT"].to_d.abs
-      end
-
-      # O desconto é da NOTA, não da venda: contá-lo por venda somaria em dobro
-      # a nota de pacote, que vale por várias.
-      da_nota = com_nota.map(&:invoice).uniq.sum(BigDecimal("0")) do |nota|
-        nota.metadata.to_h.dig("fiscal", "valor_desconto").to_d
-      end
-
-      do_marketplace + da_nota
+        bruto - documentado
+      end.round(2)
     end
 
     def unidades_de(payout)
@@ -673,9 +658,10 @@ module Conciliacao
       ajustes = cobertura[:valor_ajustes].to_d
 
       if ajustes.positive?
-        partes << "R$ #{format('%.2f', ajustes)} de parcelamento, cupom e desconto na nota " \
-                  "— o marketplace soma o custo do parcelamento ao valor da venda, e a nota " \
-                  "documenta a mercadoria"
+        partes << "R$ #{format('%.2f', ajustes)} entre o valor das vendas e o das notas " \
+                  "— o marketplace soma ao valor da venda o custo do parcelamento que o " \
+                  "comprador escolheu, e a nota documenta a mercadoria com o desconto e o " \
+                  "cupom abatidos"
       end
 
       return "" if partes.empty?

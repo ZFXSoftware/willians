@@ -71,7 +71,7 @@ module Conciliacao
       registro = conciliar(BigDecimal("178.65"))
 
       assert_equal BigDecimal("6.00"), registro.diferenca.to_d.abs
-      assert_includes registro.observacao.to_s, "desconto na nota"
+      assert_includes registro.observacao.to_s, "entre o valor das vendas e o das notas"
       assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
     end
 
@@ -89,15 +89,65 @@ module Conciliacao
       assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
     end
 
-    # Onde o dado ainda não foi reimportado, a diferença volta a aparecer como
-    # real. É o desfecho honesto: melhor pedir revisão do que abater um valor
-    # que ninguém mediu.
-    test "sem o dado, a diferença continua sendo real" do
+    # A medição não depende do relatório nem dos dados fiscais: ela compara o
+    # bruto das vendas com o valor da nota, que estão no nosso banco desde
+    # sempre. A primeira versão somava componentes e ficava cega até o reimporte.
+    test "explica a diferença mesmo sem a linha do relatório e sem dados fiscais" do
       cenario(bruto: 184.65, valor_nota: 178.65)
 
       registro = conciliar(BigDecimal("178.65"))
 
-      assert_not_includes registro.observacao.to_s, "desconto na nota"
+      assert_includes registro.observacao.to_s, "entre o valor das vendas e o das notas"
+      assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
+    end
+
+    # O caso que fazia a sobra ficar NEGATIVA em sete repasses: nota de PACOTE,
+    # duas vendas, o cupom rateado por venda (1,56 + 2,44) e o desconto da nota
+    # pelo total (4,00). Somar os dois contava o mesmo abatimento duas vezes.
+    #
+    # Duas vendas de um pacote são dois PEDIDOS diferentes compartilhando uma
+    # nota. Na primeira versão deste teste eu pus as duas no mesmo pedido, e o
+    # recebível — que é derivado do pedido — somou as duas vendas num só, com
+    # bruto 200. O cenário estava errado, não o motor.
+    test "nota de pacote com cupom rateado não conta o desconto em dobro" do
+      nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "500", valor: 196.00)
+
+      nota.update!(metadata: { "fiscal" => { "valor_desconto" => "4.00" } })
+
+      # 100 + 100 de bruto contra 196 de nota: a diferença real é 4,00, e só.
+      [ [ "MLREL-1-SALE", "1.56" ], [ "MLREL-2-SALE", "2.44" ] ].each do |ext, cupom|
+        pedido = criar_pedido(tenant: @tenant, conta: @conta)
+
+        unidade = criar_recebivel(
+          tenant: @tenant, conta: @conta, pedido: pedido, nota: nota,
+          bruto: 100.00, liquido: 100.00, external_id: ext, previsto_para: Date.current - 2
+        )
+
+        lancamento = criar_lancamento(
+          tenant: @tenant, conta: @conta, pedido: pedido, nota: nota, valor: 100.00, external_id: ext
+        )
+
+        lancamento.update!(raw_payload: { "COUPON_AMOUNT" => cupom })
+
+        unidade.update!(invoice_id: nota.id, gross_amount: 100.00)
+      end
+
+      ancora = FinancialEntry.find_by!(tenant_id: @tenant.id, external_id: "MLREL-1-SALE")
+
+      repasse = criar_repasse(tenant: @tenant, conta: @conta, bruto: 200.00, liquido: 200.00,
+                              pago_em: Time.current - 1.day, lancamento: ancora)
+
+      ReceivableUnit.where(tenant_id: @tenant.id).find_each do |unidade|
+        alocar!(tenant: @tenant,
+                lancamento: FinancialEntry.find_by!(tenant_id: @tenant.id, external_id: unidade.external_id),
+                recebivel: unidade, repasse: repasse, tipo: :payout)
+      end
+
+      registro = conciliar(BigDecimal("196.00"))
+
+      assert_includes registro.observacao.to_s, "R$ 4,00".tr(",", ".")
+      assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
+      assert_not_includes registro.observacao.to_s, "MAIS que a diferença"
     end
   end
 end
