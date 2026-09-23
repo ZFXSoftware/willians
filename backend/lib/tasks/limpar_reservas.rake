@@ -151,14 +151,35 @@ namespace :conciliacao do
       puts
     end
 
-    alocacoes = FinancialEntryAllocation.where(tenant_id: tenant.id, financial_entry_id: ids)
+    ids_recebiveis = recebiveis.pluck(:id)
+
+    # Alocação do LANÇAMENTO ou do RECEBÍVEL.
+    #
+    # Só por lançamento não basta: o motor de repasses cria alocação ligando o
+    # lançamento de `payout` — que não é reserva — ao recebível. Essa alocação
+    # sobrevivia à limpeza e a chave estrangeira recusava apagar o recebível, o
+    # que derrubou a primeira execução no meio da transação.
+    alocacoes = FinancialEntryAllocation
+                  .where(tenant_id: tenant.id)
+                  .where("financial_entry_id IN (:lancamentos) OR receivable_unit_id IN (:recebiveis)",
+                         lancamentos: ids, recebiveis: ids_recebiveis.presence || [ 0 ])
 
     repasses = PayoutBatch.where(tenant_id: tenant.id, financial_entry_id: ids)
+
+    # A outra chave estrangeira que aponta para recebível: o registro de
+    # conciliação. Descoberta olhando o schema depois que a primeira execução
+    # quebrou na de alocações — em vez de esperar o próximo erro em produção.
+    #
+    # Registro de conciliação de uma reserva não documenta nada: a reserva nunca
+    # devia ter sido comparada com título nenhum.
+    registros = ConciliacaoRegistro
+                  .where(tenant_id: tenant.id, receivable_unit_id: ids_recebiveis.presence || [ 0 ])
 
     puts "Seriam removidos:"
     puts format("  lançamentos:            %d", total)
     puts format("  recebíveis:             %d", recebiveis.count)
     puts format("  alocações:              %d", alocacoes.count)
+    puts format("  registros de conciliação: %d", registros.count)
     puts format("  repasses apontando:     %d", repasses.count)
     puts
 
@@ -182,6 +203,10 @@ namespace :conciliacao do
     end
 
     ActiveRecord::Base.transaction do
+      conciliados = registros.delete_all
+
+      puts "Registros de conciliação removidos: #{conciliados}" if conciliados.positive?
+
       apagadas = alocacoes.delete_all
 
       unidades = recebiveis.delete_all
