@@ -45,10 +45,27 @@ namespace :tiny do
                        .where("regexp_replace(COALESCE(number,''), '\\A0+', '') = ?", numero)
                        .exists?
 
-        faltando[numero] = { pedido: pedido.external_id, serie: dados["serie"] }
+        faltando[numero] = { pedido: pedido.external_id, serie: dados["serie"], data: dados["data"] }
       end
 
     puts "Números que o marketplace informou e não estão no nosso banco: #{faltando.size}"
+    puts
+
+    # Faixa de NÚMERO e de DATA do que falta, por série.
+    #
+    # Sem isso, "o Tiny lista 0 neste período" não diz se eu pedi o período
+    # errado ou se as notas não estão lá. A faixa localiza: se o que falta é
+    # anterior ao que o Tiny devolve, o período é que está errado.
+    faltando.group_by { |_, dados| dados[:serie] }.each do |serie, itens|
+      numeros = itens.map { |numero, _| numero.to_i }.sort
+
+      datas = itens.filter_map { |_, dados| (Date.parse(dados[:data].to_s) rescue nil) }.sort
+
+      puts format("  série %-4s %4d nota(s) · números de %s a %s · emitidas de %s a %s",
+                  serie.presence || "?", itens.size, numeros.first, numeros.last,
+                  datas.first || "?", datas.last || "?")
+    end
+
     puts
 
     if faltando.none?
@@ -65,6 +82,21 @@ namespace :tiny do
     sem_referencia = notas.select { |nota| nota[:numero_ecommerce].blank? }
 
     puts "  delas, SEM numero_ecommerce (que a importação descarta): #{sem_referencia.size}"
+    puts
+
+    # E a faixa do que o Tiny DEVOLVEU, para comparar com a do que falta.
+    puts "  Faixa do que o Tiny devolveu, por série:"
+
+    notas.group_by { |nota| nota[:serie] }.each do |serie, lista|
+      numeros = lista.map { |nota| nota[:numero].to_s.sub(/\A0+/, "").to_i }.sort
+
+      datas = lista.filter_map { |nota| nota[:data_emissao] }.sort
+
+      puts format("    série %-4s %5d nota(s) · números de %s a %s · de %s a %s",
+                  serie.presence || "?", lista.size, numeros.first, numeros.last,
+                  datas.first || "?", datas.last || "?")
+    end
+
     puts
 
     # O cruzamento que responde.
