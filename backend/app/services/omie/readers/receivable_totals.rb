@@ -33,9 +33,22 @@ module Omie
         limpo.sub(/\A0+/, "").presence || limpo
       end
 
+      # Quantos títulos cada referência tinha, e o que cada um valia.
+      #
+      # O `call` SOMA os títulos por número de nota, e a soma esconde o caso que
+      # estraga o esperado: a mesma nota com mais de um título no OMIE — envio
+      # repetido, ou lançamento manual por cima do nosso. Aí o esperado dobra e
+      # o repasse acusa uma diferença que não é de dinheiro nenhum.
+      #
+      # Populado por `call`, para o diagnóstico ler depois sem uma segunda
+      # varredura no OMIE, que é o que a API cobra caro.
+      attr_reader :detalhes
+
       # => { "referencia" => BigDecimal }
       def call(start_date:, end_date:)
         totals = Hash.new(BigDecimal("0"))
+
+        @detalhes = Hash.new { |h, k| h[k] = [] }
 
         each_record(start_date, end_date) do |record|
           key = reference_for(record)
@@ -43,6 +56,13 @@ module Omie
           next if key.blank?
 
           totals[key] += record["valor_documento"].to_d
+
+          @detalhes[key] << {
+            valor: record["valor_documento"].to_d,
+            codigo: record["codigo_lancamento_integracao"].presence || record["codigo_lancamento_omie"],
+            vencimento: record["data_vencimento"],
+            parcela: record["numero_parcela"]
+          }
         end
 
         totals
