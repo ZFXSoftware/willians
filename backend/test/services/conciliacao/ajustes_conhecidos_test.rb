@@ -71,7 +71,7 @@ module Conciliacao
       registro = conciliar(BigDecimal("178.65"))
 
       assert_equal BigDecimal("6.00"), registro.diferenca.to_d.abs
-      assert_includes registro.observacao.to_s, "entre o valor das vendas e o das notas"
+      assert_includes registro.observacao.to_s, "parcelamento e desconto"
       assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
     end
 
@@ -89,26 +89,48 @@ module Conciliacao
       assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
     end
 
-    # A medição não depende do relatório nem dos dados fiscais: ela compara o
-    # bruto das vendas com o valor da nota, que estão no nosso banco desde
-    # sempre. A primeira versão somava componentes e ficava cega até o reimporte.
-    test "explica a diferença mesmo sem a linha do relatório e sem dados fiscais" do
+    # Sem a linha do relatório e sem os dados fiscais, a causa é DESCONHECIDA — e
+    # o honesto é continuar pedindo revisão.
+    #
+    # Este teste já afirmou o contrário, quando o cálculo media `bruto − nota`:
+    # ali a diferença se explicava sozinha, por tautologia. Voltar a somar
+    # causas trouxe de volta a dependência do dado, e com ela a resposta certa
+    # para quando o dado falta.
+    test "sem a linha do relatório e sem dados fiscais, a diferença fica sem explicação" do
       cenario(bruto: 184.65, valor_nota: 178.65)
 
       registro = conciliar(BigDecimal("178.65"))
 
-      assert_includes registro.observacao.to_s, "entre o valor das vendas e o das notas"
-      assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
+      assert_equal "divergent", registro.status
+      assert_not_includes registro.observacao.to_s, "parcelamento e desconto"
     end
 
-    # O caso que fazia a sobra ficar NEGATIVA em sete repasses: nota de PACOTE,
-    # duas vendas, o cupom rateado por venda (1,56 + 2,44) e o desconto da nota
-    # pelo total (4,00). Somar os dois contava o mesmo abatimento duas vezes.
-    #
-    # Duas vendas de um pacote são dois PEDIDOS diferentes compartilhando uma
-    # nota. Na primeira versão deste teste eu pus as duas no mesmo pedido, e o
-    # recebível — que é derivado do pedido — somou as duas vendas num só, com
-    # bruto 200. O cenário estava errado, não o motor.
+    # Diferença inteiramente atribuída não é divergência. Os 17 repasses do
+    # cliente fechavam ao centavo e a tela mostrava 17 divergências vermelhas,
+    # pedindo revisão manual de algo que já tinha resposta.
+    test "diferença explicada por inteiro sai como explicado, não divergente" do
+      cenario(bruto: 184.65, valor_nota: 178.65, fiscal: { "valor_desconto" => "6.00" })
+
+      registro = conciliar(BigDecimal("178.65"))
+
+
+      assert_equal "explicado", registro.status
+      assert_equal BigDecimal("6.00"), registro.diferenca.to_d.abs
+
+      # E não abre divergência para alguém investigar.
+      assert_equal 0, DivergenceReport.where(tenant_id: @tenant.id, status: :open).count
+    end
+
+    # Sobrando dinheiro sem explicação, continua divergência — é o caso que
+    # PRECISA de gente olhando, e confundi-lo com o explicado apagaria o sinal.
+    test "sobra sem explicação continua divergente" do
+      cenario(bruto: 300.00, valor_nota: 178.65, fiscal: { "valor_desconto" => "6.00" })
+
+      registro = conciliar(BigDecimal("178.65"))
+
+      assert_equal "divergent", registro.status
+    end
+
     test "nota de pacote com cupom rateado não conta o desconto em dobro" do
       nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "500", valor: 196.00)
 

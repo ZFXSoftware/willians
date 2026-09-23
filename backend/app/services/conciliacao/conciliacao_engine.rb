@@ -17,6 +17,10 @@ module Conciliacao
     # depois. Buscar títulos na mesma janela dos repasses não acharia nada.
     EMISSION_LOOKBACK_DAYS = 90
 
+    # Diferença existe, e está inteiramente atribuída. Não é `matched` — os
+    # valores não são iguais — nem `divergent`, que pede alguém investigar.
+    STATUS_EXPLICADO = "explicado".freeze
+
     STATUS_POR_RESULTADO = {
       ok: "matched",
       divergente: "divergent",
@@ -136,7 +140,9 @@ module Conciliacao
 
         counters[:total] += 1
 
-        counters[resultado.status] += 1
+        # Contado como explicado, e não como divergência: é esse número que a
+        # tela soma para dizer quantos repasses precisam de atenção.
+        counters[explicado?(payout, resultado) ? :explicado : resultado.status] += 1
 
         counters[:com_nf] += 1 if notas_fiscais_for(payout).any?
 
@@ -489,40 +495,65 @@ module Conciliacao
       end
     end
 
-    # A diferença entre o que o marketplace pagou pelas vendas de uma nota e o
-    # que a nota documenta.
+    # Quanto da diferença entre venda e nota tem CAUSA conhecida.
     #
-    # MEDIDA, e não somada de componentes. A primeira versão somava
-    # FINANCING_FEE_AMOUNT, COUPON_AMOUNT e o desconto da nota, e contava o mesmo
-    # dinheiro duas vezes: em nota de PACOTE o cupom vem rateado por venda
-    # (1,56 + 2,44) e o desconto da nota é o total (4,00) — os dois lados do
-    # mesmo abatimento. A sobra ficava negativa em sete repasses.
+    # Duas versões erradas antes desta, e o motivo de cada uma importa.
     #
-    # Aqui a conta é direta: o bruto das vendas desta nota neste repasse, menos
-    # o valor da nota rateado pela fração que couber. Não há como contar em
-    # dobro, porque não há parcela a somar.
+    # A primeira somava FINANCING_FEE_AMOUNT, COUPON_AMOUNT e o desconto da
+    # nota. Contava o mesmo dinheiro duas vezes: em nota de pacote o cupom vem
+    # rateado por venda (1,56 + 2,44) e o desconto da nota é o total (4,00). A
+    # sobra ficava negativa em sete repasses.
     #
-    # Os componentes continuam valendo para EXPLICAR a causa — parcelamento que
-    # o Mercado Livre soma ao bruto, cupom, desconto na nota —, e é isso que a
-    # frase diz. Explicar não é calcular.
+    # A segunda mediu `bruto das vendas − valor da nota`. Fechava em zero
+    # sempre — e não podia ser diferente, porque essa conta É a diferença. Era
+    # tautologia: explicar o número medindo o próprio número.
     #
-    # Só entram as notas que TÊM título no OMIE: a nota sem título já é contada
-    # em `valor_sem_titulo`, e somá-la aqui também seria contar duas vezes de
-    # novo, pelo outro caminho.
+    # Esta soma as CAUSAS, com o abatimento resolvido: cupom e desconto são o
+    # mesmo abatimento visto de dois lados, então vale o MAIOR dos dois, nunca
+    # a soma. Medido na base: 109 notas com os dois iguais, 327 só com cupom, 94
+    # só com desconto, e as "diferentes" eram pacote com o cupom rateado somando
+    # exatamente o desconto.
+    #
+    # O que sobrar depois disto é diferença que ninguém sabe explicar — e é o
+    # único número desta classe que merece revisão manual.
     def ajustes_conhecidos(por_nota, encontradas, fracao_por_chave)
       achadas = encontradas.to_a.to_set
+
+      linhas = linhas_do_relatorio(por_nota.values.flatten)
 
       por_nota.sum(BigDecimal("0")) do |nota, lista|
         chave = Omie::Readers::ReceivableTotals.normalizar(nota.number)
 
         next BigDecimal("0") unless chave.present? && achadas.include?(chave)
 
-        bruto = lista.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d }
+        fracao = fracao_por_chave[chave] || 1
 
-        documentado = nota.total_amount.to_d * (fracao_por_chave[chave] || 1)
+        # O custo do parcelamento é por VENDA, e o Mercado Livre o soma ao bruto.
+        # Só as vendas deste repasse entram, então não há o que ratear.
+        parcelamento = lista.sum(BigDecimal("0")) do |unidade|
+          linhas[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
+        end
 
-        bruto - documentado
+        cupom = lista.sum(BigDecimal("0")) do |unidade|
+          linhas[unidade.external_id].to_h["COUPON_AMOUNT"].to_d.abs
+        end
+
+        # O desconto é da NOTA inteira: entra pela fração que couber a este
+        # repasse, como o próprio valor da nota.
+        desconto = nota.metadata.to_h.dig("fiscal", "valor_desconto").to_d * fracao
+
+        parcelamento + [ cupom, desconto ].max
       end.round(2)
+    end
+
+    # A linha do relatório de cada venda, em uma consulta para o lote.
+    def linhas_do_relatorio(unidades)
+      return {} if unidades.empty?
+
+      FinancialEntry
+        .where(tenant_id: tenant.id, external_id: unidades.map(&:external_id))
+        .pluck(:external_id, :raw_payload)
+        .to_h { |externo, cru| [ externo, cru.is_a?(Hash) ? cru : {} ] }
     end
 
     def unidades_de(payout)
@@ -634,6 +665,41 @@ module Conciliacao
     #
     # Deixar a subtração para quem lê é deixar o número no ar: R$ 6.442 de
     # diferença num repasse com R$ 6.442 sem nota é R$ 0,00 de divergência.
+    # O que sobra da diferença depois de tirar tudo o que tem explicação.
+    #
+    # É o único número desta classe que fala sobre dinheiro que ninguém sabe
+    # explicar. Vivia dentro da frase da observação, e por isso o status não
+    # podia usá-lo: todo repasse com diferença saía como `divergent`, mesmo com
+    # a diferença inteiramente atribuída.
+    def residuo(cobertura, resultado)
+      resultado.diferenca.to_d.abs -
+        cobertura[:valor_sem_nota].to_d -
+        cobertura[:valor_sem_titulo].to_d -
+        cobertura[:valor_ajustes].to_d
+    end
+
+    # Diferença inteiramente explicada não é divergência.
+    #
+    # Os 17 repasses do cliente fechavam ao centavo — R$ 10.566 de venda sem
+    # nota mais R$ 37,06 de diferença venda↔nota davam exatamente os R$ 10.603
+    # da diferença — e a tela mostrava 17 divergências, todas vermelhas,
+    # pedindo revisão manual de algo que já tinha resposta.
+    #
+    # A tolerância de dez centavos é o arredondamento do rateio: a nota de
+    # pacote entra por fração, e a fração é uma divisão. Um repasse errou por
+    # R$ 0,01 nessa conta.
+    TOLERANCIA_DE_ARREDONDAMENTO = BigDecimal("0.10")
+
+    def explicado?(payout, resultado)
+      return false unless resultado.status == :divergente
+
+      cobertura = @coberturas[payout.id]
+
+      return false if cobertura.blank?
+
+      residuo(cobertura, resultado).abs <= TOLERANCIA_DE_ARREDONDAMENTO
+    end
+
     def decomposicao(cobertura, resultado)
       sem_nota = cobertura[:valor_sem_nota].to_d
 
@@ -658,15 +724,14 @@ module Conciliacao
       ajustes = cobertura[:valor_ajustes].to_d
 
       if ajustes.positive?
-        partes << "R$ #{format('%.2f', ajustes)} entre o valor das vendas e o das notas " \
-                  "— o marketplace soma ao valor da venda o custo do parcelamento que o " \
-                  "comprador escolheu, e a nota documenta a mercadoria com o desconto e o " \
-                  "cupom abatidos"
+        partes << "R$ #{format('%.2f', ajustes)} de parcelamento e desconto — o marketplace " \
+                  "soma ao valor da venda o custo do parcelamento que o comprador escolheu, " \
+                  "e a nota documenta a mercadoria já com o desconto abatido"
       end
 
       return "" if partes.empty?
 
-      real = resultado.diferenca.to_d.abs - sem_nota - sem_titulo - ajustes
+      real = residuo(cobertura, resultado)
 
       # Sobra NEGATIVA não é um valor: é a decomposição descontando mais do que
       # a diferença tem. Imprimir "sobra R$ -500,00" apresenta um defeito do
@@ -716,7 +781,7 @@ module Conciliacao
 
         financial_entry_id: payout.financial_entry_id,
 
-        status: STATUS_POR_RESULTADO.fetch(resultado.status),
+        status: explicado?(payout, resultado) ? STATUS_EXPLICADO : STATUS_POR_RESULTADO.fetch(resultado.status),
 
         match_type: resultado.match_type&.to_s,
 
@@ -763,6 +828,11 @@ module Conciliacao
 
     def divergencia_row(payout, resultado)
       return if resultado.ok?
+
+      # Diferença explicada não abre divergência para alguém investigar. Abrir
+      # era o que fazia a tela pedir revisão manual de 17 repasses cuja
+      # diferença já estava atribuída ao centavo.
+      return if explicado?(payout, resultado)
 
       return if payout.financial_entry_id.blank?
 
@@ -852,7 +922,10 @@ module Conciliacao
           "end_date" => end_date.to_s,
           "omie_referencias" => omie_totals.size,
           "nao_encontrados" => counters[:nao_encontrado],
-          "repasses_com_nf" => counters[:com_nf]
+          "repasses_com_nf" => counters[:com_nf],
+          # Diferença atribuída por inteiro. Fica no metadata para a tela poder
+          # dizer "17 explicados" em vez de somá-los às divergências.
+          "explicados" => counters[:explicado]
         )
       )
 
@@ -868,7 +941,8 @@ module Conciliacao
         "#{LOG_PREFIX} conta ##{platform_account.id}: " \
         "#{omie_totals.size} título(s) no OMIE entre #{start_date} e #{end_date}, " \
         "#{counters[:total]} repasse(s), #{counters[:com_nf]} com nota fiscal nossa, " \
-        "#{counters[:ok]} conferido(s), #{counters[:nao_encontrado]} sem título correspondente, " \
+        "#{counters[:ok]} conferido(s), #{counters[:explicado]} com diferença explicada, " \
+        "#{counters[:nao_encontrado]} sem título correspondente, " \
         "#{counters[:divergencias_fechadas]} divergência(s) fechada(s)"
       )
     end

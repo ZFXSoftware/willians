@@ -102,6 +102,10 @@ const ROTULOS: Record<string, string> = {
   adjustment: "Ajuste",
   future_receivable: "A receber",
   unidentified: "Não identificado",
+  // A diferença existe e está inteiramente atribuída: venda sem nota, nota sem
+  // título, parcelamento, desconto. Não é "conferido" — os valores diferem — nem
+  // "divergente", que pede alguém investigar.
+  explicado: "Diferença explicada",
   settled: "Liquidado",
   reconciled: "Conciliado",
   cancelled: "Cancelado",

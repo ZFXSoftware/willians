@@ -75,6 +75,9 @@ const TONS: Record<string, string> = {
   expired: "bg-red-500/15 text-red-400 border-red-500/20",
   revoked: "bg-red-500/15 text-red-400 border-red-500/20",
   error: "bg-red-500/15 text-red-400 border-red-500/20",
+  // Azul de propósito: verde diria "está tudo igual", e não está; vermelho
+  // mandaria investigar algo que já tem resposta.
+  explicado: "bg-sky-500/15 text-sky-400 border-sky-500/20",
   manual_review: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20",
   pending: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20",
   analyzing: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20",

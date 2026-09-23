@@ -39,10 +39,21 @@ class ConciliacaoRegistro < ApplicationRecord
       .reorder(Arel.sql("COALESCE(payout_batch_id, -id), conciliated_at DESC NULLS LAST, id DESC"))
   end
 
+  # `explicado`: a diferença existe e está inteiramente atribuída — venda sem
+  # nota, nota sem título, diferença entre o valor da venda e o da nota. Não é
+  # `matched`, porque os valores não são iguais, nem `divergent`, que pede
+  # alguém investigar.
+  #
+  # Faltar aqui é pior que parecer: o motor grava com `insert_all!`, que não
+  # passa pelo enum, e o valor entra no banco. O LEITOR do enum devolve `nil`
+  # para o que não conhece — a tela mostra status vazio e o `inalterado?`
+  # compara nil com a string, nunca bate, e volta a gravar uma linha por
+  # repasse a cada cinco minutos.
   enum :status, {
     pending: "pending",
     matched: "matched",
     divergent: "divergent",
+    explicado: "explicado",
     manual_review: "manual_review",
     resolved: "resolved"
   }
