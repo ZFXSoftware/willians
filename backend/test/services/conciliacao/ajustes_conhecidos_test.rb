@@ -131,6 +131,41 @@ module Conciliacao
       assert_equal "divergent", registro.status
     end
 
+    # O caso que passava da diferença em oito repasses: venda com parcelamento
+    # cujo bruto NÃO excede a nota, porque a nota saiu já com o valor cheio que o
+    # comprador pagou. O componente existe, a diferença não — e aplicar o
+    # componente ali inventaria explicação.
+    test "componente maior que a diferença não explica mais do que existe" do
+      nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "500", valor: 200.00)
+
+      nota.update!(metadata: { "fiscal" => { "valor_desconto" => "0.00" } })
+
+      unidade = criar_recebivel(tenant: @tenant, conta: @conta, pedido: @pedido, nota: nota,
+                                bruto: 202.00, liquido: 202.00, external_id: "MLREL-1-SALE",
+                                previsto_para: Date.current - 2)
+
+      lancamento = criar_lancamento(tenant: @tenant, conta: @conta, pedido: @pedido, nota: nota,
+                                    valor: 202.00, external_id: "MLREL-1-SALE")
+
+      # O relatório diz R$ 50 de parcelamento, e entre bruto e nota só há R$ 2.
+      lancamento.update!(raw_payload: { "FINANCING_FEE_AMOUNT" => "-50.00", "COUPON_AMOUNT" => "0.00" })
+
+      unidade.update!(invoice_id: nota.id)
+
+      repasse = criar_repasse(tenant: @tenant, conta: @conta, bruto: 202.00, liquido: 202.00,
+                              pago_em: Time.current - 1.day, lancamento: lancamento)
+
+      alocar!(tenant: @tenant, lancamento: lancamento, recebivel: unidade,
+              repasse: repasse, tipo: :payout)
+
+      registro = conciliar(BigDecimal("200.00"))
+
+      # Explica os R$ 2 que existem, não os R$ 50 que o componente afirma.
+      assert_includes registro.observacao.to_s, "R$ 2,00".tr(",", ".")
+      assert_not_includes registro.observacao.to_s, "MAIS que a diferença"
+      assert_equal "explicado", registro.status
+    end
+
     test "nota de pacote com cupom rateado não conta o desconto em dobro" do
       nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "500", valor: 196.00)
 

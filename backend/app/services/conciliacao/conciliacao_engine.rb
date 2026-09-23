@@ -497,25 +497,25 @@ module Conciliacao
 
     # Quanto da diferença entre venda e nota tem CAUSA conhecida.
     #
-    # Duas versões erradas antes desta, e o motivo de cada uma importa.
+    # Três versões erradas antes desta, e cada uma tinha metade da razão.
     #
-    # A primeira somava FINANCING_FEE_AMOUNT, COUPON_AMOUNT e o desconto da
-    # nota. Contava o mesmo dinheiro duas vezes: em nota de pacote o cupom vem
-    # rateado por venda (1,56 + 2,44) e o desconto da nota é o total (4,00). A
-    # sobra ficava negativa em sete repasses.
+    # Somar FINANCING + COUPON + desconto contava o mesmo dinheiro duas vezes:
+    # em nota de pacote o cupom vem rateado por venda (1,56 + 2,44) e o desconto
+    # da nota é o total (4,00).
     #
-    # A segunda mediu `bruto das vendas − valor da nota`. Fechava em zero
-    # sempre — e não podia ser diferente, porque essa conta É a diferença. Era
-    # tautologia: explicar o número medindo o próprio número.
+    # Medir `bruto − valor da nota` fechava em zero SEMPRE, porque essa conta é a
+    # própria diferença: tautologia, explicar o número medindo o número.
     #
-    # Esta soma as CAUSAS, com o abatimento resolvido: cupom e desconto são o
-    # mesmo abatimento visto de dois lados, então vale o MAIOR dos dois, nunca
-    # a soma. Medido na base: 109 notas com os dois iguais, 327 só com cupom, 94
-    # só com desconto, e as "diferentes" eram pacote com o cupom rateado somando
-    # exatamente o desconto.
+    # Somar as causas com `max(cupom, desconto)` corrigiu o duplo-cômputo mas
+    # continuou passando da diferença em oito repasses — existe venda com
+    # parcelamento cujo bruto NÃO excede a nota, porque a nota saiu já com o
+    # valor cheio que o comprador pagou. Aplicar o componente ali inventa
+    # explicação para uma diferença que não está lá.
     #
-    # O que sobrar depois disto é diferença que ninguém sabe explicar — e é o
-    # único número desta classe que merece revisão manual.
+    # A síntese: a MEDIDA diz quanto há para explicar em cada nota, e os
+    # COMPONENTES dizem se aquilo tem explicação. O ajuste é o menor dos dois —
+    # nunca se explica mais do que existe. O que a medida tiver acima dos
+    # componentes é diferença sem causa conhecida, e é ela que merece revisão.
     def ajustes_conhecidos(por_nota, encontradas, fracao_por_chave)
       achadas = encontradas.to_a.to_set
 
@@ -528,22 +528,37 @@ module Conciliacao
 
         fracao = fracao_por_chave[chave] || 1
 
-        # O custo do parcelamento é por VENDA, e o Mercado Livre o soma ao bruto.
-        # Só as vendas deste repasse entram, então não há o que ratear.
-        parcelamento = lista.sum(BigDecimal("0")) do |unidade|
-          linhas[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
-        end
+        # O que há para explicar nesta nota.
+        medida = lista.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d } -
+                 (nota.total_amount.to_d * fracao)
 
-        cupom = lista.sum(BigDecimal("0")) do |unidade|
-          linhas[unidade.external_id].to_h["COUPON_AMOUNT"].to_d.abs
-        end
+        next BigDecimal("0") unless medida.positive?
 
-        # O desconto é da NOTA inteira: entra pela fração que couber a este
-        # repasse, como o próprio valor da nota.
-        desconto = nota.metadata.to_h.dig("fiscal", "valor_desconto").to_d * fracao
-
-        parcelamento + [ cupom, desconto ].max
+        [ medida, causas_de(nota, lista, linhas, fracao) ].min
       end.round(2)
+    end
+
+    # As causas que sabemos nomear, para uma nota e as vendas dela.
+    #
+    # Cupom e desconto são o MESMO abatimento visto de dois lados — o cupom
+    # concedido ao comprador sai como desconto no documento —, então vale o maior
+    # e nunca a soma. Medido na base do cliente: 109 notas com os dois iguais,
+    # 327 só com cupom, 94 só com desconto, e as "diferentes" eram pacote com o
+    # cupom rateado somando exatamente o desconto.
+    def causas_de(nota, lista, linhas, fracao)
+      parcelamento = lista.sum(BigDecimal("0")) do |unidade|
+        linhas[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
+      end
+
+      cupom = lista.sum(BigDecimal("0")) do |unidade|
+        linhas[unidade.external_id].to_h["COUPON_AMOUNT"].to_d.abs
+      end
+
+      # O desconto é da nota inteira: entra pela fração que couber a este
+      # repasse, como o próprio valor da nota.
+      desconto = nota.metadata.to_h.dig("fiscal", "valor_desconto").to_d * fracao
+
+      parcelamento + [ cupom, desconto ].max
     end
 
     # A linha do relatório de cada venda, em uma consulta para o lote.
