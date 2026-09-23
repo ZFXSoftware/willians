@@ -93,8 +93,19 @@ namespace :conciliacao do
                       .where(tenant_id: tenant.id, external_id: unidade.external_id)
                       .pick(Arel.sql("raw_payload->>'DESCRIPTION'"))
 
-        linha = format("    %-34s pedido %-20s NF %-10s · outros recebíveis com esta nota: %d",
-                       descricao, unidade.order&.external_id, unidade.invoice&.number, irmas)
+        # A venda daquele pedido existe em algum lugar da nossa base?
+        #
+        # Se existe, a reserva é rastro redundante e apagá-la não perde nada. Se
+        # NÃO existe, esta linha é o único vínculo entre a nota e o dinheiro, e
+        # apagá-la deixa a nota sem recebível — a conciliação nunca mais a vê.
+        tem_venda = FinancialEntry
+                      .where(tenant_id: tenant.id, order_id: unidade.order_id)
+                      .where("lower(raw_payload->>'DESCRIPTION') = ?", "payment")
+                      .exists?
+
+        linha = format("    %-34s pedido %-20s NF %-10s · outros recebíveis: %d · venda no razão: %s",
+                       descricao, unidade.order&.external_id, unidade.invoice&.number, irmas,
+                       tem_venda ? "SIM" : "NÃO")
 
         if irmas.positive?
           duplicados += 1
@@ -113,29 +124,30 @@ namespace :conciliacao do
       if solitarios.any?
         puts
 
-        puts "  Estes são o problema:"
+        puts "  Nota ligada SÓ a esta reserva:"
 
         puts solitarios.first(10)
       end
 
       puts
 
-      if solitarios.any?
-        puts "PARANDO por causa dos solitários. Soltar a nota deles a deixaria sem"
-        puts "recebível nenhum, e a conciliação passaria a esperar um título órfão."
-        puts "Me mostre esta saída."
+      # TODO recebível com nota fica de fora, duplicado ou solitário.
+      #
+      # A classificação acima é para você decidir depois; a limpeza não decide
+      # por ninguém. E travar 3.379 remoções por causa de 7 casos duvidosos
+      # seria o pior dos dois mundos: o ruído segue inflando as vendas e
+      # ninguém resolve nada.
+      protegidos = com_nota.pluck(:external_id)
 
-        next
-      end
+      intrusos = intrusos.where.not(external_id: protegidos)
 
-      unless ENV["SOLTAR"] == "1"
-        puts "Todos os #{duplicados} são vínculo duplicado: a nota continua ligada"
-        puts "ao recebível da venda. Para prosseguir, acrescente SOLTAR=1."
+      recebiveis = recebiveis.where.not(external_id: protegidos)
 
-        next
-      end
+      ids = intrusos.pluck(:id)
 
-      puts "SOLTAR=1: os #{duplicados} vínculos duplicados serão desfeitos junto."
+      total = intrusos.count
+
+      puts "Os #{protegidos.size} com nota ficam FORA desta limpeza. Segue com os outros #{total}."
       puts
     end
 
@@ -170,12 +182,6 @@ namespace :conciliacao do
     end
 
     ActiveRecord::Base.transaction do
-      # O vínculo sai antes do recebível: `update_all` não dispara callback, e o
-      # que importa é não deixar a nota apontando para linha que vai desaparecer.
-      soltos = recebiveis.where.not(invoice_id: nil).update_all(invoice_id: nil, updated_at: Time.current)
-
-      puts "Vínculos duplicados desfeitos: #{soltos}" if soltos.positive?
-
       apagadas = alocacoes.delete_all
 
       unidades = recebiveis.delete_all
