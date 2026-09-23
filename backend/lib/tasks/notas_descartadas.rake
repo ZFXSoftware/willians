@@ -99,8 +99,39 @@ namespace :tiny do
 
     puts
 
-    # O cruzamento que responde.
     por_numero = notas.index_by { |nota| nota[:numero].to_s.sub(/\A0+/, "") }
+
+    # CONTROLE DA LISTAGEM, antes do cruzamento.
+    #
+    # A peça que nunca testei: a listagem do Tiny para este período está
+    # COMPLETA? As notas que já temos vieram dela, então todas as nossas do
+    # período deveriam aparecer aqui. As que não aparecerem provam que a
+    # listagem trunca — e aí "o Tiny não tem" é falso para qualquer conclusão.
+    nossas_do_periodo = Invoice
+                          .where(tenant_id: tenant.id)
+                          .where(issued_at: inicio.beginning_of_day..fim.end_of_day)
+                          .where.not(number: nil)
+                          .pluck(:number, :series)
+
+    faltam_na_listagem = nossas_do_periodo.reject do |numero, _serie|
+      por_numero.key?(numero.to_s.sub(/\A0+/, ""))
+    end
+
+    puts "Controle da listagem — as NOSSAS notas do período aparecem nela?"
+    puts format("  nossas notas emitidas no período: %d", nossas_do_periodo.size)
+    puts format("  que a listagem NÃO devolveu:      %d", faltam_na_listagem.size)
+
+    if faltam_na_listagem.any?
+      puts
+      puts "  A listagem está INCOMPLETA: ela não devolve nem notas que vieram dela."
+      puts "  Exemplos: #{faltam_na_listagem.first(8).map { |n, s| "#{n}/#{s}" }.join(', ')}"
+      puts
+      puts "  Nada abaixo sustenta conclusão sobre o Tiny ter ou não as notas."
+    end
+
+    puts
+
+    # O cruzamento que responde.
 
     achadas = faltando.keys & por_numero.keys
 
