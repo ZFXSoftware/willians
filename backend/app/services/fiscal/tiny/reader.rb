@@ -50,9 +50,18 @@ module Fiscal
       # Sem isto, "o Tiny não tem" e "o Tiny tem, sob outra chave de busca"
       # produzem a mesma resposta vazia — e as providências são opostas:
       # reimportar de um lado, conversar com o cliente do outro.
-      def por_numero(numero, serie: nil)
+      # A JANELA DE DATA importa, e a falta dela me fez concluir errado.
+      #
+      # Busquei 287 notas por número sem passar período e o Tiny devolveu vazio
+      # nas duas buscas. Concluí que ele não as tinha e que teriam saído de outro
+      # ERP — o cliente depois disse que nunca usou outro. O controle que eu
+      # rodei passou numa nota RECENTE, então não testou o que estava em jogo.
+      #
+      # Sem `data_inicial`, o que a busca cobre é decisão do Tiny, não nossa.
+      def por_numero(numero, serie: nil, de: nil, ate: nil)
         coletar do |pagina|
-          client.pesquisar_notas(pagina: pagina, numero: numero, serie: serie)
+          client.pesquisar_notas(pagina: pagina, numero: numero, serie: serie,
+                                 data_inicial: de, data_final: ate)
         end
       end
 

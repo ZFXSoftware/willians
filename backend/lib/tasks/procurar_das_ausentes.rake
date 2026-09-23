@@ -85,12 +85,18 @@ namespace :tiny do
 
     numero_controle = controle.number.to_s.sub(/\A0+/, "")
 
-    com_serie = reader.por_numero(numero_controle, serie: controle.series)
+    # O controle roda com a MESMA janela de data que a amostra vai usar, senão
+    # ele não testa o que está em jogo. O meu primeiro controle passou numa nota
+    # recente e me deixou concluir que o Tiny não tinha as notas de julho.
+    janela_do_controle = controle.issued_at&.to_date
+
+    com_serie = reader.por_numero(numero_controle, serie: controle.series,
+                                  de: janela_do_controle, ate: janela_do_controle)
 
     # E sem a série: se ela for filtro não aceito, o Tiny responde erro e o
     # nosso cliente lê erro como "nada encontrado" — vazio idêntico ao de uma
     # nota ausente.
-    sem_serie = reader.por_numero(numero_controle)
+    sem_serie = reader.por_numero(numero_controle, de: janela_do_controle, ate: janela_do_controle)
 
     bate = ->(lista) { lista.any? { |n| n[:numero].to_s.sub(/\A0+/, "") == numero_controle } }
 
@@ -145,7 +151,17 @@ namespace :tiny do
 
       numero = dados["numero"].to_s.sub(/\A0+/, "")
 
-      achadas = reader.por_numero(numero, serie: usar_serie ? dados["serie"] : nil)
+      # A data que o MARKETPLACE informou para esta nota, com folga de um dia
+      # para cada lado: fuso e virada de meia-noite não podem decidir se a nota
+      # existe.
+      emitida = begin
+        Date.parse(dados["data"].to_s)
+      rescue StandardError
+        nil
+      end
+
+      achadas = reader.por_numero(numero, serie: usar_serie ? dados["serie"] : nil,
+                                  de: emitida&.-(1), ate: emitida&.+(1))
 
       # Só vale a nota cujo número é de fato o que pedimos: se o Tiny ignorar o
       # filtro e devolver a página inteira, aceitar a primeira seria inventar
