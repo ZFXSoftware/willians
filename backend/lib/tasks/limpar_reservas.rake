@@ -67,11 +67,76 @@ namespace :conciliacao do
     com_nota = recebiveis.where.not(invoice_id: nil)
 
     if com_nota.exists?
-      puts "PARANDO: #{com_nota.count} recebível(is) desses lançamentos tem NOTA ligada."
-      puts "Reserva não tem nota. Ou a premissa está errada, ou o vínculo está errado —"
-      puts "em qualquer caso não é apagando que se descobre. Me mostre esta saída."
+      puts "ATENÇÃO: #{com_nota.count} recebível(is) desses lançamentos tem NOTA ligada."
+      puts
 
-      next
+      # Reserva não tem nota própria. A explicação mais provável é vínculo
+      # espúrio: a reserva passou a trazer ORDER_ID quando a coluna foi
+      # acrescentada ao relatório, e o religamento automático pendurou nela a
+      # nota DO PEDIDO — que pertence à venda, não à reserva.
+      #
+      # Provável não é medido. Cada caso é impresso com o que decide: se a MESMA
+      # nota já está ligada a outro recebível do mesmo pedido, o vínculo aqui é
+      # duplicata e sai sem perder nada. Se não está, soltar deixaria a nota sem
+      # dinheiro, e isso é outra conversa.
+      duplicados = 0
+
+      solitarios = []
+
+      com_nota.includes(:invoice, :order).each do |unidade|
+        irmas = ReceivableUnit
+                  .where(tenant_id: tenant.id, invoice_id: unidade.invoice_id)
+                  .where.not(id: unidade.id)
+                  .count
+
+        descricao = FinancialEntry
+                      .where(tenant_id: tenant.id, external_id: unidade.external_id)
+                      .pick(Arel.sql("raw_payload->>'DESCRIPTION'"))
+
+        linha = format("    %-34s pedido %-20s NF %-10s · outros recebíveis com esta nota: %d",
+                       descricao, unidade.order&.external_id, unidade.invoice&.number, irmas)
+
+        if irmas.positive?
+          duplicados += 1
+
+          puts linha
+        else
+          solitarios << linha
+        end
+      end
+
+      puts
+
+      puts format("  vínculo DUPLICADO (a nota já está em outro recebível): %d", duplicados)
+      puts format("  nota que ficaria SEM dinheiro se soltarmos:            %d", solitarios.size)
+
+      if solitarios.any?
+        puts
+
+        puts "  Estes são o problema:"
+
+        puts solitarios.first(10)
+      end
+
+      puts
+
+      if solitarios.any?
+        puts "PARANDO por causa dos solitários. Soltar a nota deles a deixaria sem"
+        puts "recebível nenhum, e a conciliação passaria a esperar um título órfão."
+        puts "Me mostre esta saída."
+
+        next
+      end
+
+      unless ENV["SOLTAR"] == "1"
+        puts "Todos os #{duplicados} são vínculo duplicado: a nota continua ligada"
+        puts "ao recebível da venda. Para prosseguir, acrescente SOLTAR=1."
+
+        next
+      end
+
+      puts "SOLTAR=1: os #{duplicados} vínculos duplicados serão desfeitos junto."
+      puts
     end
 
     alocacoes = FinancialEntryAllocation.where(tenant_id: tenant.id, financial_entry_id: ids)
@@ -105,6 +170,12 @@ namespace :conciliacao do
     end
 
     ActiveRecord::Base.transaction do
+      # O vínculo sai antes do recebível: `update_all` não dispara callback, e o
+      # que importa é não deixar a nota apontando para linha que vai desaparecer.
+      soltos = recebiveis.where.not(invoice_id: nil).update_all(invoice_id: nil, updated_at: Time.current)
+
+      puts "Vínculos duplicados desfeitos: #{soltos}" if soltos.positive?
+
       apagadas = alocacoes.delete_all
 
       unidades = recebiveis.delete_all
