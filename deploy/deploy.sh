@@ -18,6 +18,7 @@
 #   ./deploy/deploy.sh preparar             cria .env.production e gera segredos
 #   ./deploy/deploy.sh subir                constrói e sobe a stack nova
 #   ./deploy/deploy.sh migrar               backup + migrações do banco
+#   ./deploy/deploy.sh backup [rotulo]      só o backup, antes de algo destrutivo
 #   ./deploy/deploy.sh publicar DOMINIO     escreve o site (ainda desativado)
 #   ./deploy/deploy.sh trocar DOMINIO       desativa o antigo e ativa o novo
 #   ./deploy/deploy.sh reverter             desfaz a troca
@@ -289,20 +290,46 @@ cmd_subir() {
 
 # ---------------------------------------------------------------------- migrar
 
-cmd_migrar() {
+# Backup do banco, em arquivo próprio.
+#
+# Existia só dentro do `migrar`, e é justamente antes de uma tarefa que APAGA
+# que alguém quer um — remover 3.379 lançamentos do razão sem ter para onde
+# voltar é apostar que a decisão estava certa.
+#
+# $1 é o rótulo que entra no nome do arquivo.
+backup_do_banco() {
   exigir_env
 
   mkdir -p "$BACKUPS"
 
-  local arquivo="$BACKUPS/antes-da-migracao-$(date +%Y%m%d-%H%M%S).sql.gz"
+  local rotulo="${1:-manual}"
+  local arquivo="$BACKUPS/$rotulo-$(date +%Y%m%d-%H%M%S).sql.gz"
 
-  titulo "Backup do banco antes de migrar"
+  titulo "Backup do banco"
+
   if compose exec -T db pg_isready -U backend >/dev/null 2>&1; then
     compose exec -T db pg_dumpall -U backend | gzip > "$arquivo"
     verde "   $arquivo ($(du -h "$arquivo" | cut -f1))"
   else
     amarelo "   banco ainda vazio; nada a salvar"
   fi
+}
+
+cmd_backup() {
+  backup_do_banco "${1:-manual}"
+
+  titulo "Para restaurar, se precisar"
+  # Os mesmos parâmetros que a função `compose` usa: sem -p e --env-file o
+  # docker não acha este projeto, e a dica mandaria para o banco errado.
+  echo "   gunzip -c ARQUIVO.sql.gz | docker compose -p $PROJETO -f $COMPOSE_FILE \\"
+  echo "     --env-file $ENV_FILE exec -T db psql -U backend postgres"
+  echo
+  amarelo "   Restaurar sobrescreve o banco INTEIRO, inclusive o que veio depois"
+  amarelo "   do backup. Confira a data do arquivo antes."
+}
+
+cmd_migrar() {
+  backup_do_banco "antes-da-migracao"
 
   titulo "Migrações"
   # db:prepare cria também os bancos de cache, fila e cable do Solid.
@@ -760,6 +787,7 @@ case "${1:-inspecionar}" in
   preparar)      cmd_preparar "${2:-}" ;;
   subir)         cmd_subir ;;
   migrar)        cmd_migrar ;;
+  backup)        shift; cmd_backup "${1:-manual}" ;;
   publicar)      cmd_publicar "${2:-}" ;;
   trocar)        cmd_trocar "${2:-}" ;;
   reverter)      cmd_reverter ;;
@@ -767,6 +795,6 @@ case "${1:-inspecionar}" in
   status)        cmd_status ;;
   *)
     erro "comando desconhecido: $1
-   use: inspecionar | preparar | subir | migrar | publicar DOMINIO | trocar DOMINIO | reverter | parar-antigo NOME | status | estado | rake TAREFA"
+   use: inspecionar | preparar | subir | migrar | backup [rotulo] | publicar DOMINIO | trocar DOMINIO | reverter | parar-antigo NOME | status | estado | rake TAREFA"
     ;;
 esac
