@@ -94,16 +94,27 @@ module Marketplace
       assert_equal "184.65", fiscal["valor_produtos"]
     end
 
-    # Nome, CPF e endereço do comprador vêm na MESMA resposta e não têm por que
-    # entrar na nossa nota.
-    test "não copia dado de pessoa" do
+    # O OMIE exige o cliente para criar o título, e o CPF é elemento da própria
+    # NF-e. Recusar copiar não protegia ninguém — deixava o dado ausente só para
+    # as notas do Mercado Livre e quebrava o envio de 15 delas.
+    test "guarda nome e documento do comprador, que o título exige" do
+      importar(MlFalso.new(resposta))
+
+      metadata = Invoice.find_by(tenant_id: @tenant.id).metadata
+
+      assert_equal "Comprador", metadata["comprador_nome"]
+      assert_equal "107.312.566-11", metadata["comprador_documento"]
+    end
+
+    # Endereço, telefone e o cadastro do EMITENTE a operação não pede.
+    test "não copia endereço nem dado do emitente" do
       importar(MlFalso.new(resposta))
 
       guardado = Invoice.find_by(tenant_id: @tenant.id).metadata.to_json
 
-      assert_not_includes guardado, "107.312.566-11"
       assert_not_includes guardado, "NÃO DEVE SER COPIADO"
-      assert_not_includes guardado, "Comprador"
+      assert_not_includes guardado, "street_name"
+      assert_not_includes guardado, "zip_code"
     end
 
     # Criar é certo, para o histórico existir. Ligar faria a conciliação esperar

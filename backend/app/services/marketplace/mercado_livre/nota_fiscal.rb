@@ -12,8 +12,15 @@ module Marketplace
     # que o detalhe do Tiny: item com CFOP, NCM e CSOSN, desconto discriminado,
     # regime tributário do emitente, e o caminho do XML.
     #
-    # Nada do comprador é copiado. Nome, CPF e endereço vêm na mesma resposta e
-    # não têm por que entrar na nossa nota.
+    # Do comprador, guarda o que a operação EXIGE e nada além: nome e documento.
+    #
+    # Eu tinha recusado copiar qualquer dado de pessoa, e isso quebrou o envio
+    # ao OMIE de 15 notas — ele precisa do cliente para criar o título a
+    # receber, e a importação do Tiny já guardava esses dois campos. Recusar
+    # deixou o dado ausente só para as notas do Mercado Livre, sem proteger
+    # ninguém: o CPF é elemento da própria NF-e.
+    #
+    # Endereço, telefone e e-mail continuam fora — esses a operação não pede.
     class NotaFiscal
       LOTE_PADRAO = 40
 
@@ -156,9 +163,18 @@ module Marketplace
       def metadata_de(dados)
         itens = Array(dados["items"])
 
+        comprador = dados["recipient"] || {}
+
+        documento = comprador.dig("identifications", "cpf").presence ||
+                    comprador.dig("identifications", "cnpj").presence
+
         {
           # De onde veio, para ninguém confundir depois com nota do ERP.
           "origem" => "mercado_livre",
+          # Os dois campos que o título no OMIE exige, com os mesmos nomes que a
+          # importação do Tiny usa — senão o mapper não os encontraria.
+          "comprador_nome" => comprador["name"].to_s.strip.presence,
+          "comprador_documento" => documento,
           # O canal é o próprio Mercado Livre: quem emitiu foi ele.
           "intermediador" => { "nome" => "Mercado Livre", "cnpj" => nil },
           "fiscal" => {

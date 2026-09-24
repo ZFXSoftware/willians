@@ -797,9 +797,22 @@ module Conciliacao
 
       resto = recusadas.size > 3 ? " e outras #{recusadas.size - 3}" : ""
 
-      "#{recusadas.size} venda(s) ficaram de fora: a nota fiscal delas foi emitida sem " \
-      "valor e não vira título (NF #{numeros}#{resto}). A diferença apontada é dinheiro " \
-      "que entrou sem documento fiscal correspondente."
+      # O MOTIVO vem do que foi gravado na recusa, e não de um chute.
+      #
+      # A frase dizia "emitida sem valor" para qualquer recusa. Quando as notas
+      # do Mercado Livre entraram sem o comprador, ela seguiu afirmando falta de
+      # valor — mandando alguém procurar no Tiny um defeito que estava aqui.
+      motivos = recusadas.filter_map { |nota| nota.metadata.to_h.dig("omie_recusa", "motivo") }
+                         .tally
+                         .sort_by { |_, quantas| -quantas }
+                         .map { |motivo, quantas| "#{quantas} por #{motivo.to_s.tr('_', ' ')}" }
+                         .join(", ")
+
+      porque = motivos.presence || "motivo não registrado"
+
+      "#{recusadas.size} venda(s) ficaram de fora: a nota fiscal delas não vira título " \
+      "(#{porque} — NF #{numeros}#{resto}). A diferença apontada é dinheiro que entrou sem " \
+      "documento fiscal correspondente."
     end
 
     def registro_row(payout, resultado)
