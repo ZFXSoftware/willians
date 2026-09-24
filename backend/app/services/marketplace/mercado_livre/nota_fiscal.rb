@@ -1,0 +1,205 @@
+module Marketplace
+  module MercadoLivre
+    # Traz para o nosso banco a nota fiscal que o MERCADO LIVRE emitiu.
+    #
+    # Descoberto em 2026-09-24: parte das notas do cliente não sai pelo Tiny.
+    # O PDF do portal da SEFAZ mostrou `verProc: mercadolivre.invoice` na NF
+    # 41750 — o Mercado Livre emite pelo vendedor, com o CNPJ dele, gravando na
+    # MESMA série 2 do Tiny. Daí a numeração alternada, e daí o Tiny não
+    # conhecer 232 notas que existem e estão autorizadas.
+    #
+    # A resposta de `/users/{vendedor}/invoices/orders/{pedido}` traz mais do
+    # que o detalhe do Tiny: item com CFOP, NCM e CSOSN, desconto discriminado,
+    # regime tributário do emitente, e o caminho do XML.
+    #
+    # Nada do comprador é copiado. Nome, CPF e endereço vêm na mesma resposta e
+    # não têm por que entrar na nossa nota.
+    class NotaFiscal
+      LOTE_PADRAO = 40
+
+      PAUSA_PADRAO = 0.4
+
+      def initialize(tenant:, platform_account:, client: nil, limite: LOTE_PADRAO,
+                     pausa: PAUSA_PADRAO, dry_run: true)
+        @tenant = tenant
+
+        @platform_account = platform_account
+
+        @client = client
+
+        @limite = limite
+
+        @pausa = pausa
+
+        @dry_run = dry_run
+      end
+
+      def call
+        resumo = Hash.new(0)
+
+        resumo[:exemplos] = []
+
+        pendentes.limit(limite).each do |unidade|
+          sleep(pausa) if pausa.to_f.positive?
+
+          processar(unidade, resumo)
+        rescue StandardError => e
+          resumo[:falhas] += 1
+
+          Rails.logger.warn "[NotaFiscalML] #{unidade.order&.external_id}: #{e.class} #{e.message}"
+        end
+
+        resumo
+      end
+
+      # Vendas sem nota cujo pedido o marketplace já disse ter nota.
+      #
+      # A marca `nota_do_envio` guarda a resposta anterior: onde ela é um Hash,
+      # o Mercado Livre afirmou que existe nota para aquele envio. É exatamente
+      # a população que o Tiny não tem.
+      def pendentes
+        ReceivableUnit
+          .where(tenant_id: tenant.id, platform_account_id: platform_account.id, invoice_id: nil)
+          .joins(:order)
+          .where("jsonb_typeof(orders.metadata->'nota_do_envio') = 'object'")
+          .includes(:order)
+          .order(expected_on: :desc)
+      end
+
+      private
+
+      attr_reader :tenant, :platform_account, :limite, :pausa, :dry_run
+
+      def client
+        @client ||= OrdersClient.new(
+          access_token: Credentials::TokenProvider.new(platform_account: platform_account).access_token,
+          seller_id: platform_account.external_id
+        )
+      end
+
+      def processar(unidade, resumo)
+        pedido = unidade.order
+
+        dados = buscar(pedido.external_id)
+
+        return resumo[:sem_resposta] += 1 if dados.blank?
+
+        chave = dados.dig("attributes", "invoice_key").to_s.gsub(/\D/, "")
+
+        return resumo[:sem_chave] += 1 if chave.length != 44
+
+        # Já temos? Pela CHAVE, que é identidade, e não pelo número.
+        existente = Invoice.where(tenant_id: tenant.id)
+                           .where("regexp_replace(COALESCE(access_key,''), '\\D', '', 'g') = ?", chave)
+                           .first
+
+        if existente
+          resumo[:ja_tinhamos] += 1
+
+          ligar!(unidade, existente) unless dry_run
+
+          return
+        end
+
+        resumo[cancelada?(dados) ? :cancelada : :criada] += 1
+
+        if resumo[:exemplos].size < 5
+          resumo[:exemplos] << "NF #{dados['invoice_number']}/#{dados['invoice_series']} " \
+                               "R$ #{dados['amount']}#{' (CANCELADA)' if cancelada?(dados)}"
+        end
+
+        return if dry_run
+
+        nota = criar!(dados, pedido, chave)
+
+        # Nota cancelada não é a nota da venda: criar é certo, para o histórico
+        # existir, mas ligar faria a conciliação esperar um título que não vem.
+        ligar!(unidade, nota) unless cancelada?(dados)
+      end
+
+      def buscar(externo)
+        status, corpo, = client.resposta_crua(
+          "/users/#{platform_account.external_id}/invoices/orders/#{externo}"
+        )
+
+        return if status != 200
+
+        JSON.parse(corpo)
+      rescue JSON::ParserError
+        nil
+      end
+
+      def cancelada?(dados)
+        dados["status"].to_s == "canceled" || dados.dig("attributes", "cancellation_date").present?
+      end
+
+      def criar!(dados, pedido, chave)
+        Invoice.create!(
+          tenant_id: tenant.id,
+          order_id: pedido.id,
+          # `ML-` no identificador para nunca colidir com o id do Tiny.
+          external_id: "ML-#{dados['id']}",
+          number: dados["invoice_number"].to_s,
+          series: dados["invoice_series"].to_s,
+          access_key: chave,
+          # `amount` é o total da nota, já com o desconto abatido — o mesmo que
+          # o `valor_nota` do Tiny e o que vira título no OMIE. `items_amount` é
+          # o bruto, e guardamos os dois no bloco fiscal.
+          total_amount: dados["amount"],
+          issued_at: dados["issued_date"] || dados.dig("attributes", "invoice_creation_date"),
+          status: cancelada?(dados) ? :cancelled : :issued,
+          operation_type: :sale,
+          metadata: metadata_de(dados)
+        )
+      end
+
+      def metadata_de(dados)
+        itens = Array(dados["items"])
+
+        {
+          # De onde veio, para ninguém confundir depois com nota do ERP.
+          "origem" => "mercado_livre",
+          # O canal é o próprio Mercado Livre: quem emitiu foi ele.
+          "intermediador" => { "nome" => "Mercado Livre", "cnpj" => nil },
+          "fiscal" => {
+            "regime_tributario" => dados.dig("issuer", "identifications", "crt"),
+            "valor_produtos" => dados["items_amount"].to_s,
+            "valor_nota" => dados["amount"].to_s,
+            "valor_desconto" => desconto_de(itens).to_s,
+            "cfops" => atributos(itens, "cfop"),
+            "ncms" => atributos(itens, "ncm"),
+            "csosns" => atributos(itens, "csosn")
+          },
+          "mercado_livre" => {
+            "invoice_id" => dados["id"],
+            # `internal` é nota que o ML emitiu; o outro valor é nota que o
+            # vendedor subiu. A distinção diz de quem é a responsabilidade.
+            "invoice_source" => dados.dig("attributes", "invoice_source"),
+            "protocolo" => dados.dig("attributes", "protocol"),
+            "autorizada_em" => dados.dig("attributes", "authorization_date"),
+            "cancelada_em" => dados.dig("attributes", "cancellation_date"),
+            # O caminho do XML, para buscar o documento quando precisar.
+            "xml_location" => dados.dig("attributes", "xml_location"),
+            # A nota que esta substitui, quando há cadeia de cancelamento.
+            "substitui" => Array(dados.dig("attributes", "reference_invoices"))
+                             .filter_map { |r| r["invoice_key"] }
+          }.compact
+        }
+      end
+
+      def desconto_de(itens)
+        itens.sum(BigDecimal("0")) do |item|
+          item.dig("discount_amount", "unconditional").to_d
+        end
+      end
+
+      def atributos(itens, chave)
+        itens.filter_map { |item| item.dig("fiscal_data", "attributes", chave).presence }.uniq
+      end
+
+      def ligar!(unidade, nota)
+        unidade.update!(invoice_id: nota.id) if unidade.invoice_id.blank?
+      end
+    end
+  end
+end
