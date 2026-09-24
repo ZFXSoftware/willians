@@ -89,9 +89,9 @@ namespace :ml do
 
     mes_da_nota = if emitida
                     [ emitida.beginning_of_month.strftime("%Y%m%d"), emitida.end_of_month.strftime("%Y%m%d") ]
-                  else
+    else
                     [ Date.current.strftime("%Y%m01"), Date.current.strftime("%Y%m%d") ]
-                  end
+    end
 
     candidatos = [
       [ "por pedido", "/users/#{vendedor}/invoices/orders/#{externo}" ],
