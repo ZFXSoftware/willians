@@ -127,9 +127,33 @@ module Marketplace
       assert_nil @unidade.reload.invoice_id
     end
 
-    # A chave é identidade: a mesma nota importada do Tiny não vira duplicata.
-    test "nota que já temos pela chave não é criada de novo" do
+    # Venda cuja nota JÁ está no nosso banco não gasta chamada de API.
+    #
+    # Numa leva de 40 em produção, 27 eram assim: o marketplace era consultado
+    # para descobrir o que um SELECT responde. Ligar essas é trabalho do
+    # `ReligarPeloEnvio`, que roda no ciclo e não fala com ninguém.
+    test "nota que já temos não entra na fila nem vira duplicata" do
       nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "42289", valor: 180.65)
+
+      nota.update!(access_key: CHAVE)
+
+      client = MlFalso.new(resposta)
+
+      servico = MercadoLivre::NotaFiscal.new(
+        tenant: @tenant, platform_account: @conta, client: client, pausa: 0, dry_run: false
+      )
+
+      assert_equal 0, servico.quantas_faltam, "a venda continuou na fila com a nota já no banco"
+
+      servico.call
+
+      assert_equal 1, Invoice.where(tenant_id: @tenant.id).count
+    end
+
+    # E a chave continua sendo a identidade quando a venda CHEGA a ser
+    # processada: número diferente, mesma chave, não duplica.
+    test "mesma chave com número diferente não vira duplicata" do
+      nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "99999", valor: 180.65)
 
       nota.update!(access_key: CHAVE)
 

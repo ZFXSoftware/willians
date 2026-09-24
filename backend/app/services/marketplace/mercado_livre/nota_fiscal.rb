@@ -119,6 +119,19 @@ module Marketplace
           .where(tenant_id: tenant.id, platform_account_id: platform_account.id, invoice_id: nil)
           .joins(:order)
           .where("jsonb_typeof(orders.metadata->'nota_do_envio') = 'object'")
+          # A nota que JÁ está no nosso banco não precisa de chamada de API.
+          #
+          # Numa leva de 40, vinte e sete eram notas que já tínhamos: o
+          # marketplace foi consultado para descobrir o que um `SELECT`
+          # responde. Ligar essas é trabalho do `ReligarPeloEnvio`, que roda no
+          # ciclo e não fala com ninguém.
+          #
+          # O número está guardado na própria marca, e é por ele que se verifica.
+          .where(
+            "NOT EXISTS (SELECT 1 FROM invoices i WHERE i.tenant_id = receivable_units.tenant_id " \
+            "AND regexp_replace(COALESCE(i.number,''), '\\A0+', '') = " \
+            "regexp_replace(COALESCE(orders.metadata->'nota_do_envio'->>'numero',''), '\\A0+', ''))"
+          )
           .includes(:order)
           .order(expected_on: :desc)
       end
