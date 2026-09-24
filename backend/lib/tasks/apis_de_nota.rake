@@ -24,22 +24,47 @@ namespace :ml do
 
     abort "Nenhuma conta ativa do Mercado Livre." if conta.blank?
 
-    externo = ENV["PEDIDO"].to_s.strip
+    # VÁRIOS pedidos, não um.
+    #
+    # Um 404 num pedido específico pode ser daquele pedido — o Mercado Livre não
+    # emitiu nota para ele — e não do endpoint. Concluir "o caminho não existe" de
+    # um caso é o erro que eu repeti três vezes nesta investigação.
+    #
+    # E só pedidos cuja nota NÃO está no nosso banco: é sobre essas que a
+    # pergunta é.
+    quantos = (ENV["QUANTOS"] || 3).to_i
 
-    if externo.blank?
-      # Uma das que faltam, sorteada: é sobre elas que a pergunta é.
-      pedido = Order
-                 .where(tenant_id: tenant.id)
-                 .where("jsonb_typeof(orders.metadata->'nota_do_envio') = 'object'")
-                 .order(Arel.sql("RANDOM()"))
-                 .first
+    pedidos =
+      if ENV["PEDIDO"].present?
+        Order.where(tenant_id: tenant.id, external_id: ENV["PEDIDO"].to_s.strip).to_a
+      else
+        Order
+          .where(tenant_id: tenant.id)
+          .where("jsonb_typeof(orders.metadata->'nota_do_envio') = 'object'")
+          .order(Arel.sql("RANDOM()"))
+          .limit(quantos * 4)
+          .to_a
+          .reject do |pedido|
+            numero = pedido.metadata.dig("nota_do_envio", "numero").to_s.sub(/\A0+/, "")
 
-      abort "Nenhum pedido com nota do marketplace guardada." if pedido.blank?
+            numero.blank? || Invoice.where(tenant_id: tenant.id)
+                                    .where("regexp_replace(COALESCE(number,''), '\\A0+', '') = ?", numero)
+                                    .exists?
+          end
+          .first(quantos)
+      end
 
-      externo = pedido.external_id
-    else
-      pedido = Order.find_by(tenant_id: tenant.id, external_id: externo)
-    end
+    abort "Nenhum pedido com nota do marketplace ausente do nosso banco." if pedidos.none?
+
+    client = Marketplace::MercadoLivre::OrdersClient.new(
+      access_token: Marketplace::Credentials::TokenProvider.new(platform_account: conta).access_token,
+      seller_id: conta.external_id
+    )
+
+    vendedor = conta.external_id
+
+    pedidos.each do |pedido|
+    externo = pedido.external_id
 
     dados = pedido&.metadata&.dig("nota_do_envio") || {}
 
@@ -48,11 +73,6 @@ namespace :ml do
     puts "  chave: ...#{dados['chave'].to_s.last(8)}"
     puts
 
-    client = Marketplace::MercadoLivre::OrdersClient.new(
-      access_token: Marketplace::Credentials::TokenProvider.new(platform_account: conta).access_token,
-      seller_id: conta.external_id
-    )
-
     envio = client.bruto("/orders/#{externo}").dig("shipping", "id")
 
     pacote = client.bruto("/orders/#{externo}")["pack_id"]
@@ -60,16 +80,30 @@ namespace :ml do
     puts "  envio: #{envio.inspect} · pacote: #{pacote.inspect}"
     puts
 
-    vendedor = conta.external_id
+    # O mês da nota, pela chave (AAMM) e com a data como reserva.
+    emitida = begin
+      Date.parse(dados["data"].to_s)
+    rescue StandardError
+      nil
+    end
+
+    mes_da_nota = if emitida
+                    [ emitida.beginning_of_month.strftime("%Y%m%d"), emitida.end_of_month.strftime("%Y%m%d") ]
+                  else
+                    [ Date.current.strftime("%Y%m01"), Date.current.strftime("%Y%m%d") ]
+                  end
 
     candidatos = [
       [ "por pedido", "/users/#{vendedor}/invoices/orders/#{externo}" ],
       [ "por envio", "/users/#{vendedor}/invoices/shipments/#{envio}" ],
       [ "documentos do pacote", "/packs/#{pacote || externo}/fiscal_documents" ],
       [ "dados do envio (o que já usamos)", "/shipments/#{envio}/invoice_data?siteId=MLB" ],
-      [ "lote por período", "/users/#{vendedor}/invoices/sites/MLB/batch_request/period/stream" \
-                            "?start=#{Date.current.strftime('%Y%m01')}&end=#{Date.current.strftime('%Y%m%d')}" \
-                            "&sale=all&file_types=xml" ]
+      # O período do LOTE é o mês DESTA nota, não o mês corrente: as que
+      # interessam são de julho, e pedir setembro devolveria vazio — e vazio aqui
+      # eu leria como "o endpoint não serve".
+      [ "lote no mês da nota", "/users/#{vendedor}/invoices/sites/MLB/batch_request/period/stream" \
+                               "?start=#{mes_da_nota.first}&end=#{mes_da_nota.last}" \
+                               "&sale=all&file_types=xml" ]
     ]
 
     candidatos.each do |rotulo, caminho|
@@ -94,7 +128,9 @@ namespace :ml do
       puts format("  %-34s %s: %s", rotulo, e.class, e.message.to_s.truncate(120))
     end
 
-    puts
+      puts
+    end
+
     puts "Como ler:"
     puts "  HTTP 200 com É NF-e  -> dá para trazer o XML dessas notas."
     puts "  403 / forbidden      -> falta escopo no app; é permissão, não ausência."
