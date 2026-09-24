@@ -1,5 +1,21 @@
 import { api, gatewayApi } from "./client"
 
+// A diferença de um repasse, decomposta em NÚMERO.
+//
+// A observação diz o mesmo em prosa e a tela a corta. Quem olha a lista quer
+// decidir "eu ajo nisso?", e isso se responde com duas colunas: quanto da
+// diferença é nota faltando (providência: trazer a nota) e quanto sobra sem
+// explicação (providência: alguém olhar).
+export interface DecomposicaoDaDiferenca {
+  sem_nota: string
+  vendas_sem_nota: number
+  sem_titulo: string
+  notas_sem_titulo: number
+  ajustes: string
+  notas_rateadas: number
+  residuo: string
+}
+
 export interface Registro {
   id: number
   status: string
@@ -19,6 +35,8 @@ export interface Registro {
   // repasse junta uma centena de vendas.
   vendas: number | null
   pago_em: string | null
+  // Vem nula enquanto o repasse não foi comparado com o OMIE.
+  decomposicao: DecomposicaoDaDiferenca | null
 }
 
 export interface Meta {

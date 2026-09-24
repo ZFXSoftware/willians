@@ -63,7 +63,14 @@ module Conciliacoes
         # venda, junta uma centena delas num bloco só. Sem este número, as
         # duas leituras são indistinguíveis.
         vendas: registro.payout_batch&.financial_entry_allocations&.size,
-        pago_em: registro.payout_batch&.paid_at
+        pago_em: registro.payout_batch&.paid_at,
+        # A decomposição em NÚMERO.
+        #
+        # A observação diz a mesma coisa em prosa, e a tela a corta. Quem olha a
+        # lista quer decidir "eu ajo nisso?", e isso se responde com duas
+        # colunas: quanto da diferença é nota faltando, e quanto sobra sem
+        # explicação. Só a segunda pede alguém.
+        decomposicao: metadata["decomposicao"].presence
       }
     end
 

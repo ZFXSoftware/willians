@@ -715,6 +715,24 @@ module Conciliacao
       residuo(cobertura, resultado).abs <= TOLERANCIA_DE_ARREDONDAMENTO
     end
 
+    # Os números da decomposição, para a tela mostrar coluna em vez de prosa.
+    def decomposicao_em_numeros(payout, resultado)
+      cobertura = @coberturas[payout.id]
+
+      return {} if cobertura.blank? || resultado.valor_omie.blank?
+
+      {
+        sem_nota: cobertura[:valor_sem_nota].to_d.to_s,
+        vendas_sem_nota: cobertura[:sem_nota].to_i,
+        sem_titulo: cobertura[:valor_sem_titulo].to_d.to_s,
+        notas_sem_titulo: cobertura[:sem_titulo].to_i,
+        ajustes: cobertura[:valor_ajustes].to_d.to_s,
+        notas_rateadas: cobertura[:divididas].to_i,
+        # O único número que fala sobre dinheiro que ninguém sabe explicar.
+        residuo: residuo(cobertura, resultado).to_s
+      }
+    end
+
     def decomposicao(cobertura, resultado)
       sem_nota = cobertura[:valor_sem_nota].to_d
 
@@ -818,7 +836,14 @@ module Conciliacao
           valor_liquido_repasse: payout.net_amount&.to_s,
           taxa_repasse: payout.fee_amount&.to_s,
           referencias: referencias_for(payout),
-          base_comparacao: "bruto"
+          base_comparacao: "bruto",
+          # A decomposição como NÚMERO, e não só dentro da frase.
+          #
+          # Ela existia apenas na observação — um parágrafo de quatro linhas que
+          # a tela corta em 240 caracteres. Quem precisa decidir "eu ajo nisso?"
+          # quer duas colunas: quanto falta de nota, e quanto sobra sem
+          # explicação. Mesmo defeito de antes: o dado existia e ninguém via.
+          decomposicao: decomposicao_em_numeros(payout, resultado)
         },
 
         conciliated_at: now,

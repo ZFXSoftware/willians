@@ -389,6 +389,16 @@ export default function ReconciliationDashboard() {
                     <th className="text-right font-medium px-4 py-3">Esperado (OMIE)</th>
                     <th className="text-right font-medium px-4 py-3">Recebido</th>
                     <th className="text-right font-medium px-4 py-3">Diferença</th>
+                    {/* As duas colunas que respondem "eu ajo nisso?".
+                        A primeira é documento faltando — providência: trazer a
+                        nota. A segunda é dinheiro que ninguém sabe explicar, e
+                        é a única que pede alguém olhar. */}
+                    <th className="text-right font-medium px-4 py-3" title="Quanto da diferença é venda sem nota fiscal ou nota sem título no OMIE">
+                      Falta de nota
+                    </th>
+                    <th className="text-right font-medium px-4 py-3" title="O que sobra depois de descontar tudo o que tem explicação">
+                      Sem explicação
+                    </th>
                     <th className="text-left font-medium px-4 py-3">Confiança</th>
                     <th className="text-left font-medium px-4 py-3">Data</th>
                   </tr>
@@ -464,6 +474,55 @@ export default function ReconciliationDashboard() {
                         >
                           {comparado ? brl(row.diferenca) : "—"}
                         </td>
+                        {(() => {
+                          const d = row.decomposicao
+
+                          // Sem comparação não há decomposição: um traço diz
+                          // isso melhor que um zero, que pareceria "está tudo
+                          // explicado".
+                          if (!d) {
+                            return (
+                              <>
+                                <td className="px-4 py-3 text-right text-zinc-600">—</td>
+                                <td className="px-4 py-3 text-right text-zinc-600">—</td>
+                              </>
+                            )
+                          }
+
+                          const faltaNota = Number(d.sem_nota) + Number(d.sem_titulo)
+                          const sobra = Number(d.residuo)
+
+                          return (
+                            <>
+                              <td
+                                className={`px-4 py-3 text-right ${faltaNota > 0 ? "text-amber-300" : "text-zinc-600"}`}
+                                title={
+                                  faltaNota > 0
+                                    ? `${d.vendas_sem_nota} venda(s) sem nota e ${d.notas_sem_titulo} nota(s) sem título no OMIE`
+                                    : undefined
+                                }
+                              >
+                                {faltaNota > 0 ? brl(String(faltaNota)) : "—"}
+                              </td>
+                              <td
+                                className={`px-4 py-3 text-right font-medium ${
+                                  sobra < -0.01
+                                    ? "text-red-400"
+                                    : sobra > 0.01
+                                      ? "text-red-400"
+                                      : "text-emerald-400"
+                                }`}
+                                title={
+                                  sobra < -0.01
+                                    ? "Negativo significa que a decomposição descontou mais que a diferença: duas parcelas contando o mesmo dinheiro. É defeito do cálculo, não do seu dinheiro."
+                                    : undefined
+                                }
+                              >
+                                {brl(String(sobra))}
+                              </td>
+                            </>
+                          )
+                        })()}
                         <td className="px-4 py-3 text-zinc-400">
                           {Number(row.confianca).toFixed(0)}%
                         </td>
@@ -481,7 +540,7 @@ export default function ReconciliationDashboard() {
                       {row.observacao && (
                         <tr className="border-t border-zinc-900">
                           <td />
-                          <td colSpan={7} className="px-4 pb-3 text-xs text-zinc-400 leading-relaxed">
+                          <td colSpan={9} className="px-4 pb-3 text-xs text-zinc-400 leading-relaxed">
                             {row.observacao}
                           </td>
                         </tr>
@@ -489,7 +548,7 @@ export default function ReconciliationDashboard() {
 
                       {aberto === row.payout_batch_id && row.payout_batch_id && (
                         <tr className="bg-zinc-950/60">
-                          <td colSpan={8} className="px-4 py-4">
+                          <td colSpan={10} className="px-4 py-4">
                             <VendasDoRepasseTabela repasseId={row.payout_batch_id} row={row} />
                           </td>
                         </tr>
