@@ -41,6 +41,56 @@ module Marketplace
         @dry_run = dry_run
       end
 
+      # Completa o comprador nas notas que JÁ importamos.
+      #
+      # As primeiras entraram sem `comprador_nome` e `comprador_documento`,
+      # porque eu recusei copiar dado de pessoa — e o OMIE precisa do cliente
+      # para criar o título. Reimportar não as alcança: `pendentes` filtra venda
+      # SEM nota, e essas já estão ligadas.
+      #
+      # A recusa se libera sozinha depois: `assinatura_de_envio` inclui o
+      # documento, então mudá-lo devolve a nota à fila de envio.
+      def completar_compradores
+        resumo = Hash.new(0)
+
+        incompletas.limit(limite).each do |nota|
+          sleep(pausa) if pausa.to_f.positive?
+
+          pedido = nota.order
+
+          next resumo[:sem_pedido] += 1 if pedido.blank?
+
+          dados = buscar(pedido.external_id)
+
+          next resumo[:sem_resposta] += 1 if dados.blank?
+
+          comprador = comprador_de(dados)
+
+          next resumo[:sem_comprador_no_ml] += 1 if comprador["comprador_documento"].blank?
+
+          resumo[:completadas] += 1
+
+          next if dry_run
+
+          nota.update!(metadata: nota.metadata.to_h.merge(comprador))
+        rescue StandardError => e
+          resumo[:falhas] += 1
+
+          Rails.logger.warn "[NotaFiscalML] completar NF #{nota.number}: #{e.class} #{e.message}"
+        end
+
+        resumo
+      end
+
+      # Nota que veio do Mercado Livre e está sem o comprador que o título exige.
+      def incompletas
+        Invoice
+          .where(tenant_id: tenant.id)
+          .where("invoices.metadata->>'origem' = ?", "mercado_livre")
+          .where("invoices.metadata->>'comprador_documento' IS NULL")
+          .includes(:order)
+      end
+
       def call
         resumo = Hash.new(0)
 
@@ -72,6 +122,9 @@ module Marketplace
           .includes(:order)
           .order(expected_on: :desc)
       end
+
+      # Quantas ainda faltam, para quem roda saber quando parar.
+      def quantas_faltam = pendentes.count
 
       private
 
@@ -163,18 +216,12 @@ module Marketplace
       def metadata_de(dados)
         itens = Array(dados["items"])
 
-        comprador = dados["recipient"] || {}
-
-        documento = comprador.dig("identifications", "cpf").presence ||
-                    comprador.dig("identifications", "cnpj").presence
-
         {
           # De onde veio, para ninguém confundir depois com nota do ERP.
           "origem" => "mercado_livre",
           # Os dois campos que o título no OMIE exige, com os mesmos nomes que a
           # importação do Tiny usa — senão o mapper não os encontraria.
-          "comprador_nome" => comprador["name"].to_s.strip.presence,
-          "comprador_documento" => documento,
+          **comprador_de(dados),
           # O canal é o próprio Mercado Livre: quem emitiu foi ele.
           "intermediador" => { "nome" => "Mercado Livre", "cnpj" => nil },
           "fiscal" => {
@@ -200,6 +247,18 @@ module Marketplace
             "substitui" => Array(dados.dig("attributes", "reference_invoices"))
                              .filter_map { |r| r["invoice_key"] }
           }.compact
+        }
+      end
+
+      # Só nome e documento: é o que o título exige. Endereço e telefone vêm na
+      # mesma resposta e ficam de fora.
+      def comprador_de(dados)
+        comprador = dados["recipient"] || {}
+
+        {
+          "comprador_nome" => comprador["name"].to_s.strip.presence,
+          "comprador_documento" => comprador.dig("identifications", "cpf").presence ||
+                                   comprador.dig("identifications", "cnpj").presence
         }
       end
 
