@@ -55,6 +55,22 @@ module Fiscal
           rescue StandardError => e
             resumo[:falhas] += 1
 
+            # Recusa DEFINITIVA sai da fila; recusa temporária não.
+            #
+            # "Nota Fiscal não localizada" não muda de resposta: a nota não está
+            # no Tiny sob o id que guardamos, e reperguntar a cada cinco minutos
+            # é cota jogada fora — o mesmo desperdício das notas recusadas pelo
+            # OMIE, que já corrigimos uma vez.
+            #
+            # "API Bloqueada" é o oposto: é excesso de acesso, e a resposta muda
+            # sozinha em minutos. Marcar essa como definitiva perderia a nota
+            # para sempre por um erro que ia passar.
+            if definitiva?(e)
+              marcar_recusa!(nota, e.message)
+
+              resumo[:recusadas] = resumo[:recusadas].to_i + 1
+            end
+
             Rails.logger.warn "[DetalheDaNota] NF #{nota.number}: #{e.class} #{e.message}"
           end
         end
@@ -70,6 +86,22 @@ module Fiscal
       # sei" fica com o hash presente e o nome nulo. Sem essa distinção ela
       # seria reperguntada a cada volta, para sempre — o mesmo defeito das
       # notas recusadas no envio ao OMIE.
+      # O Tiny não muda de resposta para estas.
+      NAO_LOCALIZADA = /não localizada|nao localizada|not found/i
+
+      def definitiva?(erro)
+        erro.is_a?(V2Client::ApiError) && erro.message.to_s.match?(NAO_LOCALIZADA)
+      end
+
+      # Fica no metadata, visível, em vez de a nota sumir da fila sem rastro.
+      def marcar_recusa!(nota, mensagem)
+        nota.update!(metadata: (nota.metadata || {}).merge(
+          "tiny_recusa" => { "em" => Time.current, "motivo" => mensagem.to_s.truncate(200) }
+        ))
+      rescue StandardError => e
+        Rails.logger.error "[DetalheDaNota] não consegui marcar a recusa da NF #{nota.number}: #{e.message}"
+      end
+
       def pendentes
         Invoice
           .where(tenant_id: tenant.id)
@@ -82,6 +114,8 @@ module Fiscal
           # terminal aberto, e é a mesma travessia que o intermediador já fez.
           .where("invoices.metadata->'intermediador' IS NULL " \
                  "OR invoices.metadata->'fiscal' IS NULL")
+          # A que o Tiny já disse que não conhece fica fora da fila.
+          .where("invoices.metadata->'tiny_recusa' IS NULL")
           .order(issued_at: :desc)
       end
 

@@ -96,7 +96,64 @@ module Fiscal
         assert registro.reload.metadata["fiscal"].present?
       end
 
-      test "grava o intermediador na nota" do
+    # "Nota Fiscal não localizada" não muda de resposta. Reperguntar a cada cinco
+    # minutos é cota do Tiny jogada fora — o mesmo desperdício das notas
+    # recusadas pelo OMIE, que já corrigimos uma vez nesta base.
+    test "nota que o Tiny diz não conhecer sai da fila" do
+      registro = nota("1")
+
+      client = Class.new do
+        attr_reader :chamadas
+
+        def initialize = @chamadas = []
+
+        def obter_nota(id)
+          @chamadas << id
+
+          raise Fiscal::Tiny::V2Client::ApiError,
+                "Tiny recusou nota.fiscal.obter.php: Nota Fiscal não localizada"
+        end
+      end.new
+
+      sincronizar(client)
+
+      assert registro.reload.metadata.to_h["tiny_recusa"].present?
+
+      sincronizar(client)
+
+      assert_equal 1, client.chamadas.size, "reperguntou uma nota que o Tiny já recusou"
+    end
+
+    # "API Bloqueada" é excesso de acesso: a resposta muda sozinha em minutos.
+    # Marcar como definitiva perderia a nota por um erro que ia passar.
+    test "bloqueio temporário do Tiny não tira a nota da fila" do
+      registro = nota("1")
+
+      client = Class.new do
+        attr_reader :chamadas
+
+        def initialize = @chamadas = []
+
+        def obter_nota(id)
+          @chamadas << id
+
+          raise Fiscal::Tiny::V2Client::ApiError,
+                "Tiny recusou nota.fiscal.obter.php: API Bloqueada - Excedido o número de acessos"
+        end
+      end.new
+
+      sincronizar(client)
+
+      # `to_h` porque a coluna aceita nulo: nota criada por outro caminho chega
+      # sem metadata nenhum, e é assim que o código de produção a trata.
+      assert_nil registro.reload.metadata.to_h["tiny_recusa"]
+
+      sincronizar(client)
+
+      assert_equal 2, client.chamadas.size, "devia ter tentado de novo"
+    end
+
+    test "grava o intermediador na nota" do
         nota("1")
 
         resumo = sincronizar(TinyFalso.new)
