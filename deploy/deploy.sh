@@ -18,7 +18,6 @@
 #   ./deploy/deploy.sh preparar             cria .env.production e gera segredos
 #   ./deploy/deploy.sh subir                constrói e sobe a stack nova
 #   ./deploy/deploy.sh migrar               backup + migrações do banco
-#   ./deploy/deploy.sh gems                 reinstala as gems no volume (erro de gem no boot)
 #   ./deploy/deploy.sh backup [rotulo]      só o backup, antes de algo destrutivo
 #   ./deploy/deploy.sh publicar DOMINIO     escreve o site (ainda desativado)
 #   ./deploy/deploy.sh trocar DOMINIO       desativa o antigo e ativa o novo
@@ -327,24 +326,6 @@ cmd_backup() {
   echo
   amarelo "   Restaurar sobrescreve o banco INTEIRO, inclusive o que veio depois"
   amarelo "   do backup. Confira a data do arquivo antes."
-}
-
-cmd_gems() {
-  exigir docker
-
-  # O volume `bundle_cache` monta em cima de /usr/local/bundle, então as gems
-  # que o `compose build` instala na imagem ficam MASCARADAS: quem vale é o
-  # volume. Um `bundle install` interrompido no meio deixa gems faltando lá, e
-  # nenhum outro comando daqui repara isso — `subir` reconstrói a imagem que o
-  # volume esconde. O sintoma é o Rails morrer no boot com
-  # "Could not find <gem> in locally installed gems".
-  #
-  # `--user root` porque o serviço roda como o usuário do host, que não escreve
-  # no volume das gems.
-  titulo "Instalando as gems no volume"
-  compose run --rm --user root backend bundle install
-
-  verde "   gems em dia"
 }
 
 cmd_migrar() {
@@ -743,6 +724,22 @@ cmd_status() {
   titulo "Containers"
   compose ps
 
+  # A stack de produção é o projeto `willians-prod`. Existe outra, `willians`,
+  # do formato antigo (bind mount do código, gems em volume, banco em
+  # `willians_db_data`) que ficou de pé — e `docker compose` SEM `-p` aponta
+  # para ela, porque o nome do projeto vem da pasta. O comando erra de stack sem
+  # avisar: o banco é outro, as gems são outras, e ela já está `unhealthy`.
+  # Isso custou uma investigação inteira de "gem faltando" que não existia.
+  if docker ps --format '{{.Names}}' | grep -qE '^willians-(backend|db|worker|frontend)-1$'; then
+    titulo "Stack antiga"
+    amarelo "   o projeto \`willians\` (formato antigo) está de pé junto com este."
+    amarelo "   \`docker compose\` sem -p vai nele, não aqui: outro banco, outras gems."
+    amarelo "   use SEMPRE ./deploy/deploy.sh rake TAREFA. Para aposentar a antiga:"
+    amarelo "     docker compose -p willians -f docker-compose.yml down"
+    amarelo "   (os volumes willians_db_data e willians_bundle_cache ficam; apague só"
+    amarelo "    depois de conferir que não há nada a salvar neles)"
+  fi
+
   titulo "Resposta local"
   if curl -fsS -o /dev/null -w '   HTTP %{http_code} em %{time_total}s\n' "http://127.0.0.1:$porta/" 2>/dev/null; then
     verde "   front respondendo"
@@ -784,6 +781,8 @@ cmd_rake() {
                 omie:settings | omie:enviar_notas | liberacoes:corrigir_status
                 repasses:corrigir_valores"
 
+  passo "no projeto $PROJETO ($COMPOSE_FILE)"
+
   compose exec -T backend bin/rails "$@"
 }
 
@@ -806,7 +805,6 @@ case "${1:-inspecionar}" in
   preparar)      cmd_preparar "${2:-}" ;;
   subir)         cmd_subir ;;
   migrar)        cmd_migrar ;;
-  gems)          cmd_gems ;;
   backup)        shift; cmd_backup "${1:-manual}" ;;
   publicar)      cmd_publicar "${2:-}" ;;
   trocar)        cmd_trocar "${2:-}" ;;
@@ -815,6 +813,6 @@ case "${1:-inspecionar}" in
   status)        cmd_status ;;
   *)
     erro "comando desconhecido: $1
-   use: inspecionar | preparar | subir | migrar | gems | backup [rotulo] | publicar DOMINIO | trocar DOMINIO | reverter | parar-antigo NOME | status | estado | rake TAREFA"
+   use: inspecionar | preparar | subir | migrar | backup [rotulo] | publicar DOMINIO | trocar DOMINIO | reverter | parar-antigo NOME | status | estado | rake TAREFA"
     ;;
 esac
