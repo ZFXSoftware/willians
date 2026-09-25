@@ -87,6 +87,37 @@ namespace :conciliacao do
       end
     end
 
+    # As COM chave deveriam estar ligadas: a nota existe e foi importada. Se
+    # continuam sem vínculo, alguma coisa as impede — e cada causa pede outra
+    # providência.
+    puts "Das que TÊM chave, por que ainda estão sem vínculo:"
+
+    causas = Hash.new(0)
+
+    lotes.each do |lote|
+      lote.financial_entry_allocations.filter_map(&:receivable_unit).uniq.each do |unidade|
+        next if unidade.invoice_id.present?
+
+        dados = unidade.order&.metadata&.dig("nota_do_envio")
+
+        next unless dados.is_a?(Hash) && dados["chave"].to_s.gsub(/\D/, "").length == 44
+
+        nota = Invoice.where(tenant_id: tenant.id)
+                      .where("regexp_replace(COALESCE(access_key,''), '\\D', '', 'g') = ?",
+                             dados["chave"].to_s.gsub(/\D/, ""))
+                      .first
+
+        causas[nota.nil? ? "a nota NÃO está no nosso banco" : "nota #{nota.status} no banco, sem vínculo"] += 1
+      end
+    end
+
+    causas.sort_by { |_, q| -q }.each { |causa, quantas| puts format("  %-40s %d", causa, quantas) }
+
+    puts
+    puts "  nota CANCELADA é deixada solta de propósito: ela não é a nota da venda,"
+    puts "  e o cliente precisa emitir outra. Nota `issued` sem vínculo é defeito nosso."
+    puts
+
     puts "Das que não têm chave:"
     puts format("  o marketplace disse que NÃO tem nota:   %d", sem_nota_no_ml)
     puts format("  ainda não foram perguntadas ao ciclo:   %d", sem_marca)
