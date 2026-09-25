@@ -108,6 +108,36 @@ namespace :fiscal do
     puts
     puts "  chaves de tributo na resposta: #{interessantes.size} de #{detalhe.to_h.size} no total"
     puts
+
+    # 3) O ITEM. `csosns` está em 0 de 6.206 notas do Tiny porque nós só
+    # capturamos CFOP e NCM de lá — e o CSOSN/CST mora no item, não no topo.
+    # Para este cliente não importa (o `valor_icms_st` carrega o sinal), mas
+    # para um cliente de Regime Normal o CST é o que qualifica a operação.
+    #
+    # Antes de capturar, medir o NOME do campo. Eu acabei de acrescentar `cst` ao
+    # importador do Mercado Livre por analogia, sem ver resposta real, e marquei
+    # como não verificado justamente por isso. Aqui dá para ver.
+    itens = Array(detalhe.to_h["itens"]).map { |item| item.is_a?(Hash) ? (item["item"] || item) : {} }
+
+    puts "3) O primeiro ITEM da nota — só os NOMES dos campos, e o valor dos fiscais:"
+
+    if itens.first.blank?
+      puts "  a resposta não traz itens."
+    else
+      primeiro = itens.first
+
+      puts format("  campos do item (%d): %s", primeiro.size, primeiro.keys.sort.join(", "))
+      puts
+
+      fiscais = primeiro.select { |chave, _| chave.to_s.match?(/cst|csosn|cfop|ncm|icms|ipi|origem|trib/i) }
+
+      if fiscais.any?
+        fiscais.sort.each { |chave, valor| puts format("    %-22s %s", chave, valor.inspect) }
+      else
+        puts "    NENHUM campo fiscal no item — o CST/CSOSN não vem por aqui."
+      end
+    end
+    puts
     puts "Como ler:"
     puts "  chave presente valendo 0  -> não há ST nessas vendas. O zero é medição."
     puts "  chave AUSENTE no banco    -> perdemos na gravação; a apuração está"
