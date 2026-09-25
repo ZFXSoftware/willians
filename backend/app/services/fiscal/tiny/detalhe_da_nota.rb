@@ -121,7 +121,7 @@ module Fiscal
           # que as outras condições deste método existem para evitar.
           .where("invoices.metadata->'intermediador' IS NULL " \
                  "OR invoices.metadata->'fiscal' IS NULL " \
-                 "OR (invoices.metadata->>'comprador_documento' IS NULL " \
+                 "OR (COALESCE(invoices.metadata->>'comprador_documento', '') = '' " \
                  "AND invoices.metadata->'omie_recusa'->>'motivo' = 'sem_comprador')")
           # A que o Tiny já disse que não conhece fica fora da fila.
           .where("invoices.metadata->'tiny_recusa' IS NULL")
@@ -176,6 +176,9 @@ module Fiscal
       #
       # Não sobrescreve o que já existe: o que veio na importação é o que valeu.
       def comprador_de(detalhe, nota)
+        # `present?` e não `nil?`: a importação grava string VAZIA quando a
+        # listagem do Tiny não traz o documento, e `compact` remove nulo mas não
+        # vazio. Foi o que fez a fila voltar zero na primeira tentativa.
         return {} if nota.metadata.to_h["comprador_documento"].present?
 
         cliente = detalhe["cliente"] || {}

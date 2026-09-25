@@ -98,6 +98,30 @@ module Fiscal
         assert_not_includes guardado, "11999999999"
       end
 
+      # Vazio não é "temos": a importação grava string vazia quando a listagem
+      # não traz o documento, e `compact` remove nulo mas não vazio. Com a
+      # condição olhando só NULL, a fila voltava zero e as 32 ficavam paradas.
+      test "documento vazio conta como ausente e volta para a fila" do
+        registro = nota("1")
+
+        registro.update!(metadata: {
+          "intermediador" => { "nome" => "Mercado Livre" },
+          "fiscal" => { "valor_nota" => "10.0" },
+          "comprador_documento" => "",
+          "comprador_nome" => "",
+          "omie_recusa" => { "motivo" => "sem_comprador" }
+        })
+
+        detalhe = {
+          "intermediador" => { "nome" => "Mercado Livre", "cnpj" => "10" },
+          "cliente" => { "nome" => "Alguém da Silva", "cpf_cnpj" => "123.456.789-00" }
+        }
+
+        sincronizar(TinyFalso.new("TINY-1" => detalhe))
+
+        assert_equal "123.456.789-00", registro.reload.metadata["comprador_documento"]
+      end
+
       # O que veio na importação é o que valeu: reler não sobrescreve.
       test "não sobrescreve o comprador que já temos" do
         registro = nota("1")
