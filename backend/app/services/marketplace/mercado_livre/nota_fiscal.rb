@@ -138,11 +138,26 @@ module Marketplace
           # responde. Ligar essas é trabalho do `ReligarPeloEnvio`, que roda no
           # ciclo e não fala com ninguém.
           #
-          # O número está guardado na própria marca, e é por ele que se verifica.
+          # Pela CHAVE primeiro, que é a identidade do documento; por número
+          # SÓ junto com a série.
+          #
+          # Comparar número sozinho deixou 10 vendas sem nota para sempre: o
+          # cliente emite nas séries 2 e 5, e o Mercado Livre grava na série 2
+          # intercalando com o Tiny. Bastava existir a nº N da série 5 para a
+          # nº N da série 2 ser considerada "já temos" e nunca ser buscada — uma
+          # nota diferente, de outro documento, com o mesmo número.
           .where(
             "NOT EXISTS (SELECT 1 FROM invoices i WHERE i.tenant_id = receivable_units.tenant_id " \
-            "AND regexp_replace(COALESCE(i.number,''), '\\A0+', '') = " \
-            "regexp_replace(COALESCE(orders.metadata->'nota_do_envio'->>'numero',''), '\\A0+', ''))"
+            "AND (" \
+            "  (length(regexp_replace(COALESCE(i.access_key,''), '\\D', '', 'g')) = 44 " \
+            "   AND regexp_replace(COALESCE(i.access_key,''), '\\D', '', 'g') = " \
+            "       regexp_replace(COALESCE(orders.metadata->'nota_do_envio'->>'chave',''), '\\D', '', 'g'))" \
+            "  OR (" \
+            "   regexp_replace(COALESCE(i.number,''), '\\A0+', '') = " \
+            "   regexp_replace(COALESCE(orders.metadata->'nota_do_envio'->>'numero',''), '\\A0+', '') " \
+            "   AND regexp_replace(COALESCE(i.series,''), '\\A0+', '') = " \
+            "       regexp_replace(COALESCE(orders.metadata->'nota_do_envio'->>'serie',''), '\\A0+', ''))" \
+            "))"
           )
           .includes(:order)
           .order(expected_on: :desc)

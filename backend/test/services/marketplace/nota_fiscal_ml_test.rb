@@ -135,7 +135,10 @@ module Marketplace
     test "nota que já temos não entra na fila nem vira duplicata" do
       nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "42289", valor: 180.65)
 
-      nota.update!(access_key: CHAVE)
+      # A SÉRIE junto, porque `criar_nota` fixa "1" e o envio desta venda é da
+      # série 2. Sem isso o teste passava por comparar só o número — a mesma
+      # frouxidão que estava na consulta.
+      nota.update!(access_key: CHAVE, series: "2")
 
       client = MlFalso.new(resposta)
 
@@ -162,6 +165,46 @@ module Marketplace
       assert_equal 1, resumo[:ja_tinhamos]
       assert_equal 1, Invoice.where(tenant_id: @tenant.id).count
       assert_equal nota.id, @unidade.reload.invoice_id
+    end
+
+    # Mesmo número em série DIFERENTE é outro documento.
+    #
+    # Dez vendas ficaram sem nota para sempre por causa disto: o cliente emite
+    # nas séries 2 e 5, o Mercado Livre grava na 2 intercalando com o Tiny, e a
+    # consulta comparava só o número. Bastava existir a nº N da série 5 para a
+    # nº N da série 2 ser tratada como "já temos" e nunca ser buscada.
+    test "mesmo número em série diferente continua na fila" do
+      nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "42289", valor: 180.65)
+
+      nota.update!(series: "5")
+
+      servico = MercadoLivre::NotaFiscal.new(
+        tenant: @tenant, platform_account: @conta, client: MlFalso.new(resposta), pausa: 0, dry_run: false
+      )
+
+      assert_equal 1, servico.quantas_faltam,
+                   "a nº 42289 da série 5 escondeu a nº 42289 da série 2"
+
+      servico.call
+
+      assert_equal 2, Invoice.where(tenant_id: @tenant.id).count,
+                   "a nota da série 2 não foi criada"
+
+      assert_equal "2", @unidade.reload.invoice.series
+    end
+
+    # E a chave manda mesmo quando a série bate: ela é a identidade.
+    test "chave igual barra a fila mesmo sem a série no envio" do
+      @pedido.update!(metadata: { "nota_do_envio" => { "numero" => "42289", "chave" => CHAVE } })
+
+      criar_nota(tenant: @tenant, pedido: @pedido, numero: "99999", valor: 180.65)
+        .update!(access_key: CHAVE, series: "7")
+
+      servico = MercadoLivre::NotaFiscal.new(
+        tenant: @tenant, platform_account: @conta, client: MlFalso.new(resposta), pausa: 0, dry_run: false
+      )
+
+      assert_equal 0, servico.quantas_faltam, "a chave igual devia ter barrado a busca"
     end
 
     # Preencher o comprador não basta: o envio pula toda nota com recusa
