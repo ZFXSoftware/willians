@@ -62,27 +62,75 @@ module Fiscal
         assert_equal [ "6404.19.00" ], fiscal["ncms"]
       end
 
-      # Nome, CPF e endereço do comprador vêm na MESMA resposta. Não há por que
-      # copiá-los para dentro da nossa nota para responder uma pergunta fiscal.
-      test "não copia dado do comprador" do
+      # O título no OMIE é lançado contra o COMPRADOR, não contra o marketplace,
+      # e o `InvoiceSync` já guarda nome e documento em toda nota do Tiny. Não
+      # guardar aqui era a exceção — e deixou 32 notas recusadas para sempre.
+      test "guarda nome e documento do comprador, que o título exige" do
         registro = nota("1")
 
         detalhe = {
           "intermediador" => { "nome" => "Mercado Livre", "cnpj" => "10" },
-          "valor_desconto" => "6.00",
-          "cliente" => { "nome" => "Alguém", "cpf_cnpj" => "073.209.915-35" }
+          "cliente" => { "nome" => "Alguém da Silva", "cpf_cnpj" => "073.209.915-35",
+                         "endereco" => "Rua X", "fone" => "11999999999" }
+        }
+
+        sincronizar(TinyFalso.new("TINY-1" => detalhe))
+
+        assert_equal "073.209.915-35", registro.reload.metadata["comprador_documento"]
+        assert_equal "Alguém da Silva", registro.metadata["comprador_nome"]
+      end
+
+      # Endereço e telefone a operação não pede.
+      test "não copia endereço nem telefone do comprador" do
+        registro = nota("1")
+
+        detalhe = {
+          "intermediador" => { "nome" => "Mercado Livre", "cnpj" => "10" },
+          "cliente" => { "nome" => "Alguém", "cpf_cnpj" => "073.209.915-35",
+                         "endereco" => "Rua Secreta", "fone" => "11999999999" }
         }
 
         sincronizar(TinyFalso.new("TINY-1" => detalhe))
 
         guardado = registro.reload.metadata.to_json
 
-        assert_not_includes guardado, "073.209.915-35"
-        assert_not_includes guardado, "Alguém"
+        assert_not_includes guardado, "Rua Secreta"
+        assert_not_includes guardado, "11999999999"
       end
 
-      # As notas já lidas têm intermediador e não têm `fiscal`. Sem reperguntar,
-      # o dado fiscal valeria só para nota nova e a base histórica ficaria cega.
+      # O que veio na importação é o que valeu: reler não sobrescreve.
+      test "não sobrescreve o comprador que já temos" do
+        registro = nota("1")
+
+        registro.update!(metadata: { "comprador_documento" => "111", "comprador_nome" => "Original" })
+
+        detalhe = {
+          "intermediador" => { "nome" => "Mercado Livre", "cnpj" => "10" },
+          "cliente" => { "nome" => "Outro", "cpf_cnpj" => "222" }
+        }
+
+        sincronizar(TinyFalso.new("TINY-1" => detalhe))
+
+        assert_equal "111", registro.reload.metadata["comprador_documento"]
+      end
+
+      # Venda de balcão legitimamente não tem comprador. Reperguntar por ela a
+      # cada volta seria a fila infinita que as outras condições evitam.
+      test "nota sem comprador que o OMIE não recusou fica fora da fila" do
+        registro = nota("1")
+
+        registro.update!(metadata: {
+          "intermediador" => { "nome" => "Loja" },
+          "fiscal" => { "valor_nota" => "10.0" }
+        })
+
+        client = TinyFalso.new
+
+        sincronizar(client)
+
+        assert_empty client.chamadas
+      end
+
       test "nota já lida sem os valores fiscais volta para a fila" do
         registro = nota("1")
 

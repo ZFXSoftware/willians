@@ -112,8 +112,17 @@ module Fiscal
           # valeria só para nota nova. É uma releitura de toda a base, uma
           # consulta por nota, mas em lotes dentro do ciclo — ninguém segura
           # terminal aberto, e é a mesma travessia que o intermediador já fez.
+          # Falta o intermediador, faltam os valores fiscais, ou o OMIE recusou
+          # a nota por falta de comprador — e o comprador está na nota completa
+          # do Tiny, que esta mesma consulta traz.
+          #
+          # Só as recusadas, e não toda nota sem comprador: venda de balcão
+          # legitimamente não tem, e reperguntar por ela seria a fila infinita
+          # que as outras condições deste método existem para evitar.
           .where("invoices.metadata->'intermediador' IS NULL " \
-                 "OR invoices.metadata->'fiscal' IS NULL")
+                 "OR invoices.metadata->'fiscal' IS NULL " \
+                 "OR (invoices.metadata->>'comprador_documento' IS NULL " \
+                 "AND invoices.metadata->'omie_recusa'->>'motivo' = 'sem_comprador')")
           # A que o Tiny já disse que não conhece fica fora da fila.
           .where("invoices.metadata->'tiny_recusa' IS NULL")
           .order(issued_at: :desc)
@@ -145,7 +154,8 @@ module Fiscal
         # falha do Tiny — que é onde ninguém iria procurar o defeito.
         nota.update!(metadata: (nota.metadata || {}).merge(
           "intermediador" => { "nome" => intermediador["nome"], "cnpj" => intermediador["cnpj"] },
-          "fiscal" => fiscal_de(detalhe)
+          "fiscal" => fiscal_de(detalhe),
+          **comprador_de(detalhe, nota)
         ))
 
         resumo[:lidas] += 1
@@ -155,6 +165,29 @@ module Fiscal
         resumo[:com_st] = resumo[:com_st].to_i + 1 if detalhe["valor_icms_st"].to_d.positive?
 
         resumo[:canais][intermediador["nome"].presence || "(não informado)"] += 1
+      end
+
+      # O comprador, quando ainda não o temos.
+      #
+      # É contra ELE que o título a receber é lançado no OMIE — não contra o
+      # marketplace. A listagem por período nem sempre traz, e a nota completa
+      # traz: esta consulta já está sendo feita, e descartar o cliente dela
+      # deixava 32 notas recusadas para sempre.
+      #
+      # Não sobrescreve o que já existe: o que veio na importação é o que valeu.
+      def comprador_de(detalhe, nota)
+        return {} if nota.metadata.to_h["comprador_documento"].present?
+
+        cliente = detalhe["cliente"] || {}
+
+        documento = cliente["cpf_cnpj"].presence || cliente["cnpj_cpf"].presence
+
+        return {} if documento.blank?
+
+        {
+          "comprador_nome" => cliente["nome"].to_s.strip.presence,
+          "comprador_documento" => documento
+        }
       end
 
       # O que a nota declara, e só isso.
