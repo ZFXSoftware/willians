@@ -34,6 +34,7 @@ namespace :ml do
       puts "Notas a completar com o comprador: #{resumo[:completadas]}"
       puts "  sem comprador no Mercado Livre:  #{resumo[:sem_comprador_no_ml]}"
       puts "  sem resposta / sem pedido:       #{resumo[:sem_resposta] + resumo[:sem_pedido]}"
+      puts "  recusas do OMIE liberadas:       #{resumo[:liberadas]}"
       puts "  falhas:                          #{resumo[:falhas]}"
       puts
       puts "Ainda sem comprador depois desta leva: #{servico.quantas_incompletas}"

@@ -164,6 +164,31 @@ module Marketplace
       assert_equal nota.id, @unidade.reload.invoice_id
     end
 
+    # Preencher o comprador não basta: o envio pula toda nota com recusa
+    # gravada. `liberar_recusa_se_mudou!` só era chamada pela importação do
+    # Tiny, e as notas do Mercado Livre não passam por lá — 15 ficaram com
+    # recusa velha DEPOIS de o comprador ter sido preenchido.
+    test "completar o comprador libera a recusa velha do OMIE" do
+      nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "42289", valor: 180.65)
+
+      nota.update!(metadata: {
+        "origem" => "mercado_livre",
+        "omie_recusa" => { "motivo" => "sem_comprador", "assinatura" => "180.65|" }
+      })
+
+      servico = MercadoLivre::NotaFiscal.new(
+        tenant: @tenant, platform_account: @conta, client: MlFalso.new(resposta),
+        pausa: 0, dry_run: false
+      )
+
+      resumo = servico.completar_compradores
+
+      assert_equal 1, resumo[:completadas]
+      assert_equal 1, resumo[:liberadas]
+      assert_nil nota.reload.metadata["omie_recusa"]
+      assert_equal "107.312.566-11", nota.metadata["comprador_documento"]
+    end
+
     test "simulação não grava" do
       resumo = importar(MlFalso.new(resposta), dry_run: true)
 

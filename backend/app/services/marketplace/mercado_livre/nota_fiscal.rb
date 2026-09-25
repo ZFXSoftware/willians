@@ -72,7 +72,19 @@ module Marketplace
 
           next if dry_run
 
-          nota.update!(metadata: nota.metadata.to_h.merge(comprador))
+          nota.metadata = nota.metadata.to_h.merge(comprador)
+
+          # Preencher o comprador não basta: a recusa gravada continua lá, e o
+          # envio pula toda nota que tem uma. `liberar_recusa_se_mudou!` compara
+          # a assinatura (valor + documento) e devolve a nota à fila quando o
+          # dado que causou a recusa mudou.
+          #
+          # Ela só era chamada pela importação do Tiny, e as notas do Mercado
+          # Livre não passam por lá: 15 ficaram com recusa velha por falta de
+          # comprador, DEPOIS de o comprador ter sido preenchido.
+          resumo[:liberadas] += 1 if nota.liberar_recusa_se_mudou!
+
+          nota.save!
         rescue StandardError => e
           resumo[:falhas] += 1
 
