@@ -48,6 +48,22 @@ module Fiscal
     # O CST faz para o Regime Normal o que o CSOSN faz para o Simples: 10, 30,
     # 60 e 70 envolvem substituição tributária. Separado porque os dois códigos
     # convivem — o mesmo tenant pode ter notas dos dois regimes no ano da virada.
+    #
+    # LIMITAÇÃO MEDIDA em 2026-09-25, e ela vale para o próximo cliente: a API v2
+    # do Tiny NÃO entrega código de tributação. O item de `nota.fiscal.obter.php`
+    # tem dez campos — cfop, codigo, descricao, id_produto, natureza, ncm,
+    # quantidade, unidade, valor_total, valor_unitario — e nenhum CST ou CSOSN.
+    # Conferido contra resposta real, não suposto.
+    #
+    # Consequência para um cliente de Regime Normal que emita pelo Tiny: a ST
+    # dele é classificada pelo `valor_icms_st` do TOPO da nota, que é por NOTA e
+    # não por item. Nota que misture item com ST e item sem ST cai inteira em
+    # `com_st`. Isso superestima a receita com substituição, e para segregar
+    # corretamente seria preciso o XML da NF-e ou a API v3 (ver
+    # `Fiscal::Tiny::V3Client`, hoje um ponto de troca não implementado de
+    # propósito). Não foi consertado porque nenhum cliente atual está nessa
+    # situação — mas está escrito para não ser descoberto pela apuração errada de
+    # alguém.
     CST_COM_ST = %w[10 30 60 70].freeze
 
     CST_SEM_ST = %w[00 20 40 41 50 51].freeze
