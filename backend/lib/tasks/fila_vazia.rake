@@ -47,6 +47,18 @@ namespace :ml do
     end
     puts
 
+    resumo_serie = Hash.new(0)
+
+    # `issued` sem vínculo é defeito nosso; `cancelled` é o sistema recusando
+    # uma nota que não vale, e aí a providência é do cliente.
+    glosa = lambda do |estado|
+      case estado
+      when "cancelled" then "  <- correto: cancelada não é a nota da venda"
+      when "issued"    then "  <- DEFEITO NOSSO: devia estar ligada"
+      else ""
+      end
+    end
+
     base = ReceivableUnit.where(tenant_id: tenant.id, invoice_id: nil)
 
     com_marca = base.joins(:order).where("jsonb_typeof(orders.metadata->'nota_do_envio') = 'object'")
@@ -72,8 +84,14 @@ namespace :ml do
     # porque "achou pela chave" e "achou por número+série" pedem providências
     # diferentes — o primeiro é vínculo a fazer, o segundo é coincidência de
     # numeração entre séries.
-    pela_chave = 0
-    pelo_numero = 0
+    # O STATUS da nota encontrada, e não só a existência dela.
+    #
+    # Minha sonda anterior perguntou "a nota está no banco?" e eu li a resposta
+    # como "há nota para ligar". `ReligarPeloEnvio` pula cancelada de propósito,
+    # então nota encontrada e cancelada é sistema CERTO, não pendência. Duas
+    # perguntas diferentes que eu tratei como uma.
+    pela_chave = Hash.new(0)
+    pelo_numero = Hash.new(0)
     ausentes = []
 
     com_chave.includes(:order).find_each do |unidade|
@@ -85,26 +103,47 @@ namespace :ml do
 
       serie = dados["serie"].to_s.sub(/\A0+/, "")
 
-      if Invoice.where(tenant_id: tenant.id)
-                .where("regexp_replace(COALESCE(access_key,''), '\\D', '', 'g') = ?", chave)
-                .exists?
-        pela_chave += 1
-      elsif numero.present? &&
-            Invoice.where(tenant_id: tenant.id)
-                   .where("regexp_replace(COALESCE(number,''), '\\A0+', '') = ?", numero)
-                   .where("regexp_replace(COALESCE(series,''), '\\A0+', '') = ?", serie)
-                   .exists?
-        pelo_numero += 1
+      achada_por_chave = Invoice.where(tenant_id: tenant.id)
+                                .where("regexp_replace(COALESCE(access_key,''), '\\D', '', 'g') = ?", chave)
+                                .first
+
+      achada_por_numero = if numero.present?
+        Invoice.where(tenant_id: tenant.id)
+               .where("regexp_replace(COALESCE(number,''), '\\A0+', '') = ?", numero)
+               .where("regexp_replace(COALESCE(series,''), '\\A0+', '') = ?", serie)
+               .first
+      end
+
+      if achada_por_chave
+        pela_chave[achada_por_chave.status.to_s] += 1
+      elsif achada_por_numero
+        pelo_numero[achada_por_numero.status.to_s] += 1
+
+        # A série GRAVADA, porque `ReligarPeloEnvio` compara a string crua
+        # contra [serie, serie sem zeros, nil] — se o banco guardar "002" ele
+        # não acha, e a minha consulta aqui normaliza os dois lados e acha.
+        if achada_por_numero.series.to_s != serie && achada_por_numero.series.present?
+          resumo_serie[achada_por_numero.series.to_s] += 1
+        end
       else
         ausentes << [ unidade, dados ]
       end
     end
 
-    puts "  a nota já está no nosso banco?"
-    puts format("    sim, pela CHAVE:               %4d  (vínculo a fazer, não importação)", pela_chave)
-    puts format("    sim, por NÚMERO+SÉRIE:         %4d", pelo_numero)
+    puts "  a nota já está no nosso banco? (com o STATUS dela)"
+    puts format("    sim, pela CHAVE:               %4d", pela_chave.values.sum)
+    pela_chave.sort.each { |estado, q| puts format("        %-12s %4d%s", estado, q, glosa.call(estado)) }
+    puts format("    sim, por NÚMERO+SÉRIE:         %4d", pelo_numero.values.sum)
+    pelo_numero.sort.each { |estado, q| puts format("        %-12s %4d%s", estado, q, glosa.call(estado)) }
     puts format("    NÃO está:                      %4d  <- é isto que a fila devia trazer", ausentes.size)
     puts
+
+    if resumo_serie.any?
+      puts "  ATENÇÃO: série gravada diferente da que o envio informou —"
+      puts "  o religamento compara a string crua e não acharia estas:"
+      resumo_serie.sort.each { |serie_gravada, q| puts format("    série %-8s %4d", serie_gravada, q) }
+      puts
+    end
 
     if ausentes.any?
       puts "  as que faltam (até 12):"
