@@ -64,11 +64,30 @@ namespace :omie do
     puts
     puts "Das que já subiram, por canal:"
 
-    Invoice
-      .where(tenant_id: tenant.id)
-      .where("invoices.metadata->>'omie_codigo_lancamento' IS NOT NULL")
-      .group(Arel.sql("COALESCE(invoices.metadata->'intermediador'->>'nome', '(não lido)')"))
-      .count
+    # Agrupa pelo CANAL MAPEADO, e não pelo nome cru da NF-e.
+    #
+    # O `infIntermed` de parte das notas traz o ID DO VENDEDOR no lugar do nome,
+    # e o relatório listava "1333228810" e "759040086" como se fossem canais
+    # distintos — 1.990 notas aparecendo separadas do Mercado Livre, que é o que
+    # elas são. O `Canal.para` já resolvia isso em todo o resto do sistema; só a
+    # apresentação aqui é que não usava.
+    cruzamento = Invoice
+                   .where(tenant_id: tenant.id)
+                   .where("invoices.metadata->>'omie_codigo_lancamento' IS NOT NULL")
+                   .group(Arel.sql("COALESCE(invoices.metadata->'intermediador'->>'nome', '(não lido)')"))
+                   .count
+
+    por_canal = Hash.new(0)
+
+    cruzamento.each do |nome, quantas|
+      canal = Fiscal::Tiny::Canal.para(nome, tenant: tenant)
+
+      # Nome que não mapeia continua aparecendo como veio: é o que diz que
+      # falta mapear alguma coisa.
+      por_canal[canal || "#{nome} (sem mapeamento)"] += quantas
+    end
+
+    por_canal
       .sort_by { |_, quantas| -quantas }
       .each { |canal, quantas| puts format("  %-30s %d", canal, quantas) }
 
