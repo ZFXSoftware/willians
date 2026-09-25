@@ -52,6 +52,13 @@ module Fiscal
 
     CST_SEM_ST = %w[00 20 40 41 50 51].freeze
 
+    # Os limites da LC 123/2006 vigentes em 2026. Ficam como constante NOMEADA e
+    # não espalhados em conta: quando a lei mudar, muda aqui, e quem lê sabe que
+    # são valores legais e não escolha nossa.
+    SUBLIMITE_ICMS = BigDecimal("3600000")
+
+    TETO_SIMPLES = BigDecimal("4800000")
+
     def initialize(tenant:, de: nil, ate: nil)
       @tenant = tenant
 
@@ -68,6 +75,10 @@ module Fiscal
         meses: por_mes(linhas),
         total: totalizar(linhas.reject { |l| l[:devolucao] }),
         cobertura: cobertura(linhas),
+        # No Simples, o número que decide alíquota e sublimite. Sai sempre com
+        # `completo`, porque um RBT12 parcial exibido como total é pior que
+        # nenhum: ele diz "está longe do teto" quando a conta nem cobriu o ano.
+        rbt12: rbt12,
         # A resposta à pergunta literal, medida e não suposta.
         retido_pelo_marketplace: retido_pelo_marketplace,
         regimes: regimes_de(linhas.reject { |l| l[:devolucao] })
@@ -284,6 +295,64 @@ module Fiscal
         .to_d
         .abs
         .to_s
+    end
+
+    # Receita bruta dos 12 meses que terminam em `ate` — a RBT12 do Simples.
+    #
+    # Conta própria e não soma dos meses da tela: a janela da tela é escolha de
+    # quem olha, e a RBT12 é definida por lei como 12 meses. Deixar as duas
+    # coincidirem por acidente é o tipo de erro que só aparece quando alguém
+    # filtra por trimestre e lê o número como se fosse anual.
+    #
+    # `completo` compara com a PRIMEIRA nota da empresa: se ela é posterior ao
+    # início da janela de 12 meses, a conta não cobriu o ano e o número é piso,
+    # não total.
+    def rbt12
+      inicio = ate.beginning_of_month - 11.months
+
+      receita = Invoice
+                  .where(tenant_id: tenant.id)
+                  .where.not(status: :cancelled)
+                  .where(operation_type: :sale)
+                  .where(issued_at: inicio.beginning_of_day..ate.end_of_day)
+                  .sum(:total_amount)
+                  .to_d
+
+      devolvido = Invoice
+                    .where(tenant_id: tenant.id)
+                    .where.not(status: :cancelled)
+                    .where(operation_type: :refund)
+                    .where(issued_at: inicio.beginning_of_day..ate.end_of_day)
+                    .sum(:total_amount)
+                    .to_d
+
+      primeira = Invoice.where(tenant_id: tenant.id).where.not(issued_at: nil).minimum(:issued_at)&.to_date
+
+      meses = primeira ? ((ate.year * 12 + ate.month) - (primeira.year * 12 + primeira.month) + 1) : 0
+
+      {
+        de: inicio,
+        ate: ate,
+        receita: (receita - devolvido).to_s,
+        # Quantos meses de dados existem de fato, contra os 12 que a lei pede.
+        meses_com_dados: [ meses, 12 ].min,
+        completo: primeira.present? && primeira <= inicio,
+        sublimite_icms: SUBLIMITE_ICMS.to_s,
+        teto_simples: TETO_SIMPLES.to_s,
+        # Em que ponto do teto a empresa está. Percentual e não veredito: quem
+        # decide o que fazer com isso é o contador, não este código.
+        percentual_do_sublimite: percentual((receita - devolvido), SUBLIMITE_ICMS),
+        percentual_do_teto: percentual((receita - devolvido), TETO_SIMPLES),
+        # O ritmo dos meses que TEMOS, projetado para doze. Só faz sentido
+        # enquanto a conta está incompleta, e é explicitamente uma projeção.
+        projecao_anual: meses.positive? && meses < 12 ? ((receita - devolvido) / meses * 12).round(2).to_s : nil
+      }
+    end
+
+    def percentual(valor, limite)
+      return "0.0" unless limite.positive?
+
+      ((valor / limite) * 100).round(1).to_s
     end
 
     def soma(lista) = lista.sum(BigDecimal("0")) { |linha| linha[:valor] }

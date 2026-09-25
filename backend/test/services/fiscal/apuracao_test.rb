@@ -219,6 +219,45 @@ module Fiscal
       assert_equal 1, mes_de(apurar, "2026-08")[:segregacao][:com_st][:notas]
     end
 
+    # No Simples a RBT12 decide alíquota e sublimite. O risco aqui não é errar a
+    # soma: é exibir um acumulado PARCIAL como se fosse o ano fechado, dizendo
+    # "longe do teto" quando a conta nem cobriu doze meses.
+    test "RBT12 diz quando está incompleta" do
+      nota(numero: "1", valor: 300_000, mes: "2026-08", fiscal: { "csosns" => [ "102" ] })
+      nota(numero: "2", valor: 200_000, mes: "2026-09", fiscal: { "csosns" => [ "102" ] })
+
+      rbt12 = apurar(de: "2026-07-01", ate: "2026-09-30")[:rbt12]
+
+      assert_equal "500000.0", rbt12[:receita]
+      assert_not rbt12[:completo], "só há 2 meses de notas: não pode passar por ano fechado"
+      assert_equal 2, rbt12[:meses_com_dados]
+      assert_equal "3000000.0", rbt12[:projecao_anual], "500 mil em 2 meses projeta 3 milhões"
+    end
+
+    # A janela da TELA é escolha de quem olha; a RBT12 é definida por lei como 12
+    # meses. Deixar as duas coincidirem por acidente esconde o erro de alguém
+    # filtrar um trimestre e ler o número como anual.
+    test "RBT12 não depende da janela pedida" do
+      nota(numero: "1", valor: 100, mes: "2026-03", fiscal: { "csosns" => [ "102" ] })
+      nota(numero: "2", valor: 900, mes: "2026-09", fiscal: { "csosns" => [ "102" ] })
+
+      resultado = apurar(de: "2026-09-01", ate: "2026-09-30")
+
+      assert_equal "900.0", resultado[:total][:receita_bruta], "a tela pediu só setembro"
+      assert_equal "1000.0", resultado[:rbt12][:receita], "a RBT12 olha doze meses de todo jeito"
+    end
+
+    test "RBT12 desconta devolução e aponta a posição no teto" do
+      nota(numero: "1", valor: 3_700_000, mes: "2026-09", fiscal: { "csosns" => [ "102" ] })
+      nota(numero: "2", valor: 100_000, mes: "2026-09", operacao: :refund, fiscal: { "csosns" => [ "102" ] })
+
+      rbt12 = apurar(de: "2026-09-01", ate: "2026-09-30")[:rbt12]
+
+      assert_equal "3600000.0", rbt12[:receita]
+      assert_equal "100.0", rbt12[:percentual_do_sublimite]
+      assert_equal "75.0", rbt12[:percentual_do_teto]
+    end
+
     test "fora da janela não entra" do
       nota(numero: "1", valor: 100, mes: "2026-06", fiscal: { "csosns" => [ "102" ] })
 

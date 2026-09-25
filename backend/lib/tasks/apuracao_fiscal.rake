@@ -56,6 +56,34 @@ namespace :fiscal do
     end
     puts
 
+    # A RBT12 antes de tudo no Simples: é ela que decide alíquota e sublimite, e
+    # ler a receita do mês sem ela é ler o número menos importante primeiro.
+    if [ :receita, :mista ].include?(base)
+      rbt12 = resultado[:rbt12]
+
+      puts "Receita bruta dos últimos 12 meses (RBT12), #{rbt12[:de]} a #{rbt12[:ate]}:"
+      puts format("  R$ %.2f", rbt12[:receita].to_d)
+      puts format("  %s%% do sublimite de ICMS/ISS (R$ %.2f)",
+                  rbt12[:percentual_do_sublimite], rbt12[:sublimite_icms].to_d)
+      puts format("  %s%% do teto do Simples (R$ %.2f)",
+                  rbt12[:percentual_do_teto], rbt12[:teto_simples].to_d)
+
+      unless rbt12[:completo]
+        puts
+        puts format("  INCOMPLETA: há %d mês(es) de notas, a conta pede 12.", rbt12[:meses_com_dados])
+        puts "  Este valor é PISO, não total — não leia como 'longe do teto'."
+
+        if rbt12[:projecao_anual].present?
+          puts format("  No ritmo destes meses, doze meses dariam R$ %.2f.", rbt12[:projecao_anual].to_d)
+          puts "  Projeção, não apuração: serve para saber se o assunto é urgente."
+        end
+      end
+
+      puts
+      puts "  Quem decide o que fazer com isso é o contador. Aqui só medimos."
+      puts
+    end
+
     cobertura = resultado[:cobertura]
 
     puts "Cobertura do detalhe fiscal:"
