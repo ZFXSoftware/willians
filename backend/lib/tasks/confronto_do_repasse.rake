@@ -78,7 +78,13 @@ namespace :conciliacao do
     next puts("  nenhum registro para este repasse.") if registros.none?
 
     registros.each do |registro|
-      metadados = registro.conciliation_metadata.to_h
+      # A decomposição fica ANINHADA em `conciliation_metadata["decomposicao"]`,
+      # e não no topo. Ler o topo devolve vazio em tudo — e vazio aqui parece
+      # exatamente com "o motor não gravou". Eu li errado e anunciei ao usuário
+      # que as colunas da tela estavam em branco em produção; estavam gravadas
+      # desde sempre. O controller lê pelo caminho certo (registros_controller
+      # linha 73), então a tela nunca esteve quebrada.
+      metadados = registro.conciliation_metadata.to_h["decomposicao"].to_h
 
       puts format("  #%-8d run %-7s status %-14s diferença %10.2f",
                   registro.id, registro.conciliation_run_id || "-",
@@ -93,7 +99,8 @@ namespace :conciliacao do
                     metadados["sem_titulo"], metadados["notas_sem_titulo"],
                     metadados["ajustes"], metadados["residuo"])
       else
-        puts "      sem decomposição gravada"
+        puts "      sem decomposição gravada (confira se o topo do metadata tem valor_omie:" \
+             " se tiver, é a decomposição que falta, não o metadata inteiro)"
       end
 
       puts format("      %s", registro.observacao.to_s.truncate(150))
