@@ -36,6 +36,7 @@ namespace :omie do
         abort "FALTA CONFIGURAR: #{e.message}"
       end
 
+    puts "Recusas velhas reabertas: #{resumo[:reabertas]}" if resumo[:reabertas].to_i.positive?
     puts "Previstas:        #{resumo[:previstas]}"
     puts "Enviadas:         #{resumo[:enviadas]}"
     puts "Recusadas por nós: #{resumo[:recusadas_por_nos]}"

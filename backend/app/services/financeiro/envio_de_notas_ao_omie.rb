@@ -100,6 +100,8 @@ module Financeiro
 
         recusar_se_travado! if automatico
 
+        resumo[:reabertas] = reabrir_recusadas!
+
         notas.each do |nota|
           processar(nota, resumo)
         rescue Omie::Mappers::InvoiceMapper::SemComprador,
@@ -315,6 +317,37 @@ module Financeiro
       # Sempre limitado: sem teto, uma execução com milhares de notas não
       # termina dentro de nenhuma requisição, e cai no meio.
       escopo.limit(limite || LOTE_PADRAO)
+    end
+
+    # Devolve à fila a nota cuja recusa ficou velha.
+    #
+    # `liberar_recusa_se_mudou!` compara a assinatura — valor mais documento do
+    # comprador — e libera quando o dado que causou a recusa mudou. Ela existia
+    # e era chamada SÓ pela importação do Tiny: nota de outra origem, ou nota
+    # consertada por outro caminho, ficava recusada para sempre com o problema
+    # já resolvido.
+    #
+    # Foi o que aconteceu com 15 notas do Mercado Livre: o comprador foi
+    # preenchido, a recusa por "sem comprador" continuou pendurada, e o envio
+    # pulava cada uma a cada volta.
+    #
+    # O lugar é aqui porque é o envio que se importa com recusa. Não custa
+    # chamada de API nenhuma: é comparação local.
+    def reabrir_recusadas!
+      reabertas = 0
+
+      Invoice
+        .where(tenant_id: tenant.id)
+        .recusadas_no_envio
+        .find_each do |nota|
+          next unless nota.liberar_recusa_se_mudou!
+
+          nota.save!
+
+          reabertas += 1
+        end
+
+      reabertas
     end
 
     def motivo_de(erro)
