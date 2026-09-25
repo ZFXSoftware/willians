@@ -11,6 +11,7 @@ import Processes from "../pages/Processes"
 import Integrations from "../pages/Integrations"
 import Settings from "../pages/Settings"
 import Balances from "../pages/Balances"
+import Apuracao from "../pages/Apuracao"
 import Returns from "../pages/Returns"
 import Movements from "../pages/Movements"
 import Team from "../pages/Team"
@@ -48,6 +49,7 @@ export default function AppRoutes() {
           <Route path="/divergencias" element={<Divergences />} />
           <Route path="/integracoes" element={<Integrations />} />
           <Route path="/saldos" element={<Balances />} />
+          <Route path="/apuracao" element={<Apuracao />} />
           <Route path="/devolucoes" element={<Returns />} />
           <Route path="/movimentacoes" element={<Movements />} />
           <Route path="/equipe" element={<Team />} />

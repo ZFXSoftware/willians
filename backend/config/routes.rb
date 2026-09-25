@@ -102,6 +102,9 @@ Rails.application.routes.draw do
     delete "desconectar", to: "conexoes#destroy"
   end
 
+  # A apuração fiscal do período. Só lê.
+  get "fiscal/apuracao", to: "fiscal/apuracao#show"
+
   # Notas fiscais do Tiny. Só escreve no nosso banco; levar ao OMIE é outro
   # passo, com trava própria.
   post "fiscal/notas/importar", to: "fiscal/notas#importar"

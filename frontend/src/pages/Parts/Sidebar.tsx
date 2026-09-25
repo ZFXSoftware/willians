@@ -9,6 +9,7 @@ import {
   ArrowRightLeft,
   KeyRound,
   Receipt,
+  Landmark,
   Users,
   LogOut,
 } from "lucide-react"
@@ -55,6 +56,15 @@ export default function Sidebar() {
       label: "Conta virtual",
       icon: Scale,
       path: "/saldos",
+    },
+    {
+      // A apuração fiscal. Fica junto da conciliação porque responde à outra
+      // metade da mesma pergunta: a de repasses confere o dinheiro que entrou,
+      // esta confere o que foi faturado — e é a ÚNICA tela que soma todos os
+      // canais, não só o Mercado Livre.
+      label: "Apuração fiscal",
+      icon: Landmark,
+      path: "/apuracao",
     },
     {
       // O razão. Fica logo depois da conciliação porque é o que ela compara —
