@@ -153,6 +153,72 @@ module Fiscal
                    "string vazia não é zero em ::numeric — precisa de NULLIF"
     end
 
+    # O produto terá cliente de Regime Normal, e para ele a conta é o OPOSTO:
+    # a nota carrega imposto e é a soma dele que importa. O regime tem de ser
+    # dimensão, não suposição.
+    test "regime normal apura por imposto e o simples por receita" do
+      nota(numero: "1", valor: 100, fiscal: { "regime_tributario" => "1", "csosns" => [ "102" ] })
+
+      assert_equal :receita, mes_de(apurar, "2026-08")[:base]
+
+      nota(numero: "2", valor: 500, mes: "2026-09",
+           fiscal: { "regime_tributario" => "3", "valor_icms" => "90.00",
+                     "base_icms" => "500.00", "csts" => [ "00" ] })
+
+      setembro = mes_de(apurar, "2026-09")
+
+      assert_equal :imposto, setembro[:base]
+      assert_equal "90.0", setembro[:impostos_na_nota][:icms]
+      assert_equal "500.0", setembro[:impostos_na_nota][:base_icms]
+      assert_equal 1, setembro[:segregacao][:sem_st][:notas], "CST 00 não tem ST"
+    end
+
+    # Virada de regime no meio do período é caso real, e somar as duas apurações
+    # num número só seria inventar.
+    test "mês com os dois regimes fica mista" do
+      nota(numero: "1", valor: 100, fiscal: { "regime_tributario" => "1", "csosns" => [ "102" ] })
+      nota(numero: "2", valor: 200, fiscal: { "regime_tributario" => "3", "csts" => [ "00" ] })
+
+      agosto = mes_de(apurar, "2026-08")
+
+      assert_equal :mista, agosto[:base]
+      assert_equal 2, agosto[:por_regime].size
+      assert_equal [ :imposto, :receita ], agosto[:por_regime].map { |r| r[:base] }.sort
+    end
+
+    # "1" no Tiny e "simples" no Mercado Livre são o mesmo regime; quem lê a
+    # apuração não pode precisar saber de qual API a nota veio.
+    test "o regime é normalizado entre as fontes" do
+      nota(numero: "1", valor: 100, fiscal: { "regime_tributario" => "1", "csosns" => [ "102" ] })
+      nota(numero: "2", valor: 200, fiscal: { "regime_tributario" => "simples", "csosns" => [ "102" ] })
+
+      regimes = apurar[:regimes]
+
+      assert_equal 1, regimes.size
+      assert_equal :simples, regimes.first[:regime]
+      assert_equal 2, regimes.first[:notas]
+    end
+
+    # Regime desconhecido NÃO vira Simples: apurar uma nota de Regime Normal
+    # como Simples esconderia o imposto devido.
+    test "regime não reconhecido fica à parte, com o valor cru" do
+      nota(numero: "1", valor: 100, fiscal: { "regime_tributario" => "lucro arbitrado" })
+
+      regime = apurar[:regimes].first
+
+      assert_nil regime[:regime]
+      assert_nil regime[:base]
+      assert_equal "Regime não identificado", regime[:rotulo]
+      assert_equal [ "lucro arbitrado" ], regime[:valores_crus],
+                   "sem o valor cru ninguém sabe o que mapear"
+    end
+
+    test "CST de substituição conta como ST" do
+      nota(numero: "1", valor: 100, fiscal: { "regime_tributario" => "3", "csts" => [ "60" ] })
+
+      assert_equal 1, mes_de(apurar, "2026-08")[:segregacao][:com_st][:notas]
+    end
+
     test "fora da janela não entra" do
       nota(numero: "1", valor: 100, mes: "2026-06", fiscal: { "csosns" => [ "102" ] })
 

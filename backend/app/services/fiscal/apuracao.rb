@@ -2,20 +2,28 @@ module Fiscal
   # A conciliação FISCAL: receita bruta por mês e canal, segregada por
   # tributação.
   #
-  # A pergunta que originou isto foi "quais impostos foram pagos nas notas e
-  # quais foram pagos antecipadamente pelos marketplaces". Medindo as notas do
-  # cliente, a resposta literal é "nenhum": ele é Simples Nacional (CRT 1 em
-  # 12 de 12 notas conferidas), então vICMS, vPIS, vCOFINS e vIPI saem ZERO na
-  # NF-e, e `TAXES_AMOUNT` veio zero em 1.718 pagamentos do Mercado Livre. Não
-  # existe imposto por nota para conciliar, e uma tela que somasse esses campos
-  # mostraria zero para sempre — parecendo defeito.
+  # A conta NÃO é a mesma para todos, e isto é regra de produto: o SaaS terá
+  # clientes de Regime Normal.
   #
-  # O que existe, e é o que o contador precisa, é OUTRA conta: no Simples o
-  # imposto é apurado sobre a RECEITA BRUTA do mês, e a receita de produto com
-  # substituição tributária entra no PGDAS segregada, porque o ICMS dela já foi
-  # recolhido antes. Então a conciliação fiscal aqui é:
+  #   Simples  -> o imposto é apurado sobre a RECEITA BRUTA do mês, e a nota sai
+  #               com ICMS, PIS, COFINS e IPI zerados. A receita de produto com
+  #               substituição tributária entra no PGDAS segregada, porque o
+  #               ICMS dela já foi recolhido antes.
+  #   Normal   -> a nota carrega imposto de verdade, e a apuração é a soma do
+  #               que foi debitado, com base de cálculo e ST. A receita passa a
+  #               ser contexto, não a resposta.
   #
-  #   receita bruta do mês, por canal, separando o que tem ST do que não tem
+  # Por isso o regime é uma DIMENSÃO daqui, não uma suposição: cada mês diz em
+  # que base apura, e `base: :mista` é caso real — empresa muda de regime na
+  # virada do ano. Os dois conjuntos de números saem sempre; a tela escolhe qual
+  # mostrar primeiro pelo `base`. Ver [[Fiscal::Regime]].
+  #
+  # No primeiro cliente, que é Simples, a pergunta original era "quais impostos
+  # foram pagos nas notas e quais o marketplace pagou antecipadamente", e a
+  # resposta medida é "nenhum dos dois": CRT 1 em 12 de 12 notas conferidas, e
+  # `TAXES_AMOUNT` zero em 1.718 pagamentos do Mercado Livre. Os campos de
+  # imposto continuam sendo somados e exibidos justamente para essa resposta
+  # existir em números em vez de virar conhecimento oral.
   #
   # `vTotTrib` NÃO entra: é estimativa do IBPT exigida pela Lei da
   # Transparência, não imposto pago. Somá-lo produziria um número grande e
@@ -37,6 +45,13 @@ module Fiscal
     # tinha posto nas DUAS listas, onde a primeira a ser testada venceria.
     CSOSN_SEM_ST = %w[101 102 103 300 400].freeze
 
+    # O CST faz para o Regime Normal o que o CSOSN faz para o Simples: 10, 30,
+    # 60 e 70 envolvem substituição tributária. Separado porque os dois códigos
+    # convivem — o mesmo tenant pode ter notas dos dois regimes no ano da virada.
+    CST_COM_ST = %w[10 30 60 70].freeze
+
+    CST_SEM_ST = %w[00 20 40 41 50 51].freeze
+
     def initialize(tenant:, de: nil, ate: nil)
       @tenant = tenant
 
@@ -55,7 +70,7 @@ module Fiscal
         cobertura: cobertura(linhas),
         # A resposta à pergunta literal, medida e não suposta.
         retido_pelo_marketplace: retido_pelo_marketplace,
-        regimes: linhas.filter_map { |l| l[:regime].presence }.tally
+        regimes: regimes_de(linhas.reject { |l| l[:devolucao] })
       }
     end
 
@@ -74,7 +89,9 @@ module Fiscal
       Arel.sql("invoices.metadata->'fiscal'->>'valor_ipi' AS valor_ipi"),
       Arel.sql("invoices.metadata->'fiscal'->>'valor_issqn' AS valor_issqn"),
       Arel.sql("invoices.metadata->'fiscal'->>'regime_tributario' AS regime"),
+      Arel.sql("invoices.metadata->'fiscal'->>'base_icms' AS base_icms"),
       Arel.sql("invoices.metadata->'fiscal'->'csosns' AS csosns"),
+      Arel.sql("invoices.metadata->'fiscal'->'csts' AS csts"),
       Arel.sql("invoices.metadata->'intermediador'->>'nome' AS intermediador")
     ].freeze
 
@@ -91,8 +108,8 @@ module Fiscal
     end
 
     def montar(valores)
-      id, emitida_em, valor, operacao, tem_fiscal,
-        icms_st, icms, ipi, issqn, regime, csosns, intermediador = valores
+      id, emitida_em, valor, operacao, tem_fiscal, icms_st, icms, ipi, issqn,
+        regime, base_icms, csosns, csts, intermediador = valores
 
       {
         id: id,
@@ -105,8 +122,13 @@ module Fiscal
         icms: icms.to_d,
         ipi: ipi.to_d,
         issqn: issqn.to_d,
-        regime: regime,
+        # Normalizado na entrada: "1" do Tiny e "simples" do Mercado Livre são
+        # o mesmo regime, e quem lê daqui não pode precisar saber a fonte.
+        regime: Fiscal::Regime.normalizar(regime),
+        regime_bruto: regime,
+        base_icms: base_icms.to_d,
         csosns: lista_de(csosns),
+        csts: lista_de(csts),
         canal: Fiscal::Tiny::Canal.para(intermediador, tenant: tenant),
         intermediador: intermediador
       }
@@ -132,14 +154,16 @@ module Fiscal
 
       csosns = linha[:csosns].map(&:to_s)
 
-      return :com_st if csosns.intersect?(CSOSN_COM_ST)
+      csts = linha[:csts].map(&:to_s)
 
-      return :sem_st if csosns.intersect?(CSOSN_SEM_ST)
+      return :com_st if csosns.intersect?(CSOSN_COM_ST) || csts.intersect?(CST_COM_ST)
+
+      return :sem_st if csosns.intersect?(CSOSN_SEM_ST) || csts.intersect?(CST_SEM_ST)
 
       # CSOSN existe e não é nenhum dos conhecidos — 900 ("outros") é o caso.
       # Cair no atalho do valor zerado mandaria essa nota para `sem_st`, que é
       # afirmar o que o documento não afirma.
-      return :indefinido if csosns.any?
+      return :indefinido if csosns.any? || csts.any?
 
       # Sem CSOSN, sobra o valor de ST — e só se ele foi INFORMADO. Nota do
       # Mercado Livre não traz esse campo, e `nil.to_d` é zero: sem distinguir
@@ -157,9 +181,28 @@ module Fiscal
           mes: mes,
           devolucoes: { notas: devolucoes.size, valor: soma(devolucoes).to_s },
           receita_liquida: (soma(vendas) - soma(devolucoes)).to_s,
-          por_canal: por_canal(vendas)
+          por_canal: por_canal(vendas),
+          # Por regime DENTRO do mês: no mês da virada os dois convivem, e a
+          # apuração de cada um é uma conta separada.
+          por_regime: regimes_de(vendas)
         )
       end
+    end
+
+    # Os regimes encontrados, com rótulo e a base que cada um apura — e o nome
+    # CRU de quem não reconhecemos. Sem o valor cru, "regime não identificado:
+    # 40 notas" não diz o que mapear, e o próximo cliente cai no mesmo buraco.
+    def regimes_de(vendas)
+      vendas.group_by { |linha| linha[:regime] }.map do |regime, lista|
+        {
+          regime: regime,
+          rotulo: Fiscal::Regime.rotulo(regime),
+          base: Fiscal::Regime.base(regime),
+          notas: lista.size,
+          receita: soma(lista).to_s,
+          valores_crus: regime.nil? ? lista.filter_map { |l| l[:regime_bruto].presence }.uniq.sort : []
+        }
+      end.sort_by { |item| -item[:receita].to_d }
     end
 
     def totalizar(vendas)
@@ -168,14 +211,19 @@ module Fiscal
       {
         notas: vendas.size,
         receita_bruta: soma(vendas).to_s,
+        # Em que base este conjunto apura. A tela lê isto para decidir qual
+        # número vem primeiro: receita, no Simples; imposto, no Regime Normal.
+        base: Fiscal::Regime.base_do_conjunto(vendas.map { |l| l[:regime] }),
         segregacao: [ :com_st, :sem_st, :indefinido ].to_h do |tipo|
           lista = grupos[tipo].to_a
 
           [ tipo, { notas: lista.size, receita: soma(lista).to_s } ]
         end,
-        # Fica aqui para ser LIDO como zero, não para somar: é a prova de que no
-        # Simples não há imposto na nota, e quem abrir a tela vai perguntar.
+        # No Regime Normal isto É a apuração. No Simples sai zero, e sai de
+        # propósito: é a prova em números de que não há imposto na nota, que é a
+        # primeira coisa que alguém pergunta ao abrir a tela.
         impostos_na_nota: {
+          base_icms: vendas.sum(BigDecimal("0")) { |l| l[:base_icms] }.to_s,
           icms: vendas.sum(BigDecimal("0")) { |l| l[:icms] }.to_s,
           icms_st: vendas.sum(BigDecimal("0")) { |l| l[:icms_st] }.to_s,
           ipi: vendas.sum(BigDecimal("0")) { |l| l[:ipi] }.to_s,

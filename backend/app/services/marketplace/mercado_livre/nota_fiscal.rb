@@ -279,7 +279,14 @@ module Marketplace
             "valor_desconto" => desconto_de(itens).to_s,
             "cfops" => atributos(itens, "cfop"),
             "ncms" => atributos(itens, "ncm"),
-            "csosns" => atributos(itens, "csosn")
+            "csosns" => atributos(itens, "csosn"),
+            # O CST é o equivalente do CSOSN no Regime Normal, e o SaaS terá
+            # cliente desse regime. NÃO VERIFICADO contra resposta real: o
+            # cliente atual é Simples e só manda CSOSN, então este campo vem
+            # vazio hoje. Fica capturado porque o custo é uma linha e a
+            # alternativa é descobrir a falta com a apuração de outro cliente
+            # errada em produção — o sinal de ST dele sairia em silêncio.
+            "csts" => atributos(itens, "cst")
           },
           "mercado_livre" => {
             "invoice_id" => dados["id"],

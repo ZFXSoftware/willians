@@ -18,18 +18,41 @@ namespace :fiscal do
     puts "Período: #{resultado[:periodo][:de]} a #{resultado[:periodo][:ate]}"
     puts
 
-    # O regime primeiro, porque é ele que decide se esta conta é a certa. Simples
-    # apura sobre receita bruta; se aparecer regime 3 (normal), a nota TEM
-    # imposto e a apuração precisa de outra conta.
-    puts "Regime tributário das notas:"
+    # O regime primeiro, porque é ele que decide QUAL conta é a certa: Simples
+    # apura sobre receita bruta, Regime Normal apura o imposto da nota. Quem lê
+    # precisa saber em que conta está antes de olhar qualquer número.
+    puts "Regime tributário, e em que base cada um apura:"
     if resultado[:regimes].any?
-      resultado[:regimes].sort_by { |_, q| -q }.each do |regime, quantas|
-        rotulo = { "1" => "Simples Nacional", "2" => "Simples — excesso de sublimite",
-                   "3" => "Regime Normal", "simples" => "Simples Nacional" }[regime.to_s] || regime
-        puts format("  %-32s %5d nota(s)", rotulo, quantas)
+      resultado[:regimes].each do |regime|
+        conta = { receita: "apura sobre a RECEITA bruta", imposto: "apura o IMPOSTO da nota" }[regime[:base]] ||
+                "não sei apurar — precisa ser mapeado"
+
+        puts format("  %-32s %5d nota(s)  R$ %12.2f  %s",
+                    regime[:rotulo], regime[:notas], regime[:receita].to_d, conta)
+
+        regime[:valores_crus].each { |cru| puts format("      valor cru não reconhecido: %s", cru.inspect) }
       end
     else
-      puts "  nenhuma nota informa o regime — sem isso não sei se esta conta serve"
+      puts "  nenhuma nota informa o regime — sem isso não sei qual conta serve"
+    end
+    puts
+
+    base = resultado[:total][:base]
+
+    puts "Base desta apuração: #{base}"
+    case base
+    when :receita
+      puts "  Simples: o número que vale é a receita bruta do mês, e a parcela COM ST"
+      puts "  entra segregada no PGDAS. O imposto na nota sai zero — e isso é correto."
+    when :imposto
+      puts "  Regime Normal: o número que vale é o imposto debitado na nota. A receita"
+      puts "  abaixo é contexto, não a apuração."
+    when :mista
+      puts "  ATENÇÃO: há notas dos DOIS regimes no período. Cada mês apura pela sua"
+      puts "  base — veja `por regime` em cada linha. Somar as duas seria inventar."
+    else
+      puts "  nenhum regime identificado: os números saem, mas eu não sei qual deles"
+      puts "  é a apuração. Mapeie o regime antes de usar isto."
     end
     puts
 
@@ -69,13 +92,27 @@ namespace :fiscal do
                 total[:segregacao][:indefinido][:receita].to_d)
     puts
 
-    puts "Impostos DENTRO das notas, no período:"
+    puts "Impostos DENTRO das notas, no período#{base == :imposto ? ' — ESTA é a apuração' : ''}:"
     total[:impostos_na_nota].each do |imposto, valor|
-      puts format("  %-10s R$ %.2f", imposto, valor.to_d)
+      puts format("  %-12s R$ %.2f", imposto, valor.to_d)
     end
-    puts "  (no Simples estes saem zero na NF-e, por isso a apuração é sobre a"
-    puts "   RECEITA. vTotTrib não entra aqui: é estimativa do IBPT, não imposto pago.)"
+    if base == :receita
+      puts "  (no Simples estes saem zero na NF-e, por isso a apuração é sobre a"
+      puts "   RECEITA. vTotTrib não entra aqui: é estimativa do IBPT, não imposto pago.)"
+    end
     puts
+
+    if resultado[:meses].any? { |mes| mes[:base] == :mista }
+      puts "Meses com mais de um regime:"
+      resultado[:meses].select { |mes| mes[:base] == :mista }.each do |mes|
+        puts "  #{mes[:mes]}:"
+        mes[:por_regime].each do |regime|
+          puts format("    %-32s %5d nota(s)  R$ %12.2f",
+                      regime[:rotulo], regime[:notas], regime[:receita].to_d)
+        end
+      end
+      puts
+    end
 
     puts "Receita por canal, no mês mais recente:"
     ultimo = resultado[:meses].last
@@ -91,8 +128,10 @@ namespace :fiscal do
 
     puts
     puts "Como usar:"
-    puts "  a base do PGDAS é a receita bruta do mês; a parcela COM ST entra"
-    puts "     segregada, porque o ICMS dela já foi recolhido antes."
+    puts "  no SIMPLES a base do PGDAS é a receita bruta do mês, e a parcela COM ST"
+    puts "     entra segregada, porque o ICMS dela já foi recolhido antes."
+    puts "  no REGIME NORMAL o que vale é o imposto debitado na nota, com a base"
+    puts "     de cálculo ao lado — a receita bruta ali é só contexto."
     puts "  INDEFINIDO é o que precisa de trabalho: nota sem detalhe fiscal não"
     puts "     pode ser declarada num lado nem no outro por adivinhação."
     puts "  intermediador sem mapa deixa a receita fora de qualquer canal —"
