@@ -18,6 +18,7 @@
 #   ./deploy/deploy.sh preparar             cria .env.production e gera segredos
 #   ./deploy/deploy.sh subir                constrói e sobe a stack nova
 #   ./deploy/deploy.sh migrar               backup + migrações do banco
+#   ./deploy/deploy.sh gems                 reinstala as gems no volume (erro de gem no boot)
 #   ./deploy/deploy.sh backup [rotulo]      só o backup, antes de algo destrutivo
 #   ./deploy/deploy.sh publicar DOMINIO     escreve o site (ainda desativado)
 #   ./deploy/deploy.sh trocar DOMINIO       desativa o antigo e ativa o novo
@@ -326,6 +327,24 @@ cmd_backup() {
   echo
   amarelo "   Restaurar sobrescreve o banco INTEIRO, inclusive o que veio depois"
   amarelo "   do backup. Confira a data do arquivo antes."
+}
+
+cmd_gems() {
+  exigir docker
+
+  # O volume `bundle_cache` monta em cima de /usr/local/bundle, então as gems
+  # que o `compose build` instala na imagem ficam MASCARADAS: quem vale é o
+  # volume. Um `bundle install` interrompido no meio deixa gems faltando lá, e
+  # nenhum outro comando daqui repara isso — `subir` reconstrói a imagem que o
+  # volume esconde. O sintoma é o Rails morrer no boot com
+  # "Could not find <gem> in locally installed gems".
+  #
+  # `--user root` porque o serviço roda como o usuário do host, que não escreve
+  # no volume das gems.
+  titulo "Instalando as gems no volume"
+  compose run --rm --user root backend bundle install
+
+  verde "   gems em dia"
 }
 
 cmd_migrar() {
@@ -787,6 +806,7 @@ case "${1:-inspecionar}" in
   preparar)      cmd_preparar "${2:-}" ;;
   subir)         cmd_subir ;;
   migrar)        cmd_migrar ;;
+  gems)          cmd_gems ;;
   backup)        shift; cmd_backup "${1:-manual}" ;;
   publicar)      cmd_publicar "${2:-}" ;;
   trocar)        cmd_trocar "${2:-}" ;;
@@ -795,6 +815,6 @@ case "${1:-inspecionar}" in
   status)        cmd_status ;;
   *)
     erro "comando desconhecido: $1
-   use: inspecionar | preparar | subir | migrar | backup [rotulo] | publicar DOMINIO | trocar DOMINIO | reverter | parar-antigo NOME | status | estado | rake TAREFA"
+   use: inspecionar | preparar | subir | migrar | gems | backup [rotulo] | publicar DOMINIO | trocar DOMINIO | reverter | parar-antigo NOME | status | estado | rake TAREFA"
     ;;
 esac
