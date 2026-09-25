@@ -63,11 +63,24 @@ namespace :omie do
     end
   end
 
+  # Conta com o MESMO critério que o envio usa, marco inclusive.
+  #
+  # Contava sem o marco e dizia "32 não enviadas" enquanto o envio dizia
+  # "previstas: 0" — as duas verdadeiras, com réguas diferentes, e juntas
+  # parecendo defeito. As 32 eram de julho, anteriores à fronteira configurada.
   def pendentes(tenant)
-    Invoice
-      .where(tenant_id: tenant.id, operation_type: :sale)
-      .where.not(status: :cancelled)
-      .where("invoices.metadata->>'omie_codigo_lancamento' IS NULL")
-      .count
+    marco = Integracoes::Config.get("omie", :envio_a_partir_de, tenant: tenant).presence&.to_date
+
+    total = Invoice.where(tenant_id: tenant.id).nao_enviadas_ao_omie.count
+
+    dentro = Invoice.where(tenant_id: tenant.id).nao_enviadas_ao_omie(marco).count
+
+    fora = total - dentro
+
+    texto = dentro.to_s
+
+    texto += " (#{fora} fora da fronteira de #{marco}, não serão enviadas)" if fora.positive?
+
+    texto
   end
 end
