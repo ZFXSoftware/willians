@@ -139,6 +139,14 @@ module Marketplace
       # Quantas ainda faltam, para quem roda saber quando parar.
       def quantas_faltam = pendentes.count
 
+      # E quantas notas ainda estão sem o comprador que o título exige.
+      #
+      # O `completar_compradores` faz 40 por execução. Sem este número, quem
+      # rodou uma vez acha que terminou — foi o que aconteceu: 33 completadas,
+      # 32 continuaram recusadas pelo OMIE, e a conciliação seguiu acusando
+      # "sem comprador" sem ninguém saber que bastava repetir.
+      def quantas_incompletas = incompletas.count
+
       private
 
       attr_reader :tenant, :platform_account, :limite, :pausa, :dry_run

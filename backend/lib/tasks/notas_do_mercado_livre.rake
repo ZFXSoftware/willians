@@ -36,6 +36,8 @@ namespace :ml do
       puts "  sem resposta / sem pedido:       #{resumo[:sem_resposta] + resumo[:sem_pedido]}"
       puts "  falhas:                          #{resumo[:falhas]}"
       puts
+      puts "Ainda sem comprador depois desta leva: #{servico.quantas_incompletas}"
+      puts
       puts aplicar ? "A recusa do OMIE se libera sozinha: a assinatura do envio mudou." : "Nada foi gravado."
 
       next
