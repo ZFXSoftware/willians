@@ -102,20 +102,46 @@ namespace :conciliacao do
 
         next unless dados.is_a?(Hash) && dados["chave"].to_s.gsub(/\D/, "").length == 44
 
+        # Pela chave E por número+série, como `ReligarPeloEnvio` faz.
+        #
+        # Buscar só por `access_key` me fez anunciar "10 notas não estão no nosso
+        # banco" quando estavam — sem a chave preenchida, que é justamente o que
+        # o religamento preencheria se fosse ligar. A sonda inventou uma categoria
+        # e eu fui consertar a importação por causa dela.
+        numero = dados["numero"].to_s.sub(/\A0+/, "")
+
+        serie = dados["serie"].to_s.sub(/\A0+/, "")
+
         nota = Invoice.where(tenant_id: tenant.id)
                       .where("regexp_replace(COALESCE(access_key,''), '\\D', '', 'g') = ?",
                              dados["chave"].to_s.gsub(/\D/, ""))
                       .first
 
-        causas[nota.nil? ? "a nota NÃO está no nosso banco" : "nota #{nota.status} no banco, sem vínculo"] += 1
+        if nota.blank? && numero.present?
+          nota = Invoice.where(tenant_id: tenant.id)
+                        .where("regexp_replace(COALESCE(number,''), '\\A0+', '') = ?", numero)
+                        .where("regexp_replace(COALESCE(series,''), '\\A0+', '') = ?", serie)
+                        .first
+        end
+
+        causa = if nota.blank?
+          "a nota não está aqui por chave NEM por número+série"
+        elsif nota.status.to_s == "cancelled"
+          "nota CANCELADA: o cliente precisa emitir outra"
+        else
+          "nota #{nota.status} sem vínculo: DEFEITO NOSSO"
+        end
+
+        causas[causa] += 1
       end
     end
 
     causas.sort_by { |_, q| -q }.each { |causa, quantas| puts format("  %-40s %d", causa, quantas) }
 
     puts
-    puts "  nota CANCELADA é deixada solta de propósito: ela não é a nota da venda,"
-    puts "  e o cliente precisa emitir outra. Nota `issued` sem vínculo é defeito nosso."
+    puts "  cancelada é deixada solta de propósito: `soltar_canceladas!` a desgruda a"
+    puts "  cada ciclo e `ReligarPeloEnvio` se recusa a religar — senão as duas brigariam."
+    puts "  Por isso o mesmo repasse oscila entre execuções: liga, reimporta, solta."
     puts
 
     puts "Das que não têm chave:"
