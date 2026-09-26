@@ -38,6 +38,10 @@ module Omie
     # certo é não repetir a chamada.
     REDUNDANT_CONSUMPTION = /consumo redundante/i
 
+    # Quanto aceitamos esperar o desbloqueio. O OMIE pede ~54s; mais que dois
+    # minutos parados não é espera, é execução travada.
+    REDUNDANT_MAX_WAIT = 120
+
     # "Esta requisição já foi processada ou está sendo processada."
     #
     # Terceiro caso, e o mais perigoso dos três: aqui o OMIE pode ter GRAVADO e
@@ -202,6 +206,30 @@ module Omie
         raise if attempt >= MAX_ATTEMPTS
 
         sleep(CONCURRENCY_BACKOFF * attempt)
+
+        retry
+      rescue RedundantConsumption => e
+        # O OMIE DIZ quanto esperar, e esperar é o certo quando a repetição é
+        # legítima: dois leitores diferentes precisando do mesmo relatório na
+        # mesma janela não é defeito.
+        #
+        # Isto vive AQUI e não em quem chama porque o bloqueio atinge todos: eu
+        # havia consertado só o `ConciliacaoService`, e minutos depois a mesma
+        # parede derrubou a auditoria de títulos — ela pedia exatamente a
+        # requisição que a conciliação tinha acabado de fazer.
+        #
+        # Uma tentativa só, e com teto: espera longa não é espera, é execução
+        # travada. Sem `retry_after` não há o que esperar, e insistir às cegas é o
+        # que rende o bloqueio de novo.
+        raise if attempt >= MAX_ATTEMPTS
+
+        espera = e.retry_after.to_i
+
+        raise unless espera.positive? && espera <= REDUNDANT_MAX_WAIT
+
+        Rails.logger.info "[Omie] bloqueio por consumo redundante: esperando #{espera}s antes de repetir."
+
+        sleep(espera + 1)
 
         retry
       rescue *RETRIABLE => e
