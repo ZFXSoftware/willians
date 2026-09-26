@@ -308,7 +308,12 @@ module Financeiro
 
       leitor = Omie::Readers::ReceivableTotals.new(client: client)
 
-      leitor.call(start_date: marco || (Date.current - 365), end_date: Date.current)
+      # `piso` e não `marco`: num envio de histórico as notas são de ANTES do
+      # marco, e um índice que começa no marco não contém nenhum título delas —
+      # a conferência passaria vazia e diria "não está no OMIE" sobre tudo,
+      # exatamente na operação que ela existe para proteger. Sem piso nenhum,
+      # um ano para trás.
+      leitor.call(start_date: piso || (Date.current - 365), end_date: Date.current)
 
       @codigos_no_omie = leitor.detalhes.values.flatten.filter_map { |t| t[:codigo].presence }.to_set
     rescue StandardError => e

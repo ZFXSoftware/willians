@@ -187,6 +187,35 @@ module Financeiro
       assert_equal 0, resumo[:enviadas], "o automático não pode aceitar histórico por parâmetro"
     end
 
+    # O índice tem de cobrir o período do HISTÓRICO, não o do marco: as notas de
+    # junho não aparecem num índice que começa em julho, e a conferência passaria
+    # vazia dizendo "não está no OMIE" sobre todas.
+    test "o índice do histórico começa no desde, não no marco" do
+      configurar(envio_a_partir_de: "2026-07-01")
+
+      @nota.update!(issued_at: Date.parse("2026-06-14"))
+
+      espiao = OmieEspiao.new(titulos: [
+        { "numero_documento_fiscal" => "850512", "valor_documento" => 134.65,
+          "codigo_lancamento_integracao" => codigo }
+      ])
+
+      resumo = Current.with_tenant(@tenant) do
+        EnvioDeNotasAoOmie.new(
+          tenant: @tenant, client: espiao, dry_run: false, pausa: 0,
+          desde: Date.parse("2026-06-01")
+        ).call
+      end
+
+      pedido = espiao.chamadas.find { |call, _| call == "ListarContasReceber" }&.last
+
+      assert_equal "01/06/2026", pedido[:filtrar_por_emissao_de],
+                   "o índice foi pedido a partir do marco, e não do período enviado"
+
+      assert_equal 1, resumo[:ja_no_omie], "não reconheceu o título de junho que já existia"
+      assert_not espiao.incluiu_titulo?, "duplicou um título que já estava lá"
+    end
+
     # Num envio de HISTÓRICO, seguir sem o índice é mandar sem rede na hora do
     # salto: é a leva de centenas de notas antigas que mais precisa da conferência.
     # O bloqueio do OMIE passa em um minuto; duplicata na contabilidade não passa.
