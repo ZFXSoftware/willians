@@ -98,6 +98,50 @@ module Conciliacao
                    "fora da diferença, mas visível para a tela"
     end
 
+    # COMPONENTE e BASE têm de ser medidos na mesma moeda.
+    #
+    # Quando tirei o parcelamento do valor interno, deixei `valor_sem_nota`
+    # medindo o bruto CRU. As duas pontas passaram a falar moedas diferentes: a
+    # decomposição explicava mais do que a diferença tinha, e o resíduo saiu
+    # NEGATIVO em produção — R$ -533,97 num repasse com R$ 3,98 de diferença.
+    test "venda sem nota entra líquida do parcelamento, como a diferença" do
+      nota, repasse = cenario(
+        bruto: 222.66, valor_nota: 194.65,
+        relatorio: { "FINANCING_FEE_AMOUNT" => "-28.01" }
+      )
+
+      # Uma segunda venda no MESMO repasse, sem nota e com parcelamento próprio.
+      outro = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PED-2")
+
+      solta = criar_recebivel(tenant: @tenant, conta: @conta, pedido: outro,
+                              bruto: 110.00, liquido: 110.00, external_id: "MLREL-2-SALE",
+                              previsto_para: Date.current - 2)
+
+      lanc = criar_lancamento(tenant: @tenant, conta: @conta, pedido: outro,
+                              valor: 110.00, external_id: "MLREL-2-SALE")
+
+      lanc.update!(raw_payload: { "FINANCING_FEE_AMOUNT" => "-10.00" })
+
+      alocar!(tenant: @tenant, lancamento: lanc, recebivel: solta,
+              repasse: repasse, tipo: :payout)
+
+      repasse.update!(gross_amount: 332.66, net_amount: 332.66)
+
+      registro = conciliar(BigDecimal("194.65"))
+
+      decomposicao = registro.conciliation_metadata.to_h["decomposicao"].to_h
+
+      assert_equal "100.0", decomposicao["sem_nota"],
+                   "a venda sem nota tem de entrar por 110 - 10, não por 110"
+
+      assert_not registro.diferenca.to_d.negative?, "diferença negativa por base inconsistente"
+
+      assert_operator decomposicao["residuo"].to_d, :>=, BigDecimal("-0.10"),
+                      "resíduo negativo é a decomposição explicando mais do que existe"
+
+      assert_equal nota.number, "500"
+    end
+
     # Sem a linha do relatório e sem os dados fiscais, a causa é DESCONHECIDA — e
     # o honesto é continuar pedindo revisão.
     #

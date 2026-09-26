@@ -453,7 +453,14 @@ module Conciliacao
           # Este número é o que permite comparar mesmo com vendas sem nota: a
           # diferença que aparece é grande porque falta NF, não porque falta
           # dinheiro, e sem dizer quanto é uma coisa vira a outra.
-          valor_sem_nota: unidades.reject(&:invoice).sum(BigDecimal("0")) { |u| u.gross_amount.to_d },
+          # LÍQUIDO do parcelamento, como a diferença.
+          #
+          # Eu tirei o parcelamento do valor interno e deixei este componente
+          # medindo o bruto CRU. As duas pontas passaram a falar moedas
+          # diferentes: a decomposição explicava mais do que a diferença tinha, e
+          # o resíduo saía negativo — R$ -533 num repasse com R$ 3,98 de
+          # diferença. Componente e base precisam ser medidos na mesma base.
+          valor_sem_nota: liquido_de(unidades.reject(&:invoice), linhas_do_relatorio(unidades)),
           # O que o marketplace somou ao bruto e o que a nota abateu.
           #
           # Sem isto, esses valores apareciam como "diferença real" — dinheiro
@@ -562,8 +569,8 @@ module Conciliacao
         fracao = fracao_por_chave[chave] || 1
 
         # O que há para explicar nesta nota.
-        medida = lista.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d } -
-                 (nota.total_amount.to_d * fracao)
+        # Também líquido do parcelamento: é o mesmo motivo do `valor_sem_nota`.
+        medida = liquido_de(lista, linhas) - (nota.total_amount.to_d * fracao)
 
         next BigDecimal("0") unless medida.positive?
 
@@ -594,6 +601,15 @@ module Conciliacao
     end
 
     # A linha do relatório de cada venda, em uma consulta para o lote.
+    # O bruto das vendas menos o parcelamento delas — a mesma moeda em que a
+    # diferença é medida desde que `valor_interno_for` deixou de usar o bruto cru.
+    def liquido_de(unidades, linhas)
+      unidades.sum(BigDecimal("0")) do |unidade|
+        unidade.gross_amount.to_d -
+          linhas[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
+      end
+    end
+
     def linhas_do_relatorio(unidades)
       return {} if unidades.empty?
 
