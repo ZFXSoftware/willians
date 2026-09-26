@@ -53,6 +53,8 @@ namespace :omie do
         Financeiro::EnvioDeNotasAoOmie.new(
           tenant: tenant, dry_run: !aplicar, limite: limite, desde: desde
         ).call
+      rescue Financeiro::EnvioDeNotasAoOmie::IndiceIndisponivel => e
+        abort "PARADO: #{e.message}"
       rescue Financeiro::EnvioDeNotasAoOmie::ConfiguracaoAusente => e
         abort "FALTA CONFIGURAR: #{e.message}"
       end

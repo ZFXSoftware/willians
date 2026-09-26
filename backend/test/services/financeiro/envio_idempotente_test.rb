@@ -187,7 +187,38 @@ module Financeiro
       assert_equal 0, resumo[:enviadas], "o automático não pode aceitar histórico por parâmetro"
     end
 
-    # Sem o índice o envio continua — pior, mas não parado.
+    # Num envio de HISTÓRICO, seguir sem o índice é mandar sem rede na hora do
+    # salto: é a leva de centenas de notas antigas que mais precisa da conferência.
+    # O bloqueio do OMIE passa em um minuto; duplicata na contabilidade não passa.
+    test "histórico PARA quando não consegue ler o que já está no OMIE" do
+      configurar(envio_a_partir_de: "2026-07-01")
+
+      @nota.update!(issued_at: Date.parse("2026-06-14"))
+
+      espiao = Class.new(OmieEspiao) do
+        def request(endpoint, call, params = {})
+          raise Omie::Client::RedundantConsumption.new("bloqueado", retry_after: 54) if call == "ListarContasReceber"
+
+          super
+        end
+      end.new
+
+      erro = assert_raises(EnvioDeNotasAoOmie::IndiceIndisponivel) do
+        Current.with_tenant(@tenant) do
+          EnvioDeNotasAoOmie.new(
+            tenant: @tenant, client: espiao, dry_run: false, pausa: 0,
+            desde: Date.parse("2026-06-01")
+          ).call
+        end
+      end
+
+      assert_match(/duplicata/, erro.message)
+      assert_not espiao.incluiu_titulo?, "não podia ter enviado nada"
+    end
+
+    # Sem o índice o envio CORRENTE continua — pior, mas não parado: são poucas
+    # notas por volta do ciclo, e parar a rotina por leitura indisponível deixaria
+    # a fila encalhada.
     test "falha ao listar o que o OMIE tem não impede o envio" do
       espiao = Class.new(OmieEspiao) do
         def request(endpoint, call, params = {})

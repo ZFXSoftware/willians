@@ -58,6 +58,10 @@ module Financeiro
 
     class ConfiguracaoAusente < StandardError; end
 
+    # O índice do que já está no OMIE não pôde ser lido, e sem ele um envio de
+    # histórico arriscaria duplicata. Recado para quem roda, não defeito.
+    class IndiceIndisponivel < StandardError; end
+
     class SemMarcoInicial < StandardError; end
 
     class MuitasFalhas < StandardError; end
@@ -130,6 +134,12 @@ module Financeiro
         # cliente, e ela CURA o passado: nota que já está lá sai da fila em vez de
         # ser reenviada para sempre.
         resumo[:ja_no_omie] = 0
+
+        # Carregado ANTES do laço quando é histórico, e não sob demanda na
+        # primeira nota: lá dentro o `rescue StandardError` do laço engole a
+        # exceção e a conta como falha, nota após nota, sem nunca dizer o que
+        # aconteceu. Falhar antes de enviar a primeira é o que torna a parada útil.
+        codigos_no_omie if @desde.present?
 
         notas.each do |nota|
           processar(nota, resumo)
@@ -303,6 +313,21 @@ module Financeiro
       @codigos_no_omie = leitor.detalhes.values.flatten.filter_map { |t| t[:codigo].presence }.to_set
     rescue StandardError => e
       Rails.logger.warn "[EnvioDeNotas] não consegui listar o que já está no OMIE: #{e.class} #{e.message}"
+
+      # Num envio de HISTÓRICO isto não pode ser "pior mas não parado".
+      #
+      # Eu escrevi esse comentário e ele está errado aqui: o caso em que a
+      # proteção mais importa é exatamente uma leva de centenas de notas antigas,
+      # e seguir sem o índice é mandar sem rede justamente na hora do salto. O
+      # bloqueio do OMIE passa em um minuto; a duplicata na contabilidade do
+      # cliente não passa sozinha.
+      #
+      # No envio corrente (sem `desde`) o comportamento antigo continua: são
+      # poucas notas por volta do ciclo, e parar a rotina por indisponibilidade de
+      # leitura deixaria a fila encalhada.
+      raise IndiceIndisponivel, "não consegui ler o que já está no OMIE (#{e.class}). " \
+                                "Espere um minuto e repita: enviar histórico sem essa " \
+                                "conferência é como a duplicata nasce." if @desde.present?
 
       @codigos_no_omie = nil
     end
