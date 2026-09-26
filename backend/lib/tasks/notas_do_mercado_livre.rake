@@ -19,6 +19,57 @@ namespace :ml do
     puts "Até #{limite} venda(s) por execução. Escreve só no nosso banco."
     puts
 
+    # TRAVA DE DATA, e ela é a razão desta verificação existir aqui em vez de na
+    # cabeça de quem roda.
+    #
+    # As notas que o Mercado Livre emitiu incluem vendas de JUNHO, anteriores ao
+    # início do Tiny. Importar cria nota com data de junho no nosso banco — e é o
+    # `omie.envio_a_partir_de` que decide se o ciclo as transforma em título na
+    # contabilidade do cliente, sozinho, na próxima volta.
+    #
+    # Três cenários, um perigoso: marco VAZIO desliga o envio automático inteiro
+    # (`SemMarcoInicial` interrompe); marco DEPOIS das notas as deixa fora da
+    # fila para sempre; marco ANTES delas manda centenas de títulos sem ninguém
+    # decidir. Só o terceiro pede confirmação — e pedir sempre ensinaria a
+    # ignorar o aviso.
+    marco = Current.with_tenant(tenant) do
+      Integracoes::Config.get("omie", :envio_a_partir_de, tenant: tenant).presence&.to_date
+    rescue Date::Error
+      nil
+    end
+
+    mais_antiga = Marketplace::MercadoLivre::NotaFiscal
+                    .new(tenant: tenant, platform_account: conta, dry_run: true)
+                    .pendentes
+                    .includes(:order)
+                    .filter_map { |unidade| unidade.order.metadata.to_h.dig("nota_do_envio", "data").presence }
+                    .filter_map { |texto| Date.parse(texto) rescue nil }
+                    .min
+
+    puts "Marco do envio ao OMIE: #{marco || '(vazio — envio automático desligado)'}"
+    puts "Nota mais antiga que esta leva criaria: #{mais_antiga || '(nenhuma com data)'}"
+
+    if aplicar && marco && mais_antiga && marco <= mais_antiga && ENV["CONFIRMO_ENVIO"] != "1"
+      abort <<~AVISO
+
+        PARADO. O marco do OMIE (#{marco}) é ANTERIOR ou IGUAL à nota mais antiga
+        desta leva (#{mais_antiga}), então o ciclo enviaria estas notas ao OMIE
+        sozinho na próxima volta — criando título na contabilidade do cliente sem
+        ninguém decidir.
+
+        Duas saídas:
+          - mover o marco em Configurações > OMIE para depois de #{mais_antiga}, e
+            importar com segurança; ou
+          - confirmar que os títulos DEVEM ir, repetindo com CONFIRMO_ENVIO=1.
+
+        Confira antes se o cliente já lançou esse período por outro caminho: o
+        envio não é idempotente contra resposta perdida, e duplicata na
+        contabilidade dele é caro de desfazer.
+      AVISO
+    end
+
+    puts
+
     servico = Marketplace::MercadoLivre::NotaFiscal.new(
       tenant: tenant, platform_account: conta, limite: limite, dry_run: !aplicar
     )
