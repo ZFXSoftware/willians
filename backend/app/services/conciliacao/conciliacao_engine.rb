@@ -429,7 +429,18 @@ module Conciliacao
           chave.present? && omie_totals.key?(chave)
         end
 
-        valor_sem_titulo = faltando.sum(BigDecimal("0")) { |nota| nota.total_amount.to_d }
+        # Pela FRAÇÃO que cabe a este repasse, como o lado do OMIE já faz.
+        #
+        # Somava o valor INTEIRO da nota: uma nota de pacote dividida entre dois
+        # repasses entrava pelo valor cheio nos DOIS, e a decomposição passava a
+        # explicar mais do que a diferença tinha. Era a maior parte dos resíduos
+        # negativos — 19 de 35 repasses — e o aviso "duas dessas parcelas estão
+        # contando o mesmo dinheiro" que a própria tela já dava.
+        valor_sem_titulo = faltando.sum(BigDecimal("0")) do |nota|
+          chave = Omie::Readers::ReceivableTotals.normalizar(nota.number)
+
+          nota.total_amount.to_d * (fracao_por_chave[chave] || 1)
+        end.round(2)
 
         # As que não vão chegar: nota emitida sem valor não vira título nunca.
         # Contá-las como "faltando" deixa o repasse esperando para sempre.

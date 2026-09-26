@@ -142,6 +142,62 @@ module Conciliacao
       assert_equal nota.number, "500"
     end
 
+    # Nota de pacote SEM título entrava pelo valor inteiro em cada repasse que
+    # levou parte dela — dividida entre dois repasses, era contada duas vezes por
+    # inteiro. O lado do OMIE já aplicava a fração; este componente não, e era daí
+    # que vinha a maior parte dos resíduos negativos.
+    #
+    # O repasse precisa de ALGUMA nota com título, senão não há comparação e a
+    # decomposição nem é gravada — por isso o cenário tem duas notas.
+    test "nota de pacote sem título entra pela fração, não inteira" do
+      com_titulo = criar_nota(tenant: @tenant, pedido: @pedido, numero: "500", valor: 100.00)
+
+      venda_a = criar_recebivel(tenant: @tenant, conta: @conta, pedido: @pedido, nota: com_titulo,
+                                bruto: 100.00, liquido: 100.00, external_id: "MLREL-A",
+                                previsto_para: Date.current - 2)
+
+      lancamento = criar_lancamento(tenant: @tenant, conta: @conta, pedido: @pedido,
+                                    nota: com_titulo, valor: 100.00, external_id: "MLREL-A")
+
+      # Nota de pacote: 200 para DUAS vendas de 100, e só uma entra neste repasse.
+      pacote = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PACOTE-1")
+
+      sem_titulo = criar_nota(tenant: @tenant, pedido: pacote, numero: "700", valor: 200.00)
+
+      venda_b = criar_recebivel(tenant: @tenant, conta: @conta, pedido: pacote, nota: sem_titulo,
+                                bruto: 100.00, liquido: 100.00, external_id: "MLREL-B",
+                                previsto_para: Date.current - 2)
+
+      criar_recebivel(tenant: @tenant, conta: @conta, pedido: pacote, nota: sem_titulo,
+                      bruto: 100.00, liquido: 100.00, external_id: "MLREL-C",
+                      previsto_para: Date.current - 2)
+
+      repasse = criar_repasse(tenant: @tenant, conta: @conta, bruto: 200.00, liquido: 200.00,
+                              pago_em: Time.current - 1.day, lancamento: lancamento)
+
+      [ venda_a, venda_b ].each do |unidade|
+        alocar!(tenant: @tenant, lancamento: lancamento, recebivel: unidade,
+                repasse: repasse, tipo: :payout)
+      end
+
+      ConciliacaoEngine.new(
+        tenant: @tenant, platform_account: @conta,
+        start_date: Date.current - 10, end_date: Date.current,
+        omie_totals: { "500" => BigDecimal("100.00") }
+      ).call
+
+      registro = ConciliacaoRegistro.where(tenant_id: @tenant.id, payout_batch_id: repasse.id)
+                                    .order(:id).last
+
+      decomposicao = registro.conciliation_metadata.to_h["decomposicao"].to_h
+
+      assert_equal "100.0", decomposicao["sem_titulo"],
+                   "a nota de 200 dividida ao meio tem de entrar por 100 neste repasse"
+
+      assert_operator decomposicao["residuo"].to_d, :>=, BigDecimal("-0.10"),
+                      "contar a nota inteira faz a decomposição explicar mais do que existe"
+    end
+
     # Sem a linha do relatório e sem os dados fiscais, a causa é DESCONHECIDA — e
     # o honesto é continuar pedindo revisão.
     #
