@@ -102,6 +102,21 @@ module Financeiro
 
         resumo[:reabertas] = reabrir_recusadas!
 
+        # O que o OMIE JÁ TEM, lido uma vez por execução.
+        #
+        # O envio não era idempotente: `codigo_lancamento_integracao` é
+        # determinístico (`...-NF-<id>`), mas se o IncluirContaReceber sucede e a
+        # resposta se perde, a nota continua marcada como não enviada e a volta
+        # seguinte cria o SEGUNDO título. Aconteceu com a NF 854054, R$ 169,65 a
+        # mais no esperado — e a resposta do OMIE "Esta requisição já foi
+        # processada ou está sendo processada" é exatamente o momento em que isso
+        # nasce.
+        #
+        # Uma leitura paginada custa menos que uma duplicata na contabilidade do
+        # cliente, e ela CURA o passado: nota que já está lá sai da fila em vez de
+        # ser reenviada para sempre.
+        resumo[:ja_no_omie] = 0
+
         notas.each do |nota|
           processar(nota, resumo)
         rescue Omie::Mappers::InvoiceMapper::SemComprador,
@@ -122,6 +137,16 @@ module Financeiro
           resumo[:erros] << "NF #{nota.number}: #{e.message}" if resumo[:erros].size < 5
 
           Rails.logger.warn "[EnvioDeNotas] #{e.message}"
+        rescue Omie::Client::MaybeProcessed => e
+          # NÃO conta como falha: três falhas seguidas travam o automático, e
+          # travar por incerteza deixaria a fila parada. NÃO marca como enviada:
+          # não sabemos. A execução seguinte pergunta ao OMIE pelo código
+          # determinístico e resolve — se entrou, sai da fila; se não, reenvia.
+          resumo[:talvez_no_omie] = resumo[:talvez_no_omie].to_i + 1
+
+          resumo[:erros] << "NF #{nota.number}: #{e.message}" if resumo[:erros].size < 5
+
+          Rails.logger.warn "[EnvioDeNotas] nota ##{nota.id}: #{e.message}"
         rescue StandardError => e
           resumo[:falhas] += 1
 
@@ -219,6 +244,17 @@ module Financeiro
 
       return if dry_run
 
+      # Já está no OMIE? Então marcar aqui e não enviar: é o conserto da
+      # duplicata e, ao mesmo tempo, o que tira da fila a nota cuja resposta se
+      # perdeu numa execução anterior.
+      if ja_no_omie?(nota)
+        registrar_codigo!(nota)
+
+        resumo[:ja_no_omie] += 1
+
+        return
+      end
+
       codigo = resolver_cliente!(mapper, cliente)
 
       resposta = client.request(TITULO[:endpoint], TITULO[:call], mapper.titulo(codigo_cliente: codigo))
@@ -228,6 +264,43 @@ module Financeiro
       resumo[:enviadas] += 1
 
       dormir
+    end
+
+    # Os códigos de integração que o OMIE já conhece, na janela das notas que
+    # vamos enviar. Uma leitura, não uma por nota.
+    #
+    # Falhar aqui NÃO pode impedir o envio: sem o índice voltamos ao
+    # comportamento antigo, que é pior mas não é parado. O que não pode é a
+    # leitura cair e ninguém saber — por isso vai para o resumo.
+    def codigos_no_omie
+      return @codigos_no_omie if defined?(@codigos_no_omie)
+
+      leitor = Omie::Readers::ReceivableTotals.new(client: client)
+
+      leitor.call(start_date: marco || (Date.current - 365), end_date: Date.current)
+
+      @codigos_no_omie = leitor.detalhes.values.flatten.filter_map { |t| t[:codigo].presence }.to_set
+    rescue StandardError => e
+      Rails.logger.warn "[EnvioDeNotas] não consegui listar o que já está no OMIE: #{e.class} #{e.message}"
+
+      @codigos_no_omie = nil
+    end
+
+    def ja_no_omie?(nota)
+      codigos = codigos_no_omie
+
+      return false if codigos.blank?
+
+      codigos.include?(Omie::Mappers::InvoiceMapper.codigo_de(nota))
+    end
+
+    # Marca a nota como enviada usando o código determinístico, sem inventar
+    # dado: é o mesmo valor que o OMIE devolveria.
+    def registrar_codigo!(nota)
+      nota.update!(metadata: (nota.metadata || {}).merge(
+        "omie_codigo_lancamento" => Omie::Mappers::InvoiceMapper.codigo_de(nota),
+        "omie_reconhecida_em" => Time.current
+      ))
     end
 
     # Consulta pelo CPF/CNPJ e só cria quando não existe.

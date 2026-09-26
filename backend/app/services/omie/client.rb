@@ -38,6 +38,16 @@ module Omie
     # certo é não repetir a chamada.
     REDUNDANT_CONSUMPTION = /consumo redundante/i
 
+    # "Esta requisição já foi processada ou está sendo processada."
+    #
+    # Terceiro caso, e o mais perigoso dos três: aqui o OMIE pode ter GRAVADO e
+    # perdido a resposta. Tratar como falha faz a volta seguinte reenviar e criar
+    # o segundo título — foi assim que a NF 854054 ganhou duplicata. Tratar como
+    # sucesso é pior ainda, porque marcaria como enviada uma nota que talvez não
+    # tenha entrado. É o único erro que significa "não sei", e quem chama precisa
+    # poder distinguir.
+    ALREADY_PROCESSED = /j[áa] foi processada|est[áa] sendo processada/i
+
     class Error < StandardError; end
 
     class TransportError < Error; end
@@ -55,6 +65,10 @@ module Omie
     end
 
     class WriteBlocked < Error; end
+
+    # O OMIE pode ter gravado sem que a resposta chegasse. Nem sucesso nem
+    # falha: incerteza, e o conserto é perguntar depois, não repetir agora.
+    class MaybeProcessed < Error; end
 
     # Rede real a partir da suíte de testes. Nunca deveria acontecer: as
     # credenciais do .env são as de PRODUÇÃO do cliente, e o processo de teste
@@ -230,6 +244,8 @@ module Omie
         fault = parsed["faultstring"]
 
         raise ConcurrentRequest, "Omie ocupado em #{call}: #{fault}" if fault.match?(CONCURRENT_REQUEST)
+
+        raise MaybeProcessed, "Omie pode já ter processado #{call}: #{fault}" if fault.match?(ALREADY_PROCESSED)
 
         if fault.match?(REDUNDANT_CONSUMPTION)
           raise RedundantConsumption.new(

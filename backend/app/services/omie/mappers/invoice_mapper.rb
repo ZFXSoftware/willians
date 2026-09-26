@@ -11,6 +11,14 @@ module Omie
     class InvoiceMapper
       PREFIX = FinancialEntryMapper::INTEGRATION_PREFIX
 
+      # O código de integração da nota, num método de CLASSE.
+      #
+      # Ele é determinístico de propósito: é o que permite perguntar ao OMIE
+      # "você já tem esta nota?" sem depender de a resposta anterior ter
+      # chegado. Estava embutido no corpo do título, onde só quem monta o envio
+      # o conhecia — e quem precisa checar duplicata não monta envio nenhum.
+      def self.codigo_de(invoice) = "#{PREFIX}-NF-#{invoice.id}"
+
       class SemComprador < StandardError; end
 
       # Título sem valor o OMIE recusa — "O preenchimento da tag
@@ -56,7 +64,7 @@ module Omie
         {
           # Distingue o que é nosso do que o TrackCash criou, e permite
           # reencontrar o título sem depender de valor ou data.
-          codigo_lancamento_integracao: "#{PREFIX}-NF-#{invoice.id}",
+          codigo_lancamento_integracao: self.class.codigo_de(invoice),
 
           codigo_cliente_fornecedor: codigo_cliente,
 
