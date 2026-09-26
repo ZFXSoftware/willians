@@ -196,15 +196,23 @@ module Marketplace
 
         return resumo[:sem_chave] += 1 if chave.length != 44
 
-        # Já temos? Pela CHAVE, que é identidade, e não pelo número.
-        existente = Invoice.where(tenant_id: tenant.id)
-                           .where("regexp_replace(COALESCE(access_key,''), '\\D', '', 'g') = ?", chave)
-                           .first
+        existente = procurar_existente(chave, dados)
 
         if existente
           resumo[:ja_tinhamos] += 1
 
-          ligar!(unidade, existente) unless dry_run
+          unless dry_run
+            # A chave que faltava vem de graça nesta resposta, e é a identidade do
+            # documento: com ela preenchida, a próxima importação reconhece a nota
+            # pelo primeiro critério e nem chega no número.
+            if existente.access_key.blank?
+              existente.update!(access_key: chave)
+
+              resumo[:chaves_preenchidas] = resumo[:chaves_preenchidas].to_i + 1
+            end
+
+            ligar!(unidade, existente) unless cancelada?(dados)
+          end
 
           return
         end
@@ -223,6 +231,38 @@ module Marketplace
         # Nota cancelada não é a nota da venda: criar é certo, para o histórico
         # existir, mas ligar faria a conciliação esperar um título que não vem.
         ligar!(unidade, nota) unless cancelada?(dados)
+      end
+
+      # Pela CHAVE, que é identidade; e então por NÚMERO + SÉRIE da própria
+      # resposta.
+      #
+      # Só a chave não bastava, e o preço foi 20 notas duplicadas: a nota do Tiny
+      # entra no banco com `access_key` VAZIA, então a comparação por chave não
+      # alcança nenhuma delas. Encontrando 42336/2 do Tiny sem chave, esta
+      # importação criava 42336/2 do Mercado Livre ao lado — mesma série, mesmo
+      # valor, mesma data, dois registros — e cada um virava título no OMIE.
+      #
+      # O número vem de `dados`, e não da marca `nota_do_envio`: a marca guarda o
+      # que perguntamos, e a resposta é quem diz qual documento de fato existe.
+      # Filtrar a fila por uma e criar pela outra é como a duplicata passou pela
+      # peneira que eu já tinha consertado.
+      def procurar_existente(chave, dados)
+        pela_chave = Invoice.where(tenant_id: tenant.id)
+                            .where("regexp_replace(COALESCE(access_key,''), '\\D', '', 'g') = ?", chave)
+                            .first
+
+        return pela_chave if pela_chave
+
+        numero = dados["invoice_number"].to_s.sub(/\A0+/, "")
+
+        return if numero.blank?
+
+        serie = dados["invoice_series"].to_s.sub(/\A0+/, "")
+
+        Invoice.where(tenant_id: tenant.id)
+               .where("regexp_replace(COALESCE(number,''), '\\A0+', '') = ?", numero)
+               .where("regexp_replace(COALESCE(series,''), '\\A0+', '') = ?", serie)
+               .first
       end
 
       def buscar(externo)

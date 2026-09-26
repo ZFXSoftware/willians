@@ -167,6 +167,61 @@ module Marketplace
       assert_equal nota.id, @unidade.reload.invoice_id
     end
 
+    # 20 notas duplicadas em produção por causa disto, e o caminho importa: a
+    # marca `nota_do_envio` guarda o que PERGUNTAMOS, e a resposta diz qual
+    # documento de fato existe. Quando os dois números divergem — venda de pacote,
+    # nota reemitida — a fila deixa passar pela marca e a criação usa a resposta.
+    #
+    # A nota do Tiny entra com `access_key` VAZIA, e a busca da criação era só
+    # pela chave. Encontrando 42289/2 do Tiny sem chave, o importador criava
+    # 42289/2 do Mercado Livre ao lado, e cada uma virava título no OMIE.
+    def com_marca_divergente
+      @pedido.update!(metadata: { "nota_do_envio" => { "numero" => "99999", "serie" => "2" } })
+    end
+
+    test "nota do Tiny sem chave, mesmo número e série, não vira duplicata" do
+      com_marca_divergente
+
+      nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "42289", valor: 180.65)
+
+      nota.update!(series: "2", access_key: nil)
+
+      resumo = importar(MlFalso.new(resposta))
+
+      assert_equal 1, resumo[:ja_tinhamos], "não reconheceu a nota que já estava lá"
+      assert_equal 1, Invoice.where(tenant_id: @tenant.id).count, "criou duplicata"
+      assert_equal nota.id, @unidade.reload.invoice_id
+    end
+
+    # E a chave vem de graça na resposta: preenchê-la faz a próxima importação
+    # reconhecer a nota pelo primeiro critério, sem depender do número.
+    test "a chave que faltava é preenchida na nota que já tínhamos" do
+      com_marca_divergente
+
+      nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "42289", valor: 180.65)
+
+      nota.update!(series: "2", access_key: nil)
+
+      resumo = importar(MlFalso.new(resposta))
+
+      assert_equal 1, resumo[:chaves_preenchidas]
+      assert_equal CHAVE, nota.reload.access_key
+    end
+
+    # Nota CANCELADA que já tínhamos não pode ser ligada à venda: brigaria com
+    # `soltar_canceladas!`, uma ligando e a outra soltando a cada ciclo.
+    test "nota cancelada que já tínhamos não é ligada à venda" do
+      com_marca_divergente
+
+      nota = criar_nota(tenant: @tenant, pedido: @pedido, numero: "42289", valor: 180.65)
+
+      nota.update!(series: "2", access_key: nil, status: :cancelled)
+
+      importar(MlFalso.new(resposta(cancelada: true)))
+
+      assert_nil @unidade.reload.invoice_id
+    end
+
     # Mesmo número em série DIFERENTE é outro documento.
     #
     # Dez vendas ficaram sem nota para sempre por causa disto: o cliente emite
