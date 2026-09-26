@@ -37,12 +37,21 @@ namespace :fiscal do
 
     # Recebível por nota, numa consulta: são milhares de notas e uma consulta por
     # nota faria disto um diagnóstico que ninguém roda duas vezes.
-    contas_por_nota = ReceivableUnit
-                        .where(tenant_id: tenant.id)
-                        .where.not(invoice_id: nil)
-                        .pluck(:invoice_id, :platform_account_id)
+    recebiveis = ReceivableUnit
+                   .where(tenant_id: tenant.id)
+                   .where.not(invoice_id: nil)
+                   .pluck(:invoice_id, :platform_account_id, :expected_on)
+
+    contas_por_nota = recebiveis
                         .group_by(&:first)
-                        .transform_values { |pares| pares.map(&:last).compact.uniq }
+                        .transform_values { |linhas| linhas.map { |l| l[1] }.compact.uniq }
+
+    # Quando o dinheiro de cada nota foi previsto. Serve para MEDIR o prazo do
+    # repasse em vez de supô-lo: "o Mercado Livre paga em duas semanas" é
+    # folclore até alguém contar.
+    previsto_por_nota = recebiveis
+                          .group_by(&:first)
+                          .transform_values { |linhas| linhas.filter_map { |l| l[2] }.min }
 
     plataformas = PlatformAccount.where(tenant_id: tenant.id).pluck(:id, :platform).to_h
 
@@ -218,6 +227,38 @@ namespace :fiscal do
         puts "      órfãs por mês de emissão:"
         por_mes.sort.each do |mes, (quantas, valor)|
           puts format("        %-9s %5d nota(s)  R$ %11.2f", mes || "(sem data)", quantas, valor)
+        end
+
+        # O PRAZO MEDIDO, pelas notas deste canal que têm dinheiro: da emissão da
+        # nota até a data prevista do recebível. Com ele, "órfã recente" deixa de
+        # ser desculpa e passa a ser conta — nota emitida dentro do prazo típico
+        # ainda não DEVE ter dinheiro; mais velha que isso é buraco.
+        prazos = notas.filter_map do |nota|
+          next unless Fiscal::Tiny::Canal.para(nota.metadata.to_h.dig("intermediador", "nome"), tenant: tenant) == canal
+
+          previsto = previsto_por_nota[nota.id]
+
+          next unless previsto && nota.issued_at
+
+          (previsto - nota.issued_at.to_date).to_i
+        end.sort
+
+        if prazos.size >= 20
+          p50 = prazos[prazos.size / 2]
+          p90 = prazos[(prazos.size * 0.9).to_i]
+
+          corte = Date.current - p90
+
+          dentro, atrasadas = orfas.partition { |nota| nota.issued_at && nota.issued_at.to_date > corte }
+
+          puts format("      prazo medido em %d nota(s) pagas: mediana %d dia(s), p90 %d dia(s)",
+                      prazos.size, p50, p90)
+          puts format("      órfãs emitidas DEPOIS de %s (dentro do prazo): %d · R$ %.2f",
+                      corte, dentro.size, dentro.sum(BigDecimal("0")) { |n| n.total_amount.to_d })
+          puts format("      órfãs mais VELHAS que o p90 — buraco de verdade:  %d · R$ %.2f",
+                      atrasadas.size, atrasadas.sum(BigDecimal("0")) { |n| n.total_amount.to_d })
+        else
+          puts format("      só %d nota(s) paga(s) neste canal: sem base para medir o prazo", prazos.size)
         end
       end
 
