@@ -63,8 +63,22 @@ module Financeiro
     class MuitasFalhas < StandardError; end
 
     def initialize(tenant:, platform_account: nil, client: nil, dry_run: nil,
-                   limite: nil, pausa: PAUSA_PADRAO, automatico: false)
+                   limite: nil, pausa: PAUSA_PADRAO, automatico: false, desde: nil)
       @tenant = tenant
+
+      # Envio de HISTÓRICO, abaixo do marco, e só no caminho manual.
+      #
+      # O marco (`omie.envio_a_partir_de`) diz onde começa a nossa
+      # responsabilidade e existe para o ciclo automático não despejar o passado
+      # inteiro do cliente no OMIE. Quando alguém decide levar um período
+      # anterior — as 443 notas de junho que o Mercado Livre emitiu, por exemplo
+      # — mover o marco resolveria, mas junto ligaria o automático para aquele
+      # período: as notas sairiam sozinhas, em levas que ninguém acompanha.
+      #
+      # Com `desde` a configuração do cliente fica intacta, o automático continua
+      # sem enxergar junho, e cada envio de histórico é uma decisão explícita de
+      # quem roda. Ignorado quando `automatico` — lá o marco é a única palavra.
+      @desde = desde
 
       @platform_account = platform_account
 
@@ -176,6 +190,13 @@ module Financeiro
     #
     # Sem isto, o primeiro ciclo de um cliente novo tentaria mandar o histórico
     # inteiro dele para o OMIE — inclusive o que o sistema antigo já lançou.
+    # O marco, ou o `desde` quando alguém pediu histórico explicitamente.
+    def piso
+      return marco if automatico
+
+      @desde.presence || marco
+    end
+
     def marco
       @marco ||= Integracoes::Config.get("omie", :envio_a_partir_de, tenant: tenant).presence&.to_date
     rescue Date::Error
@@ -377,7 +398,7 @@ module Financeiro
     def notas
       escopo = Invoice
                  .where(tenant_id: tenant.id)
-                 .nao_enviadas_ao_omie(marco)
+                 .nao_enviadas_ao_omie(piso)
                  .includes(:order)
                  .order(:issued_at, :id)
 

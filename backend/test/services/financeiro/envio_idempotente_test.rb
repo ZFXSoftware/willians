@@ -118,6 +118,75 @@ module Financeiro
                  "marcar como enviada sem saber esconderia uma nota que não entrou"
     end
 
+    # ---------------------------------------------------------- histórico
+
+    def configurar(valores)
+      valores.each do |chave, valor|
+        IntegrationSetting.create!(tenant: @tenant, provider: "omie", key: chave.to_s, value: valor)
+      end
+
+      Current.settings_cache.clear if Current.integration_settings
+    end
+
+    # O marco existe para o ciclo automático não despejar o passado do cliente no
+    # OMIE. Quando alguém DECIDE levar um período anterior, mover o marco
+    # resolveria — e junto ligaria o automático para aquele período, despachando
+    # centenas de notas em levas que ninguém acompanha.
+    test "desde leva histórico abaixo do marco, sem mexer na configuração" do
+      configurar(envio_a_partir_de: "2026-07-01")
+
+      @nota.update!(issued_at: Date.parse("2026-06-14"))
+
+      espiao = OmieEspiao.new
+
+      resumo = Current.with_tenant(@tenant) do
+        EnvioDeNotasAoOmie.new(
+          tenant: @tenant, client: espiao, dry_run: false, pausa: 0,
+          desde: Date.parse("2026-06-01")
+        ).call
+      end
+
+      assert_equal 1, resumo[:enviadas], "o histórico pedido explicitamente não saiu"
+
+      assert_equal "2026-07-01",
+                   Current.with_tenant(@tenant) {
+                     Integracoes::Config.get("omie", :envio_a_partir_de, tenant: @tenant)
+                   },
+                   "o marco do cliente não pode ser tocado por um envio de histórico"
+    end
+
+    test "sem desde, nota abaixo do marco não é enviada" do
+      configurar(envio_a_partir_de: "2026-07-01")
+
+      @nota.update!(issued_at: Date.parse("2026-06-14"))
+
+      espiao = OmieEspiao.new
+
+      resumo = Current.with_tenant(@tenant) { enviar(espiao) }
+
+      assert_equal 0, resumo[:enviadas]
+      assert_not espiao.incluiu_titulo?
+    end
+
+    # E o automático ignora `desde`: lá o marco é a única palavra, senão a trava
+    # viraria decoração — bastaria alguém passar o parâmetro uma vez.
+    test "o ciclo automático ignora desde e obedece só o marco" do
+      configurar(envio_a_partir_de: "2026-07-01", escrita_liberada: "true")
+
+      @nota.update!(issued_at: Date.parse("2026-06-14"))
+
+      espiao = OmieEspiao.new
+
+      resumo = Current.with_tenant(@tenant) do
+        EnvioDeNotasAoOmie.new(
+          tenant: @tenant, client: espiao, dry_run: false, pausa: 0,
+          automatico: true, desde: Date.parse("2026-06-01")
+        ).call
+      end
+
+      assert_equal 0, resumo[:enviadas], "o automático não pode aceitar histórico por parâmetro"
+    end
+
     # Sem o índice o envio continua — pior, mas não parado.
     test "falha ao listar o que o OMIE tem não impede o envio" do
       espiao = Class.new(OmieEspiao) do

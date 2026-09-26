@@ -13,10 +13,31 @@ namespace :omie do
 
     limite = ENV["LIMITE"].presence&.to_i
 
+    # DESDE= leva HISTÓRICO, abaixo do marco configurado. É deliberado a cada uso:
+    # o marco continua valendo para o ciclo automático, que não vai despachar o
+    # passado sozinho. Data inválida aborta em vez de virar `nil` silencioso — nil
+    # aqui significaria "use o marco", e a pessoa pensaria que mandou histórico.
+    desde =
+      if ENV["DESDE"].present?
+        begin
+          Date.parse(ENV["DESDE"])
+        rescue Date::Error
+          abort "DESDE inválido: #{ENV['DESDE'].inspect}. Use AAAA-MM-DD."
+        end
+      end
+
     puts
     puts "Empresa: ##{tenant.id} #{tenant.name}"
     puts "Notas ainda não enviadas: #{pendentes(tenant)}"
     puts "Limite desta execução: #{limite || 'sem limite'}"
+
+    if desde
+      puts
+      puts "HISTÓRICO: enviando notas emitidas a partir de #{desde}, ABAIXO do marco"
+      puts "configurado. O marco do cliente não foi alterado, e o ciclo automático"
+      puts "continua sem enxergar esse período."
+      puts "Confira antes se o cliente já lançou #{desde.strftime('%m/%Y')} por outro caminho."
+    end
     puts
 
     if aplicar && limite.nil? && !%w[true 1].include?(ENV["TUDO"].to_s.strip.downcase)
@@ -30,7 +51,7 @@ namespace :omie do
     resumo =
       begin
         Financeiro::EnvioDeNotasAoOmie.new(
-          tenant: tenant, dry_run: !aplicar, limite: limite
+          tenant: tenant, dry_run: !aplicar, limite: limite, desde: desde
         ).call
       rescue Financeiro::EnvioDeNotasAoOmie::ConfiguracaoAusente => e
         abort "FALTA CONFIGURAR: #{e.message}"
