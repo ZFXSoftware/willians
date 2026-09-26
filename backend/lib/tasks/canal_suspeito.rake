@@ -130,7 +130,9 @@ namespace :fiscal do
 
       contas = contas_por_plataforma[canal].to_a
 
-      situacao = if canal == Fiscal::Tiny::Canal::PROPRIA
+      situacao = if canal == "(sem canal)"
+        "intermediador NÃO MAPEADO: não é falta de integração, é falta de mapa"
+      elsif canal == Fiscal::Tiny::Canal::PROPRIA
         "balcão: não tem repasse, e está certo assim"
       elsif contas.empty?
         "NENHUMA conta desta plataforma cadastrada -> conectar a integração"
@@ -140,22 +142,65 @@ namespace :fiscal do
         "conta ativa (##{contas.map(&:id).join(',')}) -> a ingestão é que não trouxe"
       end
 
-      puts format("  %-22s %5d de %5d nota(s) sem dinheiro · R$ %11.2f",
-                  canal, sem_dinheiro, linha[:notas], linha[:receita])
+      # As notas DESTE canal sem recebível ligado, com o valor delas.
+      #
+      # Antes eu imprimia `linha[:receita]`, que é a receita do CANAL INTEIRO, ao
+      # lado de "683 de 3473 sem dinheiro" — convidando a ler R$ 585 mil como o
+      # valor não rastreado quando o não rastreado era outro. É o mesmo erro que
+      # persegui o dia todo: número certo no lugar que sugere outra pergunta.
+      orfas = notas.select do |nota|
+        Fiscal::Tiny::Canal.para(nota.metadata.to_h.dig("intermediador", "nome"), tenant: tenant).to_s == canal.to_s &&
+          contas_por_nota[nota.id].to_a.empty?
+      end
+
+      puts format("  %-22s %5d de %5d nota(s) sem dinheiro · R$ %11.2f delas (canal todo: R$ %.2f)",
+                  canal, sem_dinheiro, linha[:notas],
+                  orfas.sum(BigDecimal("0")) { |nota| nota.total_amount.to_d }, linha[:receita])
       puts format("      %s", situacao)
 
       # A mais VELHA sem recebível: venda de ontem sem dinheiro é normal, venda
       # de julho não é.
-      velha = notas.select { |nota|
-        Fiscal::Tiny::Canal.para(nota.metadata.to_h.dig("intermediador", "nome"), tenant: tenant).to_s == canal.to_s &&
-          contas_por_nota[nota.id].to_a.empty?
-      }.min_by { |nota| nota.issued_at || Time.current }
+      velha = orfas.min_by { |nota| nota.issued_at || Time.current }
 
       if velha
         dias = velha.issued_at ? (Date.current - velha.issued_at.to_date).to_i : nil
 
         puts format("      a mais antiga sem dinheiro: NF %s de %s (%s dias)",
                     velha.number, velha.issued_at&.to_date, dias)
+      end
+
+      # "Sem dinheiro" mede o VÍNCULO, não a existência do dinheiro: a nota conta
+      # como órfã quando nenhum recebível aponta para ela. Se o PEDIDO dela tem
+      # recebível, o dinheiro chegou e o elo é que falta — conserto nosso, no
+      # religamento. Se o pedido não tem nenhum, o dinheiro não entrou — e aí é
+      # ingestão ou é venda que a plataforma não repassou.
+      #
+      # Sem separar isso, "683 notas sem dinheiro" manda investigar a ingestão
+      # quando o problema pode ser só o vínculo.
+      if canal != Fiscal::Tiny::Canal::PROPRIA && orfas.any?
+        pedidos = orfas.filter_map(&:order_id).uniq
+
+        com_recebivel = ReceivableUnit
+                          .where(tenant_id: tenant.id, order_id: pedidos)
+                          .distinct
+                          .pluck(:order_id)
+                          .to_set
+
+        elo, sem_dinheiro_mesmo, sem_pedido = 0, 0, 0
+
+        orfas.each do |nota|
+          if nota.order_id.blank?
+            sem_pedido += 1
+          elsif com_recebivel.include?(nota.order_id)
+            elo += 1
+          else
+            sem_dinheiro_mesmo += 1
+          end
+        end
+
+        puts format("      o dinheiro chegou e falta o ELO:        %5d  <- conserto nosso", elo)
+        puts format("      o pedido não tem recebível nenhum:      %5d  <- ingestão ou não repassado", sem_dinheiro_mesmo)
+        puts format("      a nota não está ligada a pedido algum:  %5d", sem_pedido)
       end
 
       puts
