@@ -43,6 +43,20 @@ namespace :conciliacao do
     puts "  #{resumo.inspect.truncate(1200)}"
     puts
 
+    # Se a execução FALHOU, o que vem abaixo não é resultado dela: é o estado
+    # gravado da rodada anterior. Imprimir a tabela e a soma sem dizer isso me fez
+    # ler R$ 23.540,15 como número novo três vezes hoje — inclusive achar
+    # suspeita a soma "idêntica ao centavo", que era simplesmente a mesma soma.
+    falhas = Array(resumo[:runs]).select { |run| run[:status].to_s == "failed" }
+
+    if resumo[:failed].to_i.positive? || falhas.any?
+      puts "=" * 72
+      puts "A CONCILIAÇÃO NÃO RODOU. Os números abaixo são da execução ANTERIOR."
+      falhas.each { |run| puts "  conta ##{run[:platform_account_id]}: #{run[:error]}" }
+      puts "=" * 72
+      puts
+    end
+
     # O que interessa depois de rodar: em que estado cada repasse ficou.
     ids = ConciliacaoRegistro
             .where(tenant_id: tenant.id)
@@ -85,7 +99,9 @@ namespace :conciliacao do
       puts "  ... (#{divergentes.size - 20} outros)" if divergentes.size > 20
       puts
 
-      puts format("Soma das diferenças: R$ %.2f", divergentes.sum { |r| r.diferenca.to_d })
+      puts format("Soma das diferenças: R$ %.2f%s",
+                  divergentes.sum { |r| r.diferenca.to_d },
+                  falhas.any? ? "   <- da execução ANTERIOR, esta falhou" : "")
     end
 
     puts

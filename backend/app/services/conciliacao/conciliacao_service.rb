@@ -138,17 +138,51 @@ module Conciliacao
     # Os títulos a receber são da empresa e não variam por conta de marketplace.
     # Buscá-los uma vez por conta faria requisições idênticas em sequência, e o
     # Omie responde a isso bloqueando por "consumo redundante".
+    # Quanto tempo aceitamos esperar o desbloqueio do OMIE. Ele pede algo como 54
+    # segundos; mais que dois minutos não é espera, é execução travada.
+    ESPERA_MAXIMA = 120
+
     def carregar_totais_omie(contas)
       return if contas.empty?
 
+      tentar_totais_omie
+    rescue Omie::Client::RedundantConsumption => e
+      # O OMIE DIZ quanto esperar, e a exceção já carrega esse número desde que
+      # foi criada — só ninguém usava. Sem a espera, a conciliação desistia do
+      # índice e cada conta repetia a MESMA requisição na hora, tomando o mesmo
+      # bloqueio: a execução inteira falhava por um limite que passa em um minuto.
+      espera = e.retry_after.to_i
+
+      if espera.positive? && espera <= ESPERA_MAXIMA
+        log "OMIE pediu #{espera}s antes de repetir ListarContasReceber. Esperando."
+
+        esperar(espera + 1)
+
+        return tentar_totais_omie
+      end
+
+      registrar_falha_de_totais(e)
+    rescue StandardError => e
+      registrar_falha_de_totais(e)
+    end
+
+    # Num método próprio para o teste poder observar a espera sem biblioteca de
+    # mock: uma subclasse sobrescreve isto e registra os segundos.
+    def esperar(segundos)
+      sleep(segundos)
+    end
+
+    def tentar_totais_omie
       ConciliacaoEngine.carregar_totais(
         client: omie_client || (credenciais_reais? ? Omie::Client.new : Omie::FakeOmieClient.new),
         start_date: start_date,
         end_date: end_date
       )
-    rescue StandardError => e
-      # Sem o índice, cada conta tenta por conta própria e reporta o erro dela.
-      Rails.logger.warn "#{LOG_PREFIX} não consegui carregar os títulos de uma vez: #{e.class} #{e.message}"
+    end
+
+    # Sem o índice, cada conta tenta por conta própria e reporta o erro dela.
+    def registrar_falha_de_totais(erro)
+      Rails.logger.warn "#{LOG_PREFIX} não consegui carregar os títulos de uma vez: #{erro.class} #{erro.message}"
 
       nil
     end
