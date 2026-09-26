@@ -14,11 +14,11 @@ export interface DecomposicaoDaDiferenca {
   ajustes: string
   notas_rateadas: number
   residuo: string
-  // FORA da diferença, e por isso separado dos outros: é o custo do parcelamento
-  // que o comprador escolheu, somado ao bruto pelo marketplace e descontado
-  // depois. Não é receita do vendedor, e a nota corretamente não o documenta.
-  // Antes entrava na diferença e era explicado em prosa — o que fazia quase todo
-  // repasse nascer divergente e ensinava a ignorar a coluna.
+  // O custo do parcelamento no relatório do marketplace. INFORMAÇÃO, não exclusão:
+  // em parte das vendas ele é somado ao bruto e a nota não o documenta; em outras
+  // é custo do vendedor, subtraído do bruto como a comissão, e ali a nota vale o
+  // bruto inteiro. O relatório não distingue os dois casos, então ele continua
+  // entrando como causa da diferença e não sai da base de comparação.
   parcelamento: string
 }
 

@@ -71,19 +71,25 @@ module Conciliacao
       registro = conciliar(BigDecimal("178.65"))
 
       assert_equal BigDecimal("6.00"), registro.diferenca.to_d.abs
-      assert_includes registro.observacao.to_s, "desconto concedido ao comprador"
+      assert_includes registro.observacao.to_s, "parcelamento e desconto"
       assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
     end
 
-    # O custo do parcelamento entra no GROSS_AMOUNT e a nota, corretamente, não o
-    # documenta. Provado no pedido 2000017734810340.
+    # O custo do parcelamento aparece no relatório e a nota não o documenta. Em
+    # parte das vendas ele está SOMADO ao bruto (aqui: 222,66 = 194,65 + 28,01); em
+    # outras é custo do vendedor, subtraído do bruto como a comissão — e lá a nota
+    # vale o bruto inteiro e o parcelamento não explica lacuna nenhuma.
     #
-    # Ele sai da BASE de comparação, não da explicação: antes o bruto cru era
-    # confrontado com a nota, a diferença nascia em quase todo repasse e nós a
-    # explicávamos em prosa. Diferença que aparece sempre ensina a ignorar a
-    # coluna. Aqui a lacuna entre bruto e nota É o parcelamento, então o repasse
-    # tem de fechar em ZERO — não em "explicado".
-    test "venda parcelada não produz diferença nenhuma" do
+    # Eu tentei tirá-lo da BASE de comparação para que venda parcelada nunca
+    # gerasse diferença. Está errado: nas vendas do segundo tipo isso deixa o lado
+    # interno MENOR que a nota, e produziu resíduo negativo em 19 de 35 repasses.
+    # O relatório não distingue os dois casos — nas duas formas o líquido é
+    # `bruto − comissão − frete − parcelamento` — e decidir pela nota seria
+    # circular. Distinguir pede o PEDIDO, que sabe o que o comprador pagou.
+    #
+    # Enquanto isso, ele entra como CAUSA, limitado pela distância medida: onde
+    # não há lacuna, o `min` impede que ele invente explicação.
+    test "o parcelamento somado ao bruto é descontado como causa" do
       cenario(
         bruto: 222.66, valor_nota: 194.65,
         relatorio: { "FINANCING_FEE_AMOUNT" => "-28.01", "COUPON_AMOUNT" => "0.00" }
@@ -91,55 +97,10 @@ module Conciliacao
 
       registro = conciliar(BigDecimal("194.65"))
 
-      assert_equal BigDecimal("0"), registro.diferenca.to_d,
-                   "o parcelamento do comprador não é divergência"
-      assert_equal "matched", registro.status
+      assert_includes registro.observacao.to_s, "parcelamento"
+      assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
       assert_equal "28.01", registro.conciliation_metadata.dig("decomposicao", "parcelamento"),
-                   "fora da diferença, mas visível para a tela"
-    end
-
-    # COMPONENTE e BASE têm de ser medidos na mesma moeda.
-    #
-    # Quando tirei o parcelamento do valor interno, deixei `valor_sem_nota`
-    # medindo o bruto CRU. As duas pontas passaram a falar moedas diferentes: a
-    # decomposição explicava mais do que a diferença tinha, e o resíduo saiu
-    # NEGATIVO em produção — R$ -533,97 num repasse com R$ 3,98 de diferença.
-    test "venda sem nota entra líquida do parcelamento, como a diferença" do
-      nota, repasse = cenario(
-        bruto: 222.66, valor_nota: 194.65,
-        relatorio: { "FINANCING_FEE_AMOUNT" => "-28.01" }
-      )
-
-      # Uma segunda venda no MESMO repasse, sem nota e com parcelamento próprio.
-      outro = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PED-2")
-
-      solta = criar_recebivel(tenant: @tenant, conta: @conta, pedido: outro,
-                              bruto: 110.00, liquido: 110.00, external_id: "MLREL-2-SALE",
-                              previsto_para: Date.current - 2)
-
-      lanc = criar_lancamento(tenant: @tenant, conta: @conta, pedido: outro,
-                              valor: 110.00, external_id: "MLREL-2-SALE")
-
-      lanc.update!(raw_payload: { "FINANCING_FEE_AMOUNT" => "-10.00" })
-
-      alocar!(tenant: @tenant, lancamento: lanc, recebivel: solta,
-              repasse: repasse, tipo: :payout)
-
-      repasse.update!(gross_amount: 332.66, net_amount: 332.66)
-
-      registro = conciliar(BigDecimal("194.65"))
-
-      decomposicao = registro.conciliation_metadata.to_h["decomposicao"].to_h
-
-      assert_equal "100.0", decomposicao["sem_nota"],
-                   "a venda sem nota tem de entrar por 110 - 10, não por 110"
-
-      assert_not registro.diferenca.to_d.negative?, "diferença negativa por base inconsistente"
-
-      assert_operator decomposicao["residuo"].to_d, :>=, BigDecimal("-0.10"),
-                      "resíduo negativo é a decomposição explicando mais do que existe"
-
-      assert_equal nota.number, "500"
+                   "o valor fica visível para a tela mesmo entrando como causa"
     end
 
     # Nota de pacote SEM título entrava pelo valor inteiro em cada repasse que
@@ -269,13 +230,13 @@ module Conciliacao
 
       registro = conciliar(BigDecimal("200.00"))
 
-      # O bruto do relatório CONTÉM o parcelamento, então a lacuna entre bruto e
-      # nota nunca deveria ser menor que ele. Quando é — R$ 50 informados contra
-      # R$ 2 de lacuna —, uma das duas fontes está errada. Antes o cálculo
-      # absorvia isso até dar zero, o que escondia a contradição; agora ela
-      # aparece como diferença negativa E a observação diz por quê.
-      assert registro.diferenca.to_d.negative?, "a contradição entre as fontes tem de aparecer"
-      assert_includes registro.observacao.to_s, "relatório e nota discordam"
+      # O parcelamento informado (R$ 50) é maior que a lacuna entre bruto e nota
+      # (R$ 2) — o que acontece quando ele é custo do vendedor e não valor somado
+      # ao bruto. O `min` contra a distância medida explica os R$ 2 que existem, e
+      # não os R$ 50 que o componente afirma.
+      assert_includes registro.observacao.to_s, "R$ 2,00".tr(",", ".")
+      assert_not_includes registro.observacao.to_s, "MAIS que a diferença"
+      assert_equal "explicado", registro.status
     end
 
     test "nota de pacote com cupom rateado não conta o desconto em dobro" do

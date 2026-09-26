@@ -276,26 +276,31 @@ module Conciliacao
       )
     end
 
-    # O que o repasse pagou de MERCADORIA, que é o que a nota documenta.
+    # O bruto do repasse, e NÃO o bruto menos o parcelamento.
     #
-    # O bruto do relatório inclui `FINANCING_FEE_AMOUNT`: o custo do parcelamento
-    # que o COMPRADOR escolheu. O marketplace soma isso ao bruto e desconta
-    # depois — não é receita do vendedor, e a NF-e corretamente não documenta.
+    # Eu tirei o parcelamento daqui achando que ele estava somado ao bruto — o
+    # custo que o comprador escolheu, acrescentado pelo marketplace e descontado
+    # depois. Em parte das vendas é isso. Na maior parte destas NÃO é, e o próprio
+    # relatório prova:
     #
-    # Antes o bruto cru era comparado com a nota e a diferença resultante era
-    # explicada em prosa, repasse por repasse. Isso está errado de origem: não é
-    # divergência, é a base de comparação medindo coisas diferentes. Pagamento
-    # parcelado passava por diferença em quase todo repasse, e diferença que
-    # aparece sempre ensina a ignorar a coluna.
+    #   GROSS 173,33 − MP_FEE 27,42 − SHIPPING 21,65 − FINANCING 5,51 = NET 118,75
     #
-    # O parcelamento não desaparece: sai da diferença e fica em
-    # `parcelamento_excluido`, no metadata, para a tela mostrar como informação.
+    # O parcelamento é SUBTRAÍDO do bruto, como a comissão e o frete: é custo do
+    # vendedor. E a nota dessa venda vale 173,33, exatamente o bruto. Subtraí-lo
+    # deixava o lado interno menor que a nota e produziu resíduo negativo em 19
+    # dos 35 repasses — R$ -489 num repasse com R$ 3,98 de diferença.
+    #
+    # Para distinguir os dois casos o relatório não basta: nas duas formas o
+    # líquido é `bruto − comissão − frete − parcelamento`. Quem sabe é o PEDIDO,
+    # que guarda o que o comprador pagou e o valor dos itens. Decidir pela nota
+    # seria circular — a diferença fecharia por construção, que é a tautologia
+    # contra a qual o resto deste arquivo já avisa.
     def valor_interno_for(payout)
-      (payout.gross_amount || payout.net_amount).to_d - parcelamento_de(payout)
+      (payout.gross_amount || payout.net_amount).to_d
     end
 
-    # Uma consulta por repasse, memoizada: `cobertura` também lê as linhas do
-    # relatório, e sem o memo cada repasse pagaria a leitura duas vezes.
+    # Mantido para a tela e para a frase: o parcelamento é informação real sobre o
+    # repasse, mesmo não saindo da base de comparação.
     def parcelamento_de(payout)
       @parcelamentos ||= {}
 
@@ -464,14 +469,7 @@ module Conciliacao
           # Este número é o que permite comparar mesmo com vendas sem nota: a
           # diferença que aparece é grande porque falta NF, não porque falta
           # dinheiro, e sem dizer quanto é uma coisa vira a outra.
-          # LÍQUIDO do parcelamento, como a diferença.
-          #
-          # Eu tirei o parcelamento do valor interno e deixei este componente
-          # medindo o bruto CRU. As duas pontas passaram a falar moedas
-          # diferentes: a decomposição explicava mais do que a diferença tinha, e
-          # o resíduo saía negativo — R$ -533 num repasse com R$ 3,98 de
-          # diferença. Componente e base precisam ser medidos na mesma base.
-          valor_sem_nota: liquido_de(unidades.reject(&:invoice), linhas_do_relatorio(unidades)),
+          valor_sem_nota: unidades.reject(&:invoice).sum(BigDecimal("0")) { |u| u.gross_amount.to_d },
           # O que o marketplace somou ao bruto e o que a nota abateu.
           #
           # Sem isto, esses valores apareciam como "diferença real" — dinheiro
@@ -580,8 +578,8 @@ module Conciliacao
         fracao = fracao_por_chave[chave] || 1
 
         # O que há para explicar nesta nota.
-        # Também líquido do parcelamento: é o mesmo motivo do `valor_sem_nota`.
-        medida = liquido_de(lista, linhas) - (nota.total_amount.to_d * fracao)
+        medida = lista.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d } -
+                 (nota.total_amount.to_d * fracao)
 
         next BigDecimal("0") unless medida.positive?
 
@@ -596,10 +594,15 @@ module Conciliacao
     # e nunca a soma. Medido na base do cliente: 109 notas com os dois iguais,
     # 327 só com cupom, 94 só com desconto, e as "diferentes" eram pacote com o
     # cupom rateado somando exatamente o desconto.
-    # O parcelamento NÃO entra aqui: ele já saiu do valor interno, em
-    # `valor_interno_for`. Contá-lo outra vez abateria duas vezes o mesmo encargo
-    # e produziria resíduo negativo — dinheiro sobrando onde não sobra nada.
     def causas_de(nota, lista, linhas, fracao)
+      # Onde o parcelamento É somado ao bruto, ele explica parte da distância
+      # entre venda e nota. Onde é custo do vendedor, não explica nada — e o `min`
+      # contra a distância medida, em `ajustes_conhecidos`, impede que ele invente
+      # explicação onde não há lacuna.
+      parcelamento = lista.sum(BigDecimal("0")) do |unidade|
+        linhas[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
+      end
+
       cupom = lista.sum(BigDecimal("0")) do |unidade|
         linhas[unidade.external_id].to_h["COUPON_AMOUNT"].to_d.abs
       end
@@ -608,19 +611,10 @@ module Conciliacao
       # repasse, como o próprio valor da nota.
       desconto = nota.metadata.to_h.dig("fiscal", "valor_desconto").to_d * fracao
 
-      [ cupom, desconto ].max
+      parcelamento + [ cupom, desconto ].max
     end
 
     # A linha do relatório de cada venda, em uma consulta para o lote.
-    # O bruto das vendas menos o parcelamento delas — a mesma moeda em que a
-    # diferença é medida desde que `valor_interno_for` deixou de usar o bruto cru.
-    def liquido_de(unidades, linhas)
-      unidades.sum(BigDecimal("0")) do |unidade|
-        unidade.gross_amount.to_d -
-          linhas[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
-      end
-    end
-
     def linhas_do_relatorio(unidades)
       return {} if unidades.empty?
 
@@ -802,17 +796,6 @@ module Conciliacao
 
       partes = []
 
-      # Diferença NEGATIVA com parcelamento abatido não é dinheiro sobrando: é o
-      # relatório e a nota discordando. O bruto do relatório contém o
-      # parcelamento, então a lacuna entre bruto e nota nunca deveria ser menor
-      # que ele — quando é, uma das duas fontes está errada, e dizer isso é mais
-      # útil que absorver a diferença até dar zero.
-      if resultado.diferenca.to_d.negative? && cobertura[:parcelamento].to_d.positive?
-        partes << "o parcelamento informado no relatório (R$ #{format('%.2f', cobertura[:parcelamento])}) " \
-                  "é maior que a distância entre o bruto do repasse e o valor das notas — " \
-                  "relatório e nota discordam, e o negativo vem daí"
-      end
-
       if cobertura[:divididas].to_i.positive?
         partes << "#{cobertura[:divididas]} nota(s) de pacote entraram pela fração que coube a " \
                   "este repasse — o resto delas caiu em outro"
@@ -830,9 +813,9 @@ module Conciliacao
       ajustes = cobertura[:valor_ajustes].to_d
 
       if ajustes.positive?
-        partes << "R$ #{format('%.2f', ajustes)} de desconto concedido ao comprador — " \
-                  "a nota documenta a mercadoria já com o abatimento, e o relatório " \
-                  "mostra o valor antes dele"
+        partes << "R$ #{format('%.2f', ajustes)} de parcelamento e desconto — o marketplace " \
+                  "soma ao valor da venda o custo do parcelamento que o comprador escolheu, " \
+                  "e a nota documenta a mercadoria já com o desconto abatido"
       end
 
       return "" if partes.empty?
@@ -922,10 +905,9 @@ module Conciliacao
           valor_liquido_repasse: payout.net_amount&.to_s,
           taxa_repasse: payout.fee_amount&.to_s,
           referencias: referencias_for(payout),
-          base_comparacao: "bruto menos o parcelamento do comprador",
-          # Fora da diferença, e visível: é encargo do comprador que o
-          # marketplace soma ao bruto e desconta depois, não receita do vendedor.
-          parcelamento_excluido: parcelamento_de(payout).to_s,
+          base_comparacao: "bruto",
+          # Informação, não exclusão: ver `valor_interno_for`.
+          parcelamento: parcelamento_de(payout).to_s,
           # A decomposição como NÚMERO, e não só dentro da frase.
           #
           # Ela existia apenas na observação — um parágrafo de quatro linhas que
