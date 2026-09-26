@@ -25,11 +25,15 @@ namespace :fiscal do
     puts "Notas de venda emitidas desde #{de}."
     puts
 
+    # Materializado uma vez: a segunda passagem (idade da mais antiga sem
+    # recebível) percorre a mesma lista, e refazer a consulta por canal seria
+    # cinco varreduras da tabela.
     notas = Invoice
               .where(tenant_id: tenant.id, operation_type: :sale)
               .where.not(status: :cancelled)
               .where(issued_at: de.beginning_of_day..)
               .includes(:order)
+              .to_a
 
     # Recebível por nota, numa consulta: são milhares de notas e uma consulta por
     # nota faria disto um diagnóstico que ninguém roda duas vezes.
@@ -46,7 +50,7 @@ namespace :fiscal do
 
     suspeitas = []
 
-    notas.find_each do |nota|
+    notas.each do |nota|
       nome = nota.metadata.to_h.dig("intermediador", "nome")
 
       canal = Fiscal::Tiny::Canal.para(nome, tenant: tenant)
@@ -106,9 +110,60 @@ namespace :fiscal do
       puts "do cliente, não do marketplace."
     end
 
+    # Canal com receita e ZERO dinheiro rastreado não se explica por "ainda não
+    # liberou": ou não existe conta conectada daquela plataforma, ou existe e a
+    # ingestão nunca trouxe nada. São providências diferentes — autorizar o OAuth
+    # contra investigar a sincronização —, e a IDADE da nota mais velha sem
+    # recebível separa as duas de "venda recente ainda em trânsito".
     puts
+    puts "Canais com receita e pouco ou nenhum dinheiro rastreado:"
+    puts
+
+    contas_por_plataforma = PlatformAccount
+                              .where(tenant_id: tenant.id)
+                              .group_by(&:platform)
+
+    resumo.sort_by { |_, linha| -linha[:receita] }.each do |canal, linha|
+      sem_dinheiro = linha[:notas] - linha[:com_recebivel]
+
+      next if sem_dinheiro.zero?
+
+      contas = contas_por_plataforma[canal].to_a
+
+      situacao = if canal == Fiscal::Tiny::Canal::PROPRIA
+        "balcão: não tem repasse, e está certo assim"
+      elsif contas.empty?
+        "NENHUMA conta desta plataforma cadastrada -> conectar a integração"
+      elsif contas.none? { |c| c.status == "active" }
+        "conta existe mas está #{contas.map(&:status).uniq.join('/')} -> reautorizar"
+      else
+        "conta ativa (##{contas.map(&:id).join(',')}) -> a ingestão é que não trouxe"
+      end
+
+      puts format("  %-22s %5d de %5d nota(s) sem dinheiro · R$ %11.2f",
+                  canal, sem_dinheiro, linha[:notas], linha[:receita])
+      puts format("      %s", situacao)
+
+      # A mais VELHA sem recebível: venda de ontem sem dinheiro é normal, venda
+      # de julho não é.
+      velha = notas.select { |nota|
+        Fiscal::Tiny::Canal.para(nota.metadata.to_h.dig("intermediador", "nome"), tenant: tenant).to_s == canal.to_s &&
+          contas_por_nota[nota.id].to_a.empty?
+      }.min_by { |nota| nota.issued_at || Time.current }
+
+      if velha
+        dias = velha.issued_at ? (Date.current - velha.issued_at.to_date).to_i : nil
+
+        puts format("      a mais antiga sem dinheiro: NF %s de %s (%s dias)",
+                    velha.number, velha.issued_at&.to_date, dias)
+      end
+
+      puts
+    end
+
     puts "Nota de marketplace SEM recebível não é necessariamente erro: pode ser venda"
-    puts "que a plataforma ainda não liberou. Só vira suspeita se for antiga."
+    puts "que a plataforma ainda não liberou. Só vira suspeita se for antiga — e a"
+    puts "idade acima é o que diz qual é o caso."
     puts
     puts "Nada foi gravado."
   end
