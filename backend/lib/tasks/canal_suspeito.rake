@@ -55,7 +55,11 @@ namespace :fiscal do
 
       canal = Fiscal::Tiny::Canal.para(nome, tenant: tenant)
 
-      chave = canal || "(sem canal)"
+      # A chave é o CANAL CRU, inclusive nil. Antes eu guardava a string
+      # "(sem canal)" e depois comparava com `Canal.para(...).to_s`, que devolve
+      # "" para nil: nunca batia, e o canal sem mapa saía com R$ 0,00 ao lado de
+      # "9 de 9 sem dinheiro". Rótulo é coisa da impressão, não da chave.
+      chave = canal
 
       linha = resumo[chave]
 
@@ -82,7 +86,8 @@ namespace :fiscal do
       origens = linha[:plataformas].sort_by { |_, q| -q }.map { |p, q| "#{p}:#{q}" }.join(" ")
 
       puts format("  %-22s %6d %14.2f %10d  %s",
-                  canal, linha[:notas], linha[:receita], linha[:com_recebivel], origens.presence || "—")
+                  canal || "(sem canal)", linha[:notas], linha[:receita],
+                  linha[:com_recebivel], origens.presence || "—")
     end
 
     puts
@@ -128,9 +133,9 @@ namespace :fiscal do
 
       next if sem_dinheiro.zero?
 
-      contas = contas_por_plataforma[canal].to_a
+      contas = canal ? contas_por_plataforma[canal].to_a : []
 
-      situacao = if canal == "(sem canal)"
+      situacao = if canal.nil?
         "intermediador NÃO MAPEADO: não é falta de integração, é falta de mapa"
       elsif canal == Fiscal::Tiny::Canal::PROPRIA
         "balcão: não tem repasse, e está certo assim"
@@ -149,12 +154,12 @@ namespace :fiscal do
       # valor não rastreado quando o não rastreado era outro. É o mesmo erro que
       # persegui o dia todo: número certo no lugar que sugere outra pergunta.
       orfas = notas.select do |nota|
-        Fiscal::Tiny::Canal.para(nota.metadata.to_h.dig("intermediador", "nome"), tenant: tenant).to_s == canal.to_s &&
+        Fiscal::Tiny::Canal.para(nota.metadata.to_h.dig("intermediador", "nome"), tenant: tenant) == canal &&
           contas_por_nota[nota.id].to_a.empty?
       end
 
       puts format("  %-22s %5d de %5d nota(s) sem dinheiro · R$ %11.2f delas (canal todo: R$ %.2f)",
-                  canal, sem_dinheiro, linha[:notas],
+                  canal || "(sem canal)", sem_dinheiro, linha[:notas],
                   orfas.sum(BigDecimal("0")) { |nota| nota.total_amount.to_d }, linha[:receita])
       puts format("      %s", situacao)
 
@@ -201,11 +206,43 @@ namespace :fiscal do
         puts format("      o dinheiro chegou e falta o ELO:        %5d  <- conserto nosso", elo)
         puts format("      o pedido não tem recebível nenhum:      %5d  <- ingestão ou não repassado", sem_dinheiro_mesmo)
         puts format("      a nota não está ligada a pedido algum:  %5d", sem_pedido)
+
+        # POR MÊS, porque a data da mais antiga sozinha não distingue "buraco
+        # permanente" de "a ingestão começou depois". Se as órfãs se concentram
+        # ANTES do primeiro lançamento que temos, o dinheiro não está faltando:
+        # nunca foi buscado. São providências opostas — reingerir um período
+        # contra investigar a sincronização.
+        por_mes = orfas.group_by { |nota| nota.issued_at&.to_date&.strftime("%Y-%m") }
+                       .transform_values { |lista| [ lista.size, lista.sum(BigDecimal("0")) { |n| n.total_amount.to_d } ] }
+
+        puts "      órfãs por mês de emissão:"
+        por_mes.sort.each do |mes, (quantas, valor)|
+          puts format("        %-9s %5d nota(s)  R$ %11.2f", mes || "(sem data)", quantas, valor)
+        end
       end
 
       puts
     end
 
+    # O PISO da ingestão, para comparar com os meses acima. Se o primeiro
+    # lançamento que temos é de agosto e as notas começam em julho, as órfãs de
+    # julho são janela não ingerida — e a conciliação daquele período está
+    # comparando repasse nenhum com nota que existe.
+    puts "Desde quando temos dinheiro de cada conta:"
+
+    PlatformAccount.where(tenant_id: tenant.id).order(:id).each do |conta|
+      extremos = FinancialEntry.where(tenant_id: tenant.id, platform_account_id: conta.id)
+                               .pick(Arel.sql("MIN(occurred_at), MAX(occurred_at), COUNT(*)"))
+
+      primeiro, ultimo, quantos = extremos
+
+      puts format("  conta #%-4d %-16s %s",
+                  conta.id, conta.platform,
+                  quantos.to_i.zero? ? "NENHUM lançamento" :
+                    "#{quantos} lançamento(s), de #{primeiro&.to_date} a #{ultimo&.to_date}")
+    end
+
+    puts
     puts "Nota de marketplace SEM recebível não é necessariamente erro: pode ser venda"
     puts "que a plataforma ainda não liberou. Só vira suspeita se for antiga — e a"
     puts "idade acima é o que diz qual é o caso."
