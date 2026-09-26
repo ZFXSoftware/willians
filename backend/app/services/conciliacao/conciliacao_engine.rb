@@ -276,8 +276,38 @@ module Conciliacao
       )
     end
 
+    # O que o repasse pagou de MERCADORIA, que é o que a nota documenta.
+    #
+    # O bruto do relatório inclui `FINANCING_FEE_AMOUNT`: o custo do parcelamento
+    # que o COMPRADOR escolheu. O marketplace soma isso ao bruto e desconta
+    # depois — não é receita do vendedor, e a NF-e corretamente não documenta.
+    #
+    # Antes o bruto cru era comparado com a nota e a diferença resultante era
+    # explicada em prosa, repasse por repasse. Isso está errado de origem: não é
+    # divergência, é a base de comparação medindo coisas diferentes. Pagamento
+    # parcelado passava por diferença em quase todo repasse, e diferença que
+    # aparece sempre ensina a ignorar a coluna.
+    #
+    # O parcelamento não desaparece: sai da diferença e fica em
+    # `parcelamento_excluido`, no metadata, para a tela mostrar como informação.
     def valor_interno_for(payout)
-      (payout.gross_amount || payout.net_amount).to_d
+      (payout.gross_amount || payout.net_amount).to_d - parcelamento_de(payout)
+    end
+
+    # Uma consulta por repasse, memoizada: `cobertura` também lê as linhas do
+    # relatório, e sem o memo cada repasse pagaria a leitura duas vezes.
+    def parcelamento_de(payout)
+      @parcelamentos ||= {}
+
+      @parcelamentos[payout.id] ||= begin
+        unidades = unidades_de(payout)
+
+        linhas = linhas_do_relatorio(unidades)
+
+        unidades.sum(BigDecimal("0")) do |unidade|
+          linhas[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
+        end.round(2)
+      end
     end
 
     def valor_omie_for(payout, omie_totals)
@@ -412,6 +442,9 @@ module Conciliacao
         {
           referencias: esperadas.size,
           fracao_por_chave: fracao_por_chave,
+          # Fora da diferença (ver `valor_interno_for`) e guardado para a frase e
+          # para a tela: encargo do comprador, não receita do vendedor.
+          parcelamento: parcelamento_de(payout),
           sem_nota: sem_nota,
           sem_titulo: faltando.size,
           valor_sem_titulo: valor_sem_titulo,
@@ -545,11 +578,10 @@ module Conciliacao
     # e nunca a soma. Medido na base do cliente: 109 notas com os dois iguais,
     # 327 só com cupom, 94 só com desconto, e as "diferentes" eram pacote com o
     # cupom rateado somando exatamente o desconto.
+    # O parcelamento NÃO entra aqui: ele já saiu do valor interno, em
+    # `valor_interno_for`. Contá-lo outra vez abateria duas vezes o mesmo encargo
+    # e produziria resíduo negativo — dinheiro sobrando onde não sobra nada.
     def causas_de(nota, lista, linhas, fracao)
-      parcelamento = lista.sum(BigDecimal("0")) do |unidade|
-        linhas[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
-      end
-
       cupom = lista.sum(BigDecimal("0")) do |unidade|
         linhas[unidade.external_id].to_h["COUPON_AMOUNT"].to_d.abs
       end
@@ -558,7 +590,7 @@ module Conciliacao
       # repasse, como o próprio valor da nota.
       desconto = nota.metadata.to_h.dig("fiscal", "valor_desconto").to_d * fracao
 
-      parcelamento + [ cupom, desconto ].max
+      [ cupom, desconto ].max
     end
 
     # A linha do relatório de cada venda, em uma consulta para o lote.
@@ -727,6 +759,9 @@ module Conciliacao
         sem_titulo: cobertura[:valor_sem_titulo].to_d.to_s,
         notas_sem_titulo: cobertura[:sem_titulo].to_i,
         ajustes: cobertura[:valor_ajustes].to_d.to_s,
+        # Já fora da diferença: a tela mostra como informação, não como algo a
+        # investigar.
+        parcelamento: cobertura[:parcelamento].to_d.to_s,
         notas_rateadas: cobertura[:divididas].to_i,
         # O único número que fala sobre dinheiro que ninguém sabe explicar.
         residuo: residuo(cobertura, resultado).to_s
@@ -739,6 +774,17 @@ module Conciliacao
       sem_titulo = cobertura[:valor_sem_titulo].to_d
 
       partes = []
+
+      # Diferença NEGATIVA com parcelamento abatido não é dinheiro sobrando: é o
+      # relatório e a nota discordando. O bruto do relatório contém o
+      # parcelamento, então a lacuna entre bruto e nota nunca deveria ser menor
+      # que ele — quando é, uma das duas fontes está errada, e dizer isso é mais
+      # útil que absorver a diferença até dar zero.
+      if resultado.diferenca.to_d.negative? && cobertura[:parcelamento].to_d.positive?
+        partes << "o parcelamento informado no relatório (R$ #{format('%.2f', cobertura[:parcelamento])}) " \
+                  "é maior que a distância entre o bruto do repasse e o valor das notas — " \
+                  "relatório e nota discordam, e o negativo vem daí"
+      end
 
       if cobertura[:divididas].to_i.positive?
         partes << "#{cobertura[:divididas]} nota(s) de pacote entraram pela fração que coube a " \
@@ -757,9 +803,9 @@ module Conciliacao
       ajustes = cobertura[:valor_ajustes].to_d
 
       if ajustes.positive?
-        partes << "R$ #{format('%.2f', ajustes)} de parcelamento e desconto — o marketplace " \
-                  "soma ao valor da venda o custo do parcelamento que o comprador escolheu, " \
-                  "e a nota documenta a mercadoria já com o desconto abatido"
+        partes << "R$ #{format('%.2f', ajustes)} de desconto concedido ao comprador — " \
+                  "a nota documenta a mercadoria já com o abatimento, e o relatório " \
+                  "mostra o valor antes dele"
       end
 
       return "" if partes.empty?
@@ -849,7 +895,10 @@ module Conciliacao
           valor_liquido_repasse: payout.net_amount&.to_s,
           taxa_repasse: payout.fee_amount&.to_s,
           referencias: referencias_for(payout),
-          base_comparacao: "bruto",
+          base_comparacao: "bruto menos o parcelamento do comprador",
+          # Fora da diferença, e visível: é encargo do comprador que o
+          # marketplace soma ao bruto e desconta depois, não receita do vendedor.
+          parcelamento_excluido: parcelamento_de(payout).to_s,
           # A decomposição como NÚMERO, e não só dentro da frase.
           #
           # Ela existia apenas na observação — um parágrafo de quatro linhas que

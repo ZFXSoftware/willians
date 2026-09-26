@@ -71,13 +71,19 @@ module Conciliacao
       registro = conciliar(BigDecimal("178.65"))
 
       assert_equal BigDecimal("6.00"), registro.diferenca.to_d.abs
-      assert_includes registro.observacao.to_s, "parcelamento e desconto"
+      assert_includes registro.observacao.to_s, "desconto concedido ao comprador"
       assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
     end
 
-    # O custo do parcelamento entra no GROSS_AMOUNT e a nota, corretamente, não
-    # o documenta. Provado no pedido 2000017734810340.
-    test "o parcelamento e o cupom do relatório também são descontados" do
+    # O custo do parcelamento entra no GROSS_AMOUNT e a nota, corretamente, não o
+    # documenta. Provado no pedido 2000017734810340.
+    #
+    # Ele sai da BASE de comparação, não da explicação: antes o bruto cru era
+    # confrontado com a nota, a diferença nascia em quase todo repasse e nós a
+    # explicávamos em prosa. Diferença que aparece sempre ensina a ignorar a
+    # coluna. Aqui a lacuna entre bruto e nota É o parcelamento, então o repasse
+    # tem de fechar em ZERO — não em "explicado".
+    test "venda parcelada não produz diferença nenhuma" do
       cenario(
         bruto: 222.66, valor_nota: 194.65,
         relatorio: { "FINANCING_FEE_AMOUNT" => "-28.01", "COUPON_AMOUNT" => "0.00" }
@@ -85,8 +91,11 @@ module Conciliacao
 
       registro = conciliar(BigDecimal("194.65"))
 
-      assert_includes registro.observacao.to_s, "parcelamento"
-      assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
+      assert_equal BigDecimal("0"), registro.diferenca.to_d,
+                   "o parcelamento do comprador não é divergência"
+      assert_equal "matched", registro.status
+      assert_equal "28.01", registro.conciliation_metadata.dig("decomposicao", "parcelamento"),
+                   "fora da diferença, mas visível para a tela"
     end
 
     # Sem a linha do relatório e sem os dados fiscais, a causa é DESCONHECIDA — e
@@ -160,10 +169,13 @@ module Conciliacao
 
       registro = conciliar(BigDecimal("200.00"))
 
-      # Explica os R$ 2 que existem, não os R$ 50 que o componente afirma.
-      assert_includes registro.observacao.to_s, "R$ 2,00".tr(",", ".")
-      assert_not_includes registro.observacao.to_s, "MAIS que a diferença"
-      assert_equal "explicado", registro.status
+      # O bruto do relatório CONTÉM o parcelamento, então a lacuna entre bruto e
+      # nota nunca deveria ser menor que ele. Quando é — R$ 50 informados contra
+      # R$ 2 de lacuna —, uma das duas fontes está errada. Antes o cálculo
+      # absorvia isso até dar zero, o que escondia a contradição; agora ela
+      # aparece como diferença negativa E a observação diz por quê.
+      assert registro.diferenca.to_d.negative?, "a contradição entre as fontes tem de aparecer"
+      assert_includes registro.observacao.to_s, "relatório e nota discordam"
     end
 
     test "nota de pacote com cupom rateado não conta o desconto em dobro" do
