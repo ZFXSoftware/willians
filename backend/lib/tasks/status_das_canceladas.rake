@@ -28,7 +28,8 @@ namespace :fiscal do
     quantas = (ENV["QUANTAS"] || 25).to_i
 
     client = Marketplace::MercadoLivre::OrdersClient.new(
-      access_token: Marketplace::Credentials::TokenProvider.new(platform_account: conta).access_token
+      access_token: Marketplace::Credentials::TokenProvider.new(platform_account: conta).access_token,
+      seller_id: conta.external_id
     )
 
     perguntar = lambda do |nota|
