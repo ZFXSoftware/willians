@@ -36,10 +36,17 @@ namespace :conciliacao do
                .pluck(:external_id, :raw_payload)
                .to_h { |externo, cru| [ externo, cru.is_a?(Hash) ? cru : {} ] }
 
-    liquido = lambda do |lista|
-      lista.sum(BigDecimal("0")) do |u|
-        u.gross_amount.to_d - linhas[u.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
-      end
+    # BRUTO CRU, que é o que o motor compara com o título.
+    #
+    # A primeira versão desta tarefa somava o bruto MENOS o parcelamento, porque eu
+    # a escrevi durante a hipótese de que o parcelamento estava somado ao bruto.
+    # Resultado: todo delta saía exatamente igual ao parcelamento, e eu quase li
+    # isso como achado. A sonda precisa medir a mesma coisa que o código, senão
+    # mede a minha suposição.
+    bruto = ->(lista) { lista.sum(BigDecimal("0")) { |u| u.gross_amount.to_d } }
+
+    encargo = lambda do |lista, chave|
+      lista.sum(BigDecimal("0")) { |u| linhas[u.external_id].to_h[chave].to_d.abs }
     end
 
     por_nota = unidades.select(&:invoice).group_by(&:invoice)
@@ -67,15 +74,14 @@ namespace :conciliacao do
     puts format("  vendas no repasse: %d (%d com nota)", unidades.size, unidades.count(&:invoice))
     puts
 
-    puts format("  %-10s %5s %11s %11s %11s %7s %11s %11s",
-                "NF", "vendas", "nota", "vendas aqui", "vendas tot", "fração", "título×fr", "delta")
-
     total_delta = BigDecimal("0")
 
     suspeitas = []
 
-    por_nota.sort_by { |nota, _| nota.number.to_s }.each do |nota, lista|
-      aqui = liquido.call(lista)
+    tabela = []
+
+    por_nota.each do |nota, lista|
+      aqui = bruto.call(lista)
 
       total = todos[nota.id].to_d
 
@@ -102,15 +108,29 @@ namespace :conciliacao do
 
       suspeitas << [ nota, lista, todas, orfas, fracao, aplicado, delta ] if delta.abs > 1 && suspeitas.size < 6
 
-      puts format("  %-10s %5d %11.2f %11.2f %11.2f %7.4f %11.2f %11.2f%s",
-                  nota.number, lista.size, nota.total_amount.to_d, aqui, total,
-                  fracao, aplicado, delta, marca)
+      tabela << [ delta, format("  %-10s %5d %11.2f %11.2f %11.2f %7.4f %11.2f %11.2f %9.2f %9.2f%s",
+                                nota.number, lista.size, nota.total_amount.to_d, aqui, total,
+                                fracao, aplicado, delta,
+                                encargo.call(lista, "FINANCING_FEE_AMOUNT"),
+                                encargo.call(lista, "COUPON_AMOUNT"), marca) ]
     end
 
+    # Ordenado pelo DESVIO, não pelo número da nota: com 161 notas, a que importa
+    # não está em ordem alfabética.
+    puts format("  %-10s %5s %11s %11s %11s %7s %11s %11s %9s %9s",
+                "NF", "vendas", "nota", "bruto aqui", "bruto tot", "fração", "título×fr",
+                "delta", "parcel.", "cupom")
+
+    tabela.sort_by { |delta, _| delta }.first(12).each { |_, linha| puts linha }
+
+    puts "  ..." if tabela.size > 24
+
+    tabela.sort_by { |delta, _| -delta }.first(12).reverse_each { |_, linha| puts linha }
+
     puts
-    puts format("Soma dos deltas (venda aqui − título aplicado): R$ %.2f", total_delta)
+    puts format("Soma dos deltas (bruto aqui − título aplicado): R$ %.2f", total_delta)
     puts format("Vendas SEM nota neste repasse:                  R$ %.2f",
-                liquido.call(unidades.reject(&:invoice)))
+                bruto.call(unidades.reject(&:invoice)))
     puts format("Diferença gravada do repasse:                   R$ %.2f",
                 ConciliacaoRegistro.where(tenant_id: tenant.id, payout_batch_id: lote.id)
                                    .order(:id).last&.diferenca.to_d)
