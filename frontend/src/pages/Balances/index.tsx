@@ -234,12 +234,29 @@ function LinhaDeSaldo({ conta }: { conta: SaldoDaConta }) {
             <p className="text-xs uppercase tracking-wide text-zinc-500">
               Diferença{conta.base_da_comparacao ? ` · ${BASES[conta.base_da_comparacao] ?? conta.base_da_comparacao}` : ""}
             </p>
+            {/* Aqui o sinal também significa coisas opostas: positivo é a
+                plataforma dizendo ter MAIS do que o nosso razão registra (crédito que
+                não entrou), negativo é o nosso razão com mais do que ela reconhece
+                (saída que não foi baixada). Mesma cor para os dois apagava isso. */}
             <p
               className={`text-2xl font-bold mt-2 ${
-                conta.situacao === "divergente" ? "text-red-400" : "text-emerald-400"
+                conta.situacao !== "divergente"
+                  ? "text-emerald-400"
+                  : Number(conta.diferenca ?? 0) > 0
+                    ? "text-amber-400"
+                    : "text-red-400"
               }`}
+              title={
+                conta.situacao !== "divergente"
+                  ? undefined
+                  : Number(conta.diferenca ?? 0) > 0
+                    ? "A plataforma informa MAIS do que o nosso razão registra: há crédito que não entrou aqui."
+                    : "O nosso razão registra MAIS do que a plataforma informa: há saída que não foi baixada."
+              }
             >
-              {conta.diferenca ? brl(conta.diferenca) : "—"}
+              {conta.diferenca
+                ? `${Number(conta.diferenca) > 0 ? "+" : ""}${brl(conta.diferenca)}`
+                : "—"}
             </p>
             {conta.situacao === "divergente" && (
               <p className="text-xs text-zinc-500 mt-2">

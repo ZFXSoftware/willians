@@ -458,21 +458,33 @@ export default function ReconciliationDashboard() {
                         <td className="px-4 py-3 text-right">
                           {brl(row.valor_recebido)}
                         </td>
+                        {/* O SINAL significa coisas opostas, e pintar os dois de
+                            vermelho apagava a distinção. Positivo: o marketplace pagou
+                            mais do que os títulos somam — falta nota, falta título, ou
+                            o relatório somou algo à venda. Negativo: o OMIE espera MAIS
+                            do que o marketplace pagou, que é a assinatura de título
+                            duplicado. As providências são opostas. */}
                         <td
                           className={`px-4 py-3 text-right font-medium ${
                             !comparado
                               ? "text-zinc-600"
                               : dif === 0
                                 ? "text-emerald-400"
-                                : "text-red-400"
+                                : dif > 0
+                                  ? "text-amber-400"
+                                  : "text-red-400"
                           }`}
                           title={
-                            comparado
-                              ? undefined
-                              : "Não houve comparação: nenhum título do OMIE foi encontrado para este repasse."
+                            !comparado
+                              ? "Não houve comparação: nenhum título do OMIE foi encontrado para este repasse."
+                              : dif > 0
+                                ? "O repasse pagou MAIS do que os títulos do OMIE somam: falta nota, falta título, ou o relatório somou algo à venda."
+                                : dif < 0
+                                  ? "O OMIE espera MAIS do que o repasse pagou. Título duplicado é a causa mais comum."
+                                  : undefined
                           }
                         >
-                          {comparado ? brl(row.diferenca) : "—"}
+                          {comparado ? `${dif > 0 ? "+" : ""}${brl(row.diferenca)}` : "—"}
                         </td>
                         {(() => {
                           const d = row.decomposicao
@@ -714,9 +726,14 @@ function VendasDoRepasseTabela({ repasseId, row }: { repasseId: number; row: Reg
 
                     return (
                       <span
-                        className="text-amber-300"
-                        title="O marketplace pagou por esta venda um valor diferente do que a nota documenta"
+                        className={diferenca > 0 ? "text-amber-300" : "text-red-300"}
+                        title={
+                          diferenca > 0
+                            ? "O marketplace pagou MAIS por esta venda do que a nota documenta"
+                            : "A nota documenta MAIS do que o marketplace pagou por esta venda"
+                        }
                       >
+                        {diferenca > 0 ? "+" : ""}
                         {brl(String(diferenca))}
                       </span>
                     )
