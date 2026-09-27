@@ -44,6 +44,16 @@ const SEM_PROVIDENCIA: MotivoSemEspelho[] = [
   "sem_dados",
 ]
 
+// Entre QUAIS valores a diferença foi medida. O Mercado Livre não informa saldo
+// disponível no relatório de liberações — só o total —, então a comparação cai em
+// `total`, e o lado de cá é disponível + a liberar. O par é o melhor que existe e
+// não está verificado como semanticamente idêntico: a diferença é ponto de partida.
+const BASES: Record<string, string> = {
+  available: "disponível na plataforma x disponível aqui",
+  future: "a liberar na plataforma x a liberar aqui",
+  total: "total do relatório x disponível + a liberar",
+}
+
 export default function Balances() {
   const { data, loading, error, reload } = useResource(fetchSaldos)
 
@@ -215,12 +225,15 @@ function LinhaDeSaldo({ conta }: { conta: SaldoDaConta }) {
             linhas={[
               ["Disponível", conta.saldo_interno.disponivel],
               ["A liberar", conta.saldo_interno.futuro],
+              ["Total", conta.saldo_interno.total ?? null],
               ["Bloqueado", conta.saldo_interno.bloqueado ?? null],
             ]}
           />
 
           <div>
-            <p className="text-xs uppercase tracking-wide text-zinc-500">Diferença</p>
+            <p className="text-xs uppercase tracking-wide text-zinc-500">
+              Diferença{conta.base_da_comparacao ? ` · ${BASES[conta.base_da_comparacao] ?? conta.base_da_comparacao}` : ""}
+            </p>
             <p
               className={`text-2xl font-bold mt-2 ${
                 conta.situacao === "divergente" ? "text-red-400" : "text-emerald-400"

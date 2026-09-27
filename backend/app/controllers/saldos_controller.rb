@@ -64,11 +64,23 @@ class SaldosController < ApplicationController
       saldo_interno: {
         disponivel: snapshot&.available_balance,
         futuro: snapshot&.future_balance,
-        bloqueado: snapshot&.blocked_balance
+        bloqueado: snapshot&.blocked_balance,
+        # `disponível + futuro`. Derivado e não gravado: é a soma de duas colunas
+        # que já estão aqui, e é este o lado que pareia com o `total` do relatório.
+        total: total_interno(snapshot)
       },
       diferenca: snapshot&.difference_amount,
+      # QUAL par foi comparado. Sem isto a tela mostra uma diferença sem dizer
+      # entre o que e o que — e com três bases possíveis isso é adivinhação.
+      base_da_comparacao: snapshot&.metadata.to_h["base_da_comparacao"],
       situacao: situacao(snapshot)
     }
+  end
+
+  def total_interno(snapshot)
+    return if snapshot.blank?
+
+    snapshot.available_balance.to_d + snapshot.future_balance.to_d
   end
 
   # Sem snapshot não é "confere": é que ninguém conferiu ainda.

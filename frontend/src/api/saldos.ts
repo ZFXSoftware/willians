@@ -19,6 +19,10 @@ export interface SaldoDaConta {
   saldo_interno: LadoDoSaldo
   diferenca: string | null
   situacao: SituacaoSaldo
+  // QUAL par foi comparado: `available`, `future` ou `total`. Com três bases
+  // possíveis, uma diferença sem dizer entre o que e o que é adivinhação — e o
+  // Mercado Livre só informa `total`, então é nele que a comparação cai.
+  base_da_comparacao: string | null
 }
 
 export interface SaldosResponse {

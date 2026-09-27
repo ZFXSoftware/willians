@@ -71,7 +71,7 @@ module Financeiro
 
       da_plataforma = plataforma[base].to_d
 
-      nosso_lado = base == :available ? nosso[:available_balance] : nosso[:future_balance]
+      nosso_lado = nosso_lado_para(base, nosso)
 
       diferenca = (da_plataforma - nosso_lado.to_d).round(2)
 
@@ -102,12 +102,35 @@ module Financeiro
 
     # Compara pelo que a plataforma REALMENTE informa. Preferir o disponível
     # quando existe, e cair no futuro quando é o único número que ela dá.
+    # `:total` como último recurso, e é por isso que a Conta Virtual estava vazia.
+    #
+    # O relatório de liberações do Mercado Livre entrega `initial_available_balance`
+    # e `total`, e NÃO entrega `available_balance`. Então a base saía em branco, a
+    # conferência caía em "sem valor comparável", nenhum snapshot era gravado e a
+    # tela não tinha o que mostrar — nunca teve: zero snapshots na base do cliente,
+    # com a conferência rodando e passando reto.
+    #
+    # ATENÇÃO ao que este par significa: comparar o `total` do relatório com o nosso
+    # `disponível + futuro` é o melhor pareamento disponível, e NÃO está verificado
+    # como semanticamente idêntico. A diferença que aparecer é ponto de partida, não
+    # veredito — quem fecha a pergunta é a conta de movimento (saldo inicial +
+    # créditos − saques), que ainda não existe.
     def base_de_comparacao(plataforma)
       return :available if plataforma[:available].present?
 
       return :future if plataforma[:future].present?
 
+      return :total if plataforma[:total].present?
+
       nil
+    end
+
+    def nosso_lado_para(base, nosso)
+      case base
+      when :available then nosso[:available_balance].to_d
+      when :future then nosso[:future_balance].to_d
+      else nosso[:available_balance].to_d + nosso[:future_balance].to_d
+      end
     end
 
     # Devolve SEMPRE o motivo junto do saldo.
