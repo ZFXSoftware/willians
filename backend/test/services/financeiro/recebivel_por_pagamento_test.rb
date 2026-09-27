@@ -69,6 +69,29 @@ module Financeiro
                    "a taxa do outro pagamento não é dele"
     end
 
+    # Recebível PAGO é congelado: o repasse foi liquidado sobre o valor antigo.
+    # Sem isso, uma reimportação qualquer reescreveria valores em cima de baixa já
+    # feita. Corrigir os que nasceram errados é ato deliberado, com parâmetro.
+    test "recebível pago não é recalculado sem pedido explícito" do
+      venda = lancar(pagamento: "1", tipo: :sale, valor: 26.50, sufixo: "SALE")
+
+      ReceivableUnit.find_by(external_id: "MLREL-1-SALE").update!(status: :paid)
+
+      venda.update!(amount: 99.00)
+
+      Financeiro::ReceivableEngine.new(financial_entry: venda).call
+
+      assert_equal BigDecimal("26.50"),
+                   ReceivableUnit.find_by(external_id: "MLREL-1-SALE").gross_amount.to_d,
+                   "pago não muda por conta própria"
+
+      Financeiro::ReceivableEngine.new(financial_entry: venda, recalcular_pagos: true).call
+
+      assert_equal BigDecimal("99.00"),
+                   ReceivableUnit.find_by(external_id: "MLREL-1-SALE").gross_amount.to_d,
+                   "com pedido explícito, corrige"
+    end
+
     # Sem `source_id` o pedido continua sendo a chave: lançamento manual e
     # plataforma que não informa o pagamento não podem ficar sem recebível.
     test "sem pagamento informado, o pedido segue valendo como chave" do

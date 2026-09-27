@@ -25,6 +25,12 @@ namespace :conciliacao do
 
     aplicar = %w[true 1].include?(ENV["APLICAR"].to_s.strip.downcase)
 
+    # Recebível PAGO é congelado de propósito: o repasse foi liquidado sobre o
+    # valor antigo. Sem FORCAR=1 o recálculo passa por eles e quase nada muda —
+    # foi o que aconteceu na primeira execução, R$ -898,89 de 9.700 esperados,
+    # porque os 62 casos estão todos dentro de repasse e portanto pagos.
+    forcar = %w[true 1].include?(ENV["FORCAR"].to_s.strip.downcase)
+
     de = ENV["DE"].present? ? Date.parse(ENV["DE"]) : nil
 
     ate = ENV["ATE"].present? ? Date.parse(ENV["ATE"]) : nil
@@ -48,6 +54,14 @@ namespace :conciliacao do
     escopo = escopo.where(occurred_at: ..ate.end_of_day) if ate
 
     puts aplicar ? "MODO: GRAVANDO" : "MODO: SIMULAÇÃO (use APLICAR=1 para gravar)"
+
+    if forcar
+      puts "FORCAR=1: recalcula também recebível já PAGO. O bruto dele é número"
+      puts "derivado nosso; o dinheiro que saiu é o extrato. Recalcule os repasses"
+      puts "depois, senão eles seguem com a soma antiga."
+    else
+      puts "Recebível já PAGO fica de fora (trava do motor). Use FORCAR=1 para incluí-los."
+    end
     puts "Pedidos com mais de um recebível: #{pedidos.size}"
     puts "Lançamentos de venda a reprocessar: #{escopo.count}"
     puts
@@ -63,7 +77,7 @@ namespace :conciliacao do
     falhas = 0
 
     escopo.find_each do |entry|
-      Financeiro::ReceivableEngine.new(financial_entry: entry).call
+      Financeiro::ReceivableEngine.new(financial_entry: entry, recalcular_pagos: forcar).call
 
       processados += 1
     rescue StandardError => e

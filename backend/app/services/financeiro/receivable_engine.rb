@@ -16,7 +16,20 @@ module Financeiro
 
     DEDUCTION_TYPES = %w[refund chargeback].freeze
 
-    def initialize(financial_entry:)
+    # Recalcular recebível JÁ PAGO, de propósito e sob pedido explícito.
+    #
+    # A trava existe por um bom motivo: o repasse foi liquidado sobre os valores
+    # antigos, e mexer neles por conta própria bagunçaria a baixa. Mas o bruto do
+    # recebível é número DERIVADO nosso — o dinheiro que saiu é o
+    # `settlement_entry` do extrato —, e quando ele nasceu errado (as vendas do
+    # PEDIDO somadas num recebível que é por PAGAMENTO) corrigir é o certo, com o
+    # repasse recalculado em seguida.
+    #
+    # Fica como parâmetro e não como regra: quem afrouxa a trava tem de dizer que
+    # está afrouxando.
+    def initialize(financial_entry:, recalcular_pagos: false)
+      @recalcular_pagos = recalcular_pagos
+
       @financial_entry = financial_entry
     end
 
@@ -228,7 +241,11 @@ module Financeiro
     end
 
     def frozen?(receivable)
-      receivable.blank? || FROZEN_STATUSES.include?(receivable.status)
+      return true if receivable.blank?
+
+      return false if @recalcular_pagos && receivable.status == "paid"
+
+      FROZEN_STATUSES.include?(receivable.status)
     end
 
     def allocate!(receivable, entries)
