@@ -47,12 +47,17 @@ module Financeiro
     end
 
     # Uma taxa ou estorno só gera recebível se existir a venda que os ancora.
+    #
+    # E a âncora é a venda do MESMO PAGAMENTO, não a primeira venda do pedido.
+    # `venda_do_pedido` usa `find_by` sem ordenação: num pedido com dois
+    # pagamentos ela devolve uma venda qualquer, e a taxa de R$ 13,48 do pagamento
+    # de R$ 140,00 ia ancorar no recebível de R$ 26,50 — deduzindo do lugar
+    # errado. O pedido fica como reserva, para lançamento manual e plataforma que
+    # não informa o pagamento.
     def anchor_entry
       return financial_entry if financial_entry.sale?
 
-      return venda_do_pedido if financial_entry.order_id.present?
-
-      venda_do_pagamento(financial_entry)
+      venda_do_pagamento(financial_entry) || (venda_do_pedido if financial_entry.order_id.present?)
     end
 
     def venda_do_pedido
@@ -72,17 +77,33 @@ module Financeiro
       por_pagamento(entry.tenant_id, pagamento).sales.first
     end
 
+    # O recebível é UM POR PAGAMENTO — o `external_id` dele é
+    # `MLREL-<pagamento>-SALE` —, então os lançamentos que compõem o valor dele
+    # são os daquele pagamento, e não os do pedido inteiro.
+    #
+    # Agrupar por PEDIDO quebra quando um pedido tem mais de um pagamento, o que
+    # o Mercado Livre permite (parte no cartão, parte no saldo). Medido na base do
+    # cliente: 62 pedidos assim, e cada um dos dois recebíveis recebia a soma das
+    # DUAS vendas. No pedido 2000018278874802 os pagamentos são R$ 26,50 e
+    # R$ 140,00, a nota é R$ 166,50, e os dois recebíveis saíram com R$ 166,50 —
+    # R$ 333,00 no repasse para uma venda de R$ 166,50. R$ 9.700,94 de excesso no
+    # total, mais de 22% da diferença que a conciliação acusava.
+    #
+    # O agrupamento por pedido tinha um motivo real: antes disso cada taxa ficava
+    # órfã, porque a âncora exigia pedido e o relatório do Mercado Livre não traz
+    # o número dele. Mas a solução daquilo foi o `SOURCE_ID` — o id do pagamento,
+    # que venda e deduções compartilham na mesma linha. Ele resolve os dois casos,
+    # e o pedido fica como reserva para quando não houver pagamento.
     def related_entries(anchor)
-      return por_pedido(anchor).to_a if anchor.order_id.present?
-
       pagamento = pagamento_de(anchor)
 
-      # Sem pedido e sem pagamento não há como agrupar: o lançamento responde
-      # por si só. Agrupar por `order_id: nil` casaria com todos os lançamentos
-      # órfãos do tenant.
-      return [anchor] if pagamento.blank?
+      return por_pagamento(anchor.tenant_id, pagamento).to_a if pagamento.present?
 
-      por_pagamento(anchor.tenant_id, pagamento).to_a
+      return por_pedido(anchor).to_a if anchor.order_id.present?
+
+      # Sem pedido e sem pagamento não há como agrupar: o lançamento responde por
+      # si só. Agrupar por `order_id: nil` casaria com todos os órfãos do tenant.
+      [ anchor ]
     end
 
     def por_pedido(anchor)
@@ -100,9 +121,15 @@ module Financeiro
     # Sem agrupar por ele, cada taxa ficava órfã (a âncora exigia pedido) e o
     # recebível saía pelo BRUTO, sem nenhuma dedução — o valor a receber
     # apareceria maior do que o dinheiro que vai cair.
+    # SEM o filtro `order_id: nil`.
+    #
+    # Ele existia porque esta busca só servia aos lançamentos órfãos. Como agora é
+    # o caminho principal, aquele filtro esconderia justamente os que já foram
+    # ligados ao pedido — o recebível sairia com bruto zero depois do
+    # `VinculoDePedidos` rodar, que é pior que o defeito que eu estou consertando.
     def por_pagamento(tenant_id, pagamento)
       FinancialEntry
-        .where(tenant_id: tenant_id, order_id: nil)
+        .where(tenant_id: tenant_id)
         .where("metadata->>'source_id' = ?", pagamento)
     end
 
