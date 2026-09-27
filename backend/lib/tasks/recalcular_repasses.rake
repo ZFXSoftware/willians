@@ -35,7 +35,12 @@ namespace :conciliacao do
     divergentes = []
 
     lotes.each do |lote|
-      unidades = lote.financial_entry_allocations.filter_map(&:receivable_unit).uniq
+      # Sem os marcados como não-venda: se eles voltassem aqui, o recálculo
+      # reinflaria exatamente o que a marcação tirou.
+      unidades = lote.financial_entry_allocations
+                     .filter_map(&:receivable_unit)
+                     .uniq
+                     .reject(&:nao_e_venda?)
 
       bruto = unidades.sum(BigDecimal("0")) { |u| u.gross_amount.to_d }
 
