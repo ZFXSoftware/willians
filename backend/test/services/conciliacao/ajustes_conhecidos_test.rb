@@ -134,18 +134,39 @@ module Conciliacao
     #
     # Enquanto isso, ele entra como CAUSA, limitado pela distância medida: onde
     # não há lacuna, o `min` impede que ele invente explicação.
-    test "o parcelamento somado ao bruto é descontado como causa" do
+    # A decisão é POR VENDA, pela identidade `bruto − produtos == parcelamento`:
+    # 222,66 − 194,65 = 28,01, igual ao parcelamento informado, então ele foi somado
+    # ao bruto e sai da base. O repasse FECHA.
+    test "parcelamento somado ao bruto sai da base e o repasse fecha" do
       cenario(
         bruto: 222.66, valor_nota: 194.65,
+        fiscal: { "valor_produtos" => "194.65" },
         relatorio: { "FINANCING_FEE_AMOUNT" => "-28.01", "COUPON_AMOUNT" => "0.00" }
       )
 
       registro = conciliar(BigDecimal("194.65"))
 
-      assert_includes registro.observacao.to_s, "parcelamento"
-      assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
+      assert_equal BigDecimal("0"), registro.diferenca.to_d
+      assert_equal "matched", registro.status
       assert_equal "28.01", registro.conciliation_metadata.dig("decomposicao", "parcelamento"),
-                   "o valor fica visível para a tela mesmo entrando como causa"
+                   "o valor continua visível para a tela"
+    end
+
+    # O contrário: `bruto == produtos` significa que o parcelamento é custo do
+    # VENDEDOR, subtraído do bruto como a comissão. Aí ele não abre lacuna e não pode
+    # ser descontado — subtrair aqui foi o que me deu resíduo negativo em 19 de 35.
+    test "parcelamento que é custo do vendedor não sai da base" do
+      cenario(
+        bruto: 173.33, valor_nota: 173.33,
+        fiscal: { "valor_produtos" => "173.33" },
+        relatorio: { "FINANCING_FEE_AMOUNT" => "-5.51" }
+      )
+
+      registro = conciliar(BigDecimal("173.33"))
+
+      assert_equal BigDecimal("0"), registro.diferenca.to_d,
+                   "o bruto já é a mercadoria: nada a descontar, e nada de diferença"
+      assert_equal "matched", registro.status
     end
 
     # Nota de pacote SEM título entrava pelo valor inteiro em cada repasse que
@@ -223,16 +244,34 @@ module Conciliacao
     # Diferença inteiramente atribuída não é divergência. Os 17 repasses do
     # cliente fechavam ao centavo e a tela mostrava 17 divergências vermelhas,
     # pedindo revisão manual de algo que já tinha resposta.
+    # Com desconto, frete e parcelamento na BASE, sobrou um caso só para
+    # `explicado`: a diferença ser inteiramente venda sem nota fiscal. É o cenário
+    # real — venda paga sem documento emitido — e nele não há o que investigar do
+    # lado do dinheiro.
     test "diferença explicada por inteiro sai como explicado, não divergente" do
-      # Parcelamento somado ao bruto, que é o que continua entrando como CAUSA
-      # depois de desconto e frete irem para a base.
-      cenario(bruto: 222.66, valor_nota: 194.65,
-              relatorio: { "FINANCING_FEE_AMOUNT" => "-28.01" })
+      _, repasse = cenario(bruto: 100.00, valor_nota: 100.00,
+                           fiscal: { "valor_produtos" => "100.00" })
 
-      registro = conciliar(BigDecimal("194.65"))
+      # Uma segunda venda no mesmo repasse, sem nota: é ela e só ela a diferença.
+      outro = criar_pedido(tenant: @tenant, conta: @conta, external_id: "PED-SEM-NF")
+
+      solta = criar_recebivel(tenant: @tenant, conta: @conta, pedido: outro,
+                              bruto: 40.00, liquido: 40.00, external_id: "MLREL-SEM-NF",
+                              previsto_para: Date.current - 2)
+
+      lanc = criar_lancamento(tenant: @tenant, conta: @conta, pedido: outro,
+                              valor: 40.00, external_id: "MLREL-SEM-NF")
+
+      alocar!(tenant: @tenant, lancamento: lanc, recebivel: solta,
+              repasse: repasse, tipo: :payout)
+
+      repasse.update!(gross_amount: 140.00, net_amount: 140.00)
+
+      registro = conciliar(BigDecimal("100.00"))
 
       assert_equal "explicado", registro.status
-      assert_equal BigDecimal("28.01"), registro.diferenca.to_d.abs
+      assert_equal BigDecimal("40.00"), registro.diferenca.to_d
+      assert_equal "40.0", registro.conciliation_metadata.dig("decomposicao", "sem_nota")
 
       # E não abre divergência para alguém investigar.
       assert_equal 0, DivergenceReport.where(tenant_id: @tenant.id, status: :open).count
@@ -277,13 +316,13 @@ module Conciliacao
 
       registro = conciliar(BigDecimal("200.00"))
 
-      # O parcelamento informado (R$ 50) é maior que a lacuna entre bruto e nota
-      # (R$ 2) — o que acontece quando ele é custo do vendedor e não valor somado
-      # ao bruto. O `min` contra a distância medida explica os R$ 2 que existem, e
-      # não os R$ 50 que o componente afirma.
-      assert_includes registro.observacao.to_s, "R$ 2,00".tr(",", ".")
+      # O parcelamento informado (R$ 50) não bate com a lacuna entre bruto e nota
+      # (R$ 2), então a identidade não confirma que ele foi somado ao bruto e ele NÃO
+      # sai da base. Os R$ 2 ficam como resíduo real, sem explicação inventada — que
+      # é a resposta honesta quando as duas fontes não concordam.
+      assert_equal BigDecimal("2.00"), registro.diferenca.to_d
       assert_not_includes registro.observacao.to_s, "MAIS que a diferença"
-      assert_equal "explicado", registro.status
+      assert_equal "divergent", registro.status
     end
 
     test "nota de pacote com cupom rateado não conta o desconto em dobro" do

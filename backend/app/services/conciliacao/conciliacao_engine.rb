@@ -269,8 +269,10 @@ module Conciliacao
     end
 
     def conciliar(payout, omie_totals)
+      cobertura = cobertura_de(payout, omie_totals)
+
       ConciliadorRecebimentos.conciliar(
-        valor_interno: valor_interno_for(payout),
+        valor_interno: valor_interno_for(payout, cobertura),
 
         valor_omie: valor_omie_for(payout, omie_totals)
       )
@@ -295,8 +297,13 @@ module Conciliacao
     # que guarda o que o comprador pagou e o valor dos itens. Decidir pela nota
     # seria circular — a diferença fecharia por construção, que é a tautologia
     # contra a qual o resto deste arquivo já avisa.
-    def valor_interno_for(payout)
-      (payout.gross_amount || payout.net_amount).to_d
+    # Menos o parcelamento que o relatório SOMOU ao bruto — só ele, decidido nota
+    # por nota em `calcular_cobertura`. O que é custo do vendedor fica, porque nessas
+    # vendas o bruto já é a mercadoria e subtrair inventaria diferença negativa.
+    def valor_interno_for(payout, cobertura = nil)
+      bruto = (payout.gross_amount || payout.net_amount).to_d
+
+      bruto - cobertura.to_h[:parcelamento_somado].to_d
     end
 
     # Mantido para a tela e para a frase: o parcelamento é informação real sobre o
@@ -452,6 +459,43 @@ module Conciliacao
         # os `explicado` cairem de 5 para 1 na primeira tentativa.
         linhas_para_ajuste = linhas_do_relatorio(unidades)
 
+        # O PARCELAMENTO foi somado ao bruto nesta venda, ou é custo do vendedor?
+        #
+        # O relatório não diz: nas duas formas o líquido é
+        # `bruto − comissão − frete − parcelamento`. Mas a NOTA diz, por um caminho
+        # que não é circular: `valor_produtos` é a mercadoria, e o bruto do relatório
+        # deveria ser a mesma coisa. Quando `bruto − produtos` bate com o
+        # parcelamento informado, ele foi somado; quando `bruto == produtos`, não foi.
+        #
+        # Medido: NF 40920 tem produtos 108,97 e bruto 124,43 com parcelamento 15,46
+        # (somado); NF 40504 tem produtos 173,33 e bruto 173,33 com parcelamento 5,51
+        # (custo do vendedor). Subtrair sempre — que foi minha primeira tentativa —
+        # produziu resíduo negativo em 19 de 35 repasses.
+        #
+        # Não é circular porque a decisão usa `valor_produtos`, e a comparação usa o
+        # TOTAL da nota: são campos diferentes, e a identidade que decide
+        # (`bruto − produtos == parcelamento`) não envolve o número comparado.
+        parcelamento_somado = por_nota.sum(BigDecimal("0")) do |nota, vendas|
+          produtos = nota.metadata.to_h.dig("fiscal", "valor_produtos").to_d
+
+          next BigDecimal("0") unless produtos.positive?
+
+          fracao = fracoes[nota.id] || 1
+
+          bruto_aqui = vendas.sum(BigDecimal("0")) { |u| u.gross_amount.to_d }
+
+          parcelamento = vendas.sum(BigDecimal("0")) do |unidade|
+            linhas_para_ajuste[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
+          end
+
+          next BigDecimal("0") unless parcelamento.positive?
+
+          # Um centavo de folga: a fração é divisão e o rateio não é exato.
+          sobra = bruto_aqui - (produtos * fracao)
+
+          (sobra - parcelamento).abs <= TOLERANCIA_DE_ARREDONDAMENTO ? parcelamento : BigDecimal("0")
+        end.round(2)
+
         ajuste_por_chave = por_nota.to_h do |nota, vendas|
           fiscal = nota.metadata.to_h["fiscal"].to_h
 
@@ -509,6 +553,8 @@ module Conciliacao
           # Fora da diferença (ver `valor_interno_for`) e guardado para a frase e
           # para a tela: encargo do comprador, não receita do vendedor.
           parcelamento: parcelamento_de(payout),
+          # Só a parte que o relatório SOMOU ao bruto: é ela que sai da base.
+          parcelamento_somado: parcelamento_somado,
           sem_nota: sem_nota,
           sem_titulo: faltando.size,
           valor_sem_titulo: valor_sem_titulo,
@@ -613,48 +659,25 @@ module Conciliacao
     # COMPONENTES dizem se aquilo tem explicação. O ajuste é o menor dos dois —
     # nunca se explica mais do que existe. O que a medida tiver acima dos
     # componentes é diferença sem causa conhecida, e é ela que merece revisão.
-    def ajustes_conhecidos(por_nota, encontradas, fracao_por_chave)
-      achadas = encontradas.to_a.to_set
-
-      linhas = linhas_do_relatorio(por_nota.values.flatten)
-
-      por_nota.sum(BigDecimal("0")) do |nota, lista|
-        chave = Omie::Readers::ReceivableTotals.normalizar(nota.number)
-
-        next BigDecimal("0") unless chave.present? && achadas.include?(chave)
-
-        fracao = fracao_por_chave[chave] || 1
-
-        # O que há para explicar nesta nota.
-        medida = lista.sum(BigDecimal("0")) { |unidade| unidade.gross_amount.to_d } -
-                 (nota.total_amount.to_d * fracao)
-
-        next BigDecimal("0") unless medida.positive?
-
-        [ medida, causas_de(nota, lista, linhas, fracao) ].min
-      end.round(2)
-    end
-
-    # As causas que sabemos nomear, para uma nota e as vendas dela.
+    # Não existe mais "ajuste conhecido" a calcular, e isso é o ponto.
     #
-    # Cupom e desconto são o MESMO abatimento visto de dois lados — o cupom
-    # concedido ao comprador sai como desconto no documento —, então vale o maior
-    # e nunca a soma. Medido na base do cliente: 109 notas com os dois iguais,
-    # 327 só com cupom, 94 só com desconto, e as "diferentes" eram pacote com o
-    # cupom rateado somando exatamente o desconto.
-    def causas_de(nota, lista, linhas, fracao)
-      # Onde o parcelamento É somado ao bruto, ele explica parte da distância
-      # entre venda e nota. Onde é custo do vendedor, não explica nada — e o `min`
-      # contra a distância medida, em `ajustes_conhecidos`, impede que ele invente
-      # explicação onde não há lacuna.
-      parcelamento = lista.sum(BigDecimal("0")) do |unidade|
-        linhas[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
-      end
-
-      # Cupom e desconto NÃO entram mais aqui: o desconto foi para a base, em
-      # `ajuste_por_chave`, e o cupom é o mesmo abatimento visto do lado do
-      # relatório. Contar nos dois lugares abateria duas vezes.
-      parcelamento
+    # Desconto e frete foram para a BASE (`ajuste_por_chave`: o título vale
+    # `produtos + frete − desconto` e o bruto do relatório é só a mercadoria). O
+    # parcelamento somado ao bruto também (`parcelamento_somado`, decidido nota por
+    # nota pela identidade `bruto − produtos == parcelamento`). E o parcelamento que
+    # é custo do vendedor não abre lacuna entre venda e nota: não há o que explicar.
+    #
+    # Antes isto somava causas e as limitava pela distância medida, com um `min` para
+    # não explicar mais do que a diferença tinha. Era remendo: explicação que aparece
+    # em todo repasse ensina a ignorar a coluna, e a versão com `min` ainda produzia
+    # resíduo negativo quando componente e base mediam coisas diferentes.
+    #
+    # Com tudo na base, o que sobra de diferença é REAL — que é o que a coluna de
+    # resíduo existe para dizer. O método fica como zero explícito em vez de
+    # desaparecer: `decomposicao` e a tela ainda leem `valor_ajustes`, e trocar isso
+    # por nil espalharia `to_d` de nil por três arquivos.
+    def ajustes_conhecidos(*)
+      BigDecimal("0")
     end
 
     # A linha do relatório de cada venda, em uma consulta para o lote.
