@@ -629,6 +629,7 @@ module Conciliacao
         .financial_entry_allocations
         .filter_map(&:receivable_unit)
         .uniq
+        .reject(&:nao_e_venda?)
     end
 
     def recebiveis_de(payout)

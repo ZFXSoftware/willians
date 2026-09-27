@@ -33,6 +33,24 @@ class ReceivableUnit < ApplicationRecord
     cancelled: "cancelled"
   }
 
+  # Recebível que nasceu de linha que NÃO é venda.
+  #
+  # Aconteceu por regressão: ao acrescentar `RECORD_TYPE` ao relatório, toda linha
+  # passou a ser classificada como `release` e virou venda — reserva de disputa,
+  # frete, cashback. A limpeza pegou 3.379 e sobraram 270, R$ 40.011,06, dos quais
+  # 263 dentro de repasse. Eram quase toda a diferença que a conciliação acusava.
+  #
+  # Marcados e NÃO apagados: são o registro do que aconteceu, e apagar lançamento
+  # financeiro para consertar número é o hábito que esta base não pode ter. Quem
+  # soma — repasse e conciliação — usa `vendas_reais`.
+  MARCA_NAO_E_VENDA = "nao_e_venda".freeze
+
+  scope :vendas_reais, lambda {
+    where("NOT jsonb_exists(COALESCE(receivable_units.metadata, '{}'::jsonb), ?)", MARCA_NAO_E_VENDA)
+  }
+
+  def nao_e_venda? = (metadata || {}).key?(MARCA_NAO_E_VENDA)
+
   validates :gross_amount,
             presence: true
 

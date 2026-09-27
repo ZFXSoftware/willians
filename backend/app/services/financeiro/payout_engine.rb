@@ -202,9 +202,14 @@ module Financeiro
       receivables.sum(BigDecimal("0")) { |receivable| receivable.public_send(field).to_d }
     end
 
+    # `vendas_reais`: recebível marcado como não-venda não entra no bruto do
+    # repasse. Sem isso o bruto continuaria somando o que a conciliação já ignora,
+    # e as duas pontas voltariam a medir coisas diferentes — que é o erro que eu
+    # cometi hoje ao tirar o parcelamento de um lado só.
     def receivables
       @receivables ||=
         ReceivableUnit
+          .vendas_reais
           .where(
             tenant: tenant,
             platform_account: platform_account,
