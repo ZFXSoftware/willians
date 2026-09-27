@@ -440,11 +440,29 @@ module Conciliacao
         # Então o comparável é `título + desconto − frete`. Isso põe na BASE o que
         # antes era explicado em prosa depois — e explicação que aparece em todo
         # repasse ensina a ignorar a coluna.
-        ajuste_por_chave = por_nota.keys.to_h do |nota|
+        # O abatimento vale pelo MAIOR entre o desconto da nota e o cupom do
+        # relatório, nunca pela soma: são o mesmo dinheiro visto de dois lados — o
+        # cupom concedido ao comprador sai como desconto no documento. Medido na
+        # base do cliente: 109 notas com os dois iguais, 327 só com cupom, 94 só
+        # com desconto, e as "diferentes" eram pacote com o cupom rateado somando
+        # exatamente o desconto.
+        #
+        # Usar só o desconto da nota deixava 327 casos sem lugar nenhum: sem
+        # explicação (ela saiu de `causas_de`) e sem ajuste na base. Foi o que fez
+        # os `explicado` cairem de 5 para 1 na primeira tentativa.
+        linhas_para_ajuste = linhas_do_relatorio(unidades)
+
+        ajuste_por_chave = por_nota.to_h do |nota, vendas|
           fiscal = nota.metadata.to_h["fiscal"].to_h
 
+          cupom = vendas.sum(BigDecimal("0")) do |unidade|
+            linhas_para_ajuste[unidade.external_id].to_h["COUPON_AMOUNT"].to_d.abs
+          end
+
+          abatimento = [ fiscal["valor_desconto"].to_d, cupom ].max
+
           [ Omie::Readers::ReceivableTotals.normalizar(nota.number),
-            fiscal["valor_desconto"].to_d - fiscal["valor_frete"].to_d ]
+            abatimento - fiscal["valor_frete"].to_d ]
         end
 
         encontradas = esperadas.select { |ref| omie_totals.key?(ref) }

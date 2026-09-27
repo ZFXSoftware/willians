@@ -79,6 +79,33 @@ module Conciliacao
       assert_equal "matched", registro.status
     end
 
+    # 327 notas do cliente têm cupom no relatório e NENHUM desconto na nota. Se o
+    # ajuste olhasse só o desconto, esses casos ficariam sem lugar: sem explicação,
+    # porque ela saiu de `causas_de`, e sem ajuste na base. Foi o que derrubou os
+    # `explicado` de 5 para 1 na primeira tentativa.
+    test "cupom do relatório sem desconto na nota também entra na base" do
+      cenario(bruto: 184.65, valor_nota: 178.65,
+              relatorio: { "COUPON_AMOUNT" => "-6.00" })
+
+      registro = conciliar(BigDecimal("178.65"))
+
+      assert_equal BigDecimal("0"), registro.diferenca.to_d
+      assert_equal "matched", registro.status
+    end
+
+    # Cupom e desconto são o MESMO dinheiro visto de dois lados: vale o maior,
+    # nunca a soma. Somar abateria 12 onde há 6 e produziria diferença negativa.
+    test "cupom e desconto juntos valem o maior, não a soma" do
+      cenario(bruto: 184.65, valor_nota: 178.65,
+              fiscal: { "valor_desconto" => "6.00" },
+              relatorio: { "COUPON_AMOUNT" => "-6.00" })
+
+      registro = conciliar(BigDecimal("178.65"))
+
+      assert_equal BigDecimal("0"), registro.diferenca.to_d
+      assert_equal "matched", registro.status
+    end
+
     # Frete é o mesmo caso pelo outro lado: a nota documenta mercadoria + frete, e
     # o bruto do relatório traz só a mercadoria — o frete que o comprador pagou não
     # passa pelo bruto do vendedor. Medido na NF 850806: produtos 179,11 + frete
