@@ -36,6 +36,20 @@ module Marketplace
       2026-08-07T10:00:00Z,,,,total,,0,0,0,0,124.25,0,
     CSV
 
+    # A retenção e a devolução de UMA disputa compartilham o SOURCE_ID. Se as duas
+    # gerarem o mesmo `external_id`, a segunda é descartada como repetida e o razão
+    # guarda o débito para sempre sem receber o crédito de volta.
+    #
+    # Medido na base do cliente: 653 retenções e 654 devoluções no relatório, 524 de 530
+    # disputas com as DUAS pontas, e o razão com 528 débitos contra 5 créditos. Eram
+    # ~R$ 80 mil de débito fantasma e a explicação inteira do disponível negativo.
+    CSV_DISPUTA = <<~CSV
+      DATE,SOURCE_ID,EXTERNAL_REFERENCE,ORDER_ID,RECORD_TYPE,DESCRIPTION,GROSS_AMOUNT,MP_FEE_AMOUNT,SHIPPING_FEE_AMOUNT,TAXES_AMOUNT,NET_CREDIT_AMOUNT,NET_DEBIT_AMOUNT,PAYMENT_METHOD
+      2026-08-01T10:00:00Z,,,,initial_available_balance,,0,0,0,0,0,0,
+      2026-08-02T10:00:00Z,PAY-999,,2000000999,release,reserve_for_dispute,-355.52,0,0,0,0,355.52,
+      2026-08-09T10:00:00Z,PAY-999,,2000000999,release,reserve_for_dispute,355.52,0,0,0,355.52,0,
+    CSV
+
     def eventos(csv = CSV_RELATORIO)
       ML::ReleaseEvents.new(csv: csv).call
     end
@@ -452,6 +466,23 @@ module Marketplace
           assert_equal igual, entrada.reload.raw_payload
         end
       end
+    end
+
+    test "retenção e devolução de disputa geram os DOIS lançamentos" do
+      lancamentos = eventos(CSV_DISPUTA).select { |e| e[:entry_type] == :dispute }
+
+      assert_equal 2, lancamentos.size, "a devolução foi descartada como repetida"
+
+      assert_equal %w[MLREL-PAY-999-DISPUTE MLREL-PAY-999-DISPUTE-VOLTA],
+                   lancamentos.map { |e| e[:external_id] }.sort,
+                   "os dois precisam de external_id próprio, senão um sobrescreve o outro"
+
+      retencao = lancamentos.find { |e| e[:direction] == :debit }
+      volta = lancamentos.find { |e| e[:direction] == :credit }
+
+      assert_equal BigDecimal("355.52"), retencao[:amount].to_d
+      assert_equal BigDecimal("355.52"), volta[:amount].to_d,
+                   "o dinheiro voltou: o razão tem de creditar o mesmo valor"
     end
   end
 end

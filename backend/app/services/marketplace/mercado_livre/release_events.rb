@@ -368,6 +368,17 @@ module Marketplace
 
       # A contestação entra pelo bruto, amarrada ao pedido: é o que permite
       # chegar da disputa até a nota fiscal da venda.
+      # A DEVOLUÇÃO da reserva precisa de sufixo próprio, senão ela nunca entra.
+      #
+      # O `external_id` é `MLREL-<source_id>-<sufixo>`, e a retenção e a devolução de
+      # uma disputa compartilham o SOURCE_ID. Com o mesmo sufixo nas duas, o id ficava
+      # idêntico e a devolução era descartada como repetida — o razão guardava o débito
+      # para sempre e nunca recebia o crédito de volta.
+      #
+      # Medido na base do cliente (01/08 a 26/09): o relatório tem 653 retenções e 654
+      # devoluções de `reserve_for_dispute`, com 524 de 530 disputas tendo as DUAS
+      # pontas. O nosso razão tinha 528 débitos e 5 créditos. São ~R$ 80 mil de débito
+      # fantasma, e é a explicação inteira do disponível negativo de R$ 24.946,11.
       def disputa(linha, tipo)
         valor = decimal(linha["GROSS_AMOUNT"])
 
@@ -375,10 +386,12 @@ module Marketplace
 
         return [] if valor.zero?
 
+        devolucao = valor.positive?
+
         [base(linha,
-              sufixo: tipo.to_s.upcase,
+              sufixo: devolucao ? "#{tipo.to_s.upcase}-VOLTA" : tipo.to_s.upcase,
               tipo: tipo,
-              direcao: valor.negative? ? :debit : :credit,
+              direcao: devolucao ? :credit : :debit,
               valor: valor.abs)]
       end
 
