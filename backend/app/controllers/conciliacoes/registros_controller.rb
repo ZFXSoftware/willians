@@ -154,6 +154,16 @@ module Conciliacoes
         repasses_com_nf: run.metadata["repasses_com_nf"],
         sem_titulo: run.metadata["nao_encontrados"],
         periodo: [ run.metadata["start_date"], run.metadata["end_date"] ].compact_blank.join(" a "),
+        # Quantos repasses EXISTEM, contra os que couberam na janela desta execução.
+        #
+        # O banner dizia "0 de 13 repasse(s) conferiram" e 13 era o tamanho da JANELA
+        # PADRÃO de 30 dias, não o total — que é 35. Quem lê conclui que o sistema só
+        # conhece 13 repasses, e a diferença entre os dois números é justamente o que a
+        # tela precisa dizer para não ser lida como resultado final.
+        repasses_no_total: ConciliacaoRegistro
+                             .where(id: ConciliacaoRegistro.ids_dos_ultimos(current_tenant.id))
+                             .where.not(payout_batch_id: nil)
+                             .count,
         erro: run.metadata["error"]
       }
     end

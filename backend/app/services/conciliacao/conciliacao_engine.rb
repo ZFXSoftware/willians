@@ -447,80 +447,26 @@ module Conciliacao
         # Então o comparável é `título + desconto − frete`. Isso põe na BASE o que
         # antes era explicado em prosa depois — e explicação que aparece em todo
         # repasse ensina a ignorar a coluna.
-        # SÓ o desconto da NOTA. O cupom do relatório NUNCA ajusta o esperado.
-        #
-        # Medido em 846 vendas com cupom (`conciliacao:reflexo_do_cupom`): em 756 delas
-        # `bruto == valor_produtos`, ou seja a nota NÃO abateu o cupom. Em ZERO delas
-        # `bruto − cupom == produtos`. As 90 restantes são nota de pacote, em que a
-        # comparação por venda isolada não vale.
-        #
-        # O campo `valor_desconto` não distingue nada: aparece "0.00" em 484 e positivo
-        # em 272 DENTRO do mesmo grupo. Então não há regra condicional a escrever — o
-        # cupom simplesmente não é abatimento do documento.
-        #
-        # Eu já havia tirado o cupom e voltado atrás, porque tirá-lo fez a soma dos 35
-        # repasses subir de R$ 14.029,73 para R$ 22.390,80. Esse foi o erro de método do
-        # dia: soma menor não é evidência de regra melhor. O cupom estava fechando
-        # lacunas que não tem direito de fechar, e a diferença verdadeira é a maior.
-        ajuste_por_chave = por_nota.keys.to_h do |nota|
-          fiscal = nota.metadata.to_h["fiscal"].to_h
-
-          [ Omie::Readers::ReceivableTotals.normalizar(nota.number),
-            fiscal["valor_desconto"].to_d - fiscal["valor_frete"].to_d ]
-        end
-
         linhas_para_ajuste = linhas_do_relatorio(unidades)
 
-        # O QUE O RELATÓRIO SOMOU AO BRUTO, por nota.
+        # UMA conta, num lugar só: `ComposicaoDaVenda` decide o que o relatório somou ao
+        # bruto e quanto somar ao título para trazê-lo à mercadoria. O motor soma os
+        # resultados; as sondas de diagnóstico imprimem os mesmos objetos.
         #
-        # O esperado já é a mercadoria (`título + desconto − frete` devolve o título a
-        # `valor_produtos`). Então o lado interno também tem de ser mercadoria — e o
-        # bruto do relatório às vezes traz mais que ela.
-        #
-        # Dois componentes aparecem somados, e nenhum dos dois sempre:
-        #
-        #   parcelamento  NF 40920  produtos 108,97  bruto 124,43  fin 15,46   somado
-        #                 NF 40504  produtos 173,33  bruto 173,33  fin  5,51   custo do vendedor
-        #   frete         NF 854203 produtos 154,65  bruto 196,64  frete 41,99 somado
-        #                 NF 850806 produtos 179,11  bruto 179,11  frete 37,99 fora do bruto
-        #
-        # O método é testar hipóteses NOMEADAS contra a sobra medida, em vez de ajustar
-        # um número até fechar. `sobra = bruto − produtos × fração`; se ela bate com o
-        # parcelamento, com o frete, ou com a soma dos dois, é isso que o relatório
-        # somou — e cada valor vem de fonte independente (o relatório informa o
-        # parcelamento, a nota informa o frete).
-        #
-        # Sobra que não bate com nenhuma hipótese NÃO é subtraída: fica como diferença
-        # real. Subtrair a sobra inteira fecharia tudo por construção, que é a
-        # tautologia contra a qual este arquivo avisa em três lugares.
-        somado_ao_bruto = por_nota.sum(BigDecimal("0")) do |nota, vendas|
-          fiscal = nota.metadata.to_h["fiscal"].to_h
+        # Estava duplicado aqui e nas tarefas, e as duas versões já divergiram: a sonda
+        # subtraía parcelamento onde o motor não subtraía, e eu li o delta resultante
+        # como achado. Sonda que refaz a conta mede a suposição de quem a escreveu.
+        composicoes = por_nota.to_h do |nota, vendas|
+          [ nota,
+            ComposicaoDaVenda.para(nota: nota, vendas: vendas, linhas: linhas_para_ajuste,
+                                   fracao: fracoes[nota.id] || 1) ]
+        end
 
-          produtos = fiscal["valor_produtos"].to_d
+        ajuste_por_chave = composicoes.to_h do |nota, composicao|
+          [ Omie::Readers::ReceivableTotals.normalizar(nota.number), composicao.ajuste_do_titulo ]
+        end
 
-          next BigDecimal("0") unless produtos.positive?
-
-          fracao = fracoes[nota.id] || 1
-
-          bruto_aqui = vendas.sum(BigDecimal("0")) { |u| u.gross_amount.to_d }
-
-          parcelamento = vendas.sum(BigDecimal("0")) do |unidade|
-            linhas_para_ajuste[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
-          end
-
-          frete = fiscal["valor_frete"].to_d * fracao
-
-          sobra = bruto_aqui - (produtos * fracao)
-
-          next BigDecimal("0") unless sobra.positive?
-
-          # Em ordem, do mais específico para o mais simples. A soma primeiro: se ela
-          # bate, testar as parcelas isoladas antes levaria a subtrair só uma.
-          hipoteses = [ parcelamento + frete, frete, parcelamento ]
-
-          hipoteses.find { |h| h.positive? && (sobra - h).abs <= TOLERANCIA_DE_ARREDONDAMENTO } ||
-            BigDecimal("0")
-        end.round(2)
+        somado_ao_bruto = composicoes.values.sum(BigDecimal("0"), &:somado_ao_bruto).round(2)
 
         encontradas = esperadas.select { |ref| omie_totals.key?(ref) }
 

@@ -75,7 +75,11 @@ export interface ExecucaoConciliacao {
   status: string
   iniciada_em: string | null
   terminada_em: string | null
+  // Os repasses que couberam na JANELA desta execução — não o total.
   repasses: number
+  // Quantos existem ao todo. Sem os dois números, "0 de 13" lia como resultado final
+  // quando era recorte de 30 dias sobre 35 repasses.
+  repasses_no_total?: number
   conferidos: number
   divergentes: number
   // Estes três separam as causas de "não conferiu": sem título no OMIE é um

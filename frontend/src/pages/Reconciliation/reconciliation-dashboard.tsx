@@ -65,11 +65,19 @@ function leitura(e: ExecucaoConciliacao): { tom: string; texto: string } {
     }
   }
 
+  // "0 de 13 repasse(s)" lia como total, e 13 era o tamanho da JANELA — o padrão de 30
+  // dias — contra 35 repasses existentes. Dizer quantos ficaram de fora é o que impede
+  // a tela de ser lida como resultado final quando é recorte.
+  const foraDaJanela = (e.repasses_no_total ?? 0) - e.repasses
+
   return {
     tom: e.conferidos > 0 ? "text-emerald-300" : "text-yellow-300",
     texto:
       `${e.conferidos} de ${e.repasses} repasse(s) conferiram com o OMIE. ` +
-      `${e.sem_titulo ?? 0} não encontraram título correspondente.`,
+      `${e.sem_titulo ?? 0} não encontraram título correspondente.` +
+      (foraDaJanela > 0
+        ? ` Outros ${foraDaJanela} repasse(s) estão fora desta janela — aumente o período para incluí-los.`
+        : ""),
   }
 }
 
