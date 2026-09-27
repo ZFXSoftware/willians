@@ -303,7 +303,7 @@ module Conciliacao
     def valor_interno_for(payout, cobertura = nil)
       bruto = (payout.gross_amount || payout.net_amount).to_d
 
-      bruto - cobertura.to_h[:parcelamento_somado].to_d
+      bruto - cobertura.to_h[:somado_ao_bruto].to_d
     end
 
     # Mantido para a tela e para a frase: o parcelamento é informação real sobre o
@@ -471,24 +471,32 @@ module Conciliacao
 
         linhas_para_ajuste = linhas_do_relatorio(unidades)
 
-        # O PARCELAMENTO foi somado ao bruto nesta venda, ou é custo do vendedor?
+        # O QUE O RELATÓRIO SOMOU AO BRUTO, por nota.
         #
-        # O relatório não diz: nas duas formas o líquido é
-        # `bruto − comissão − frete − parcelamento`. A NOTA diz, por um caminho que não é
-        # circular: `valor_produtos` é a mercadoria, e o bruto do relatório deveria ser a
-        # mesma coisa. Quando `bruto − produtos` bate com o parcelamento informado, ele
-        # foi somado; quando `bruto == produtos`, não foi.
+        # O esperado já é a mercadoria (`título + desconto − frete` devolve o título a
+        # `valor_produtos`). Então o lado interno também tem de ser mercadoria — e o
+        # bruto do relatório às vezes traz mais que ela.
         #
-        # Medido: NF 40920 tem produtos 108,97 e bruto 124,43 com parcelamento 15,46
-        # (somado); NF 40504 tem produtos 173,33 e bruto 173,33 com parcelamento 5,51
-        # (custo do vendedor). Subtrair sempre — minha primeira tentativa — produziu
-        # resíduo negativo em 19 de 35 repasses.
+        # Dois componentes aparecem somados, e nenhum dos dois sempre:
         #
-        # Não é circular porque a decisão usa `valor_produtos` e a comparação usa o TOTAL
-        # da nota: campos diferentes, e a identidade que decide não envolve o número
-        # comparado.
-        parcelamento_somado = por_nota.sum(BigDecimal("0")) do |nota, vendas|
-          produtos = nota.metadata.to_h.dig("fiscal", "valor_produtos").to_d
+        #   parcelamento  NF 40920  produtos 108,97  bruto 124,43  fin 15,46   somado
+        #                 NF 40504  produtos 173,33  bruto 173,33  fin  5,51   custo do vendedor
+        #   frete         NF 854203 produtos 154,65  bruto 196,64  frete 41,99 somado
+        #                 NF 850806 produtos 179,11  bruto 179,11  frete 37,99 fora do bruto
+        #
+        # O método é testar hipóteses NOMEADAS contra a sobra medida, em vez de ajustar
+        # um número até fechar. `sobra = bruto − produtos × fração`; se ela bate com o
+        # parcelamento, com o frete, ou com a soma dos dois, é isso que o relatório
+        # somou — e cada valor vem de fonte independente (o relatório informa o
+        # parcelamento, a nota informa o frete).
+        #
+        # Sobra que não bate com nenhuma hipótese NÃO é subtraída: fica como diferença
+        # real. Subtrair a sobra inteira fecharia tudo por construção, que é a
+        # tautologia contra a qual este arquivo avisa em três lugares.
+        somado_ao_bruto = por_nota.sum(BigDecimal("0")) do |nota, vendas|
+          fiscal = nota.metadata.to_h["fiscal"].to_h
+
+          produtos = fiscal["valor_produtos"].to_d
 
           next BigDecimal("0") unless produtos.positive?
 
@@ -500,11 +508,18 @@ module Conciliacao
             linhas_para_ajuste[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
           end
 
-          next BigDecimal("0") unless parcelamento.positive?
+          frete = fiscal["valor_frete"].to_d * fracao
 
           sobra = bruto_aqui - (produtos * fracao)
 
-          (sobra - parcelamento).abs <= TOLERANCIA_DE_ARREDONDAMENTO ? parcelamento : BigDecimal("0")
+          next BigDecimal("0") unless sobra.positive?
+
+          # Em ordem, do mais específico para o mais simples. A soma primeiro: se ela
+          # bate, testar as parcelas isoladas antes levaria a subtrair só uma.
+          hipoteses = [ parcelamento + frete, frete, parcelamento ]
+
+          hipoteses.find { |h| h.positive? && (sobra - h).abs <= TOLERANCIA_DE_ARREDONDAMENTO } ||
+            BigDecimal("0")
         end.round(2)
 
         encontradas = esperadas.select { |ref| omie_totals.key?(ref) }
@@ -551,8 +566,8 @@ module Conciliacao
           # Fora da diferença (ver `valor_interno_for`) e guardado para a frase e
           # para a tela: encargo do comprador, não receita do vendedor.
           parcelamento: parcelamento_de(payout),
-          # Só a parte que o relatório SOMOU ao bruto: é ela que sai da base.
-          parcelamento_somado: parcelamento_somado,
+          # Só o que o relatório SOMOU ao bruto além da mercadoria: é o que sai da base.
+          somado_ao_bruto: somado_ao_bruto,
           sem_nota: sem_nota,
           sem_titulo: faltando.size,
           valor_sem_titulo: valor_sem_titulo,
@@ -661,7 +676,7 @@ module Conciliacao
     #
     # Desconto e frete foram para a BASE (`ajuste_por_chave`: o título vale
     # `produtos + frete − desconto` e o bruto do relatório é só a mercadoria). O
-    # parcelamento somado ao bruto também (`parcelamento_somado`, decidido nota por
+    # que o relatório somou ao bruto também (`somado_ao_bruto`, decidido nota por
     # nota pela identidade `bruto − produtos == parcelamento`). E o parcelamento que
     # é custo do vendedor não abre lacuna entre venda e nota: não há o que explicar.
     #

@@ -61,20 +61,37 @@ valor_interno = payout.gross_amount − parcelamento_somado
 
 `payout.gross_amount` é a soma dos `gross_amount` dos recebíveis do lote.
 
-`parcelamento_somado` é o `FINANCING_FEE_AMOUNT` **apenas das notas em que ele estava
-somado ao bruto**, decidido nota por nota:
+`somado_ao_bruto` é **o que o relatório somou ao bruto além da mercadoria**, decidido
+nota por nota testando hipóteses NOMEADAS contra a sobra medida:
 
 ```
-somado  ⟺  | (bruto das vendas aqui − valor_produtos × fração) − parcelamento | ≤ 0,10
+sobra = bruto das vendas aqui − valor_produtos × fração
+
+hipóteses, nesta ordem:  parcelamento + frete   →   frete   →   parcelamento
+vale a primeira cujo valor caia dentro de ± R$ 0,10 da sobra
 ```
+
+A soma vem primeiro de propósito: se ela bate, testar as parcelas isoladas antes faria o
+motor casar com uma e deixar a outra de fora. **Sobra que não bate com nenhuma hipótese
+não é subtraída** — fica como diferença real. Subtrair a sobra inteira fecharia tudo por
+construção.
+
+O parcelamento vem do relatório; o frete vem da nota. Cada hipótese tem valor de fonte
+independente, e a identidade que decide não envolve o número comparado.
 
 Por que a decisão é necessária: o relatório **não** distingue os dois casos — nas duas
 formas o líquido é `bruto − comissão − frete − parcelamento`. Medido:
 
-| nota | produtos | bruto | parcelamento | conclusão |
+| nota | produtos | bruto | componente | conclusão |
 |---|---|---|---|---|
-| 40920 | 108,97 | 124,43 | 15,46 | somado ao bruto |
-| 40504 | 173,33 | 173,33 | 5,51 | custo do vendedor |
+| 40920 | 108,97 | 124,43 | parcelamento 15,46 | somado ao bruto |
+| 40504 | 173,33 | 173,33 | parcelamento 5,51 | custo do vendedor |
+| 854203 | 154,65 | 196,64 | frete 41,99 | somado ao bruto |
+| 850806 | 179,11 | 179,11 | frete 37,99 | fora do bruto |
+
+**O frete se comporta dos dois jeitos, como o parcelamento.** Descoberto medindo o
+repasse #35: os deltas terminavam em `,99` — 41,99, 30,99, 24,99, 6,99 —, que é faixa de
+frete e não arredondamento.
 
 Usar o **total** da nota para decidir seria circular; `valor_produtos` é outro campo, e
 a identidade que decide não envolve o número comparado.

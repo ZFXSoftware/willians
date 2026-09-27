@@ -166,6 +166,49 @@ module Conciliacao
                    "o valor continua visível para a tela"
     end
 
+    # FRETE somado ao bruto: mesma família do parcelamento, e descoberto depois.
+    #
+    # Na NF 854203 o título é 196,64, IGUAL ao bruto, e a nota tem frete 41,99 — o bruto
+    # já inclui o frete. Subtraí-lo do esperado criava +41,99 de diferença. Na NF 850806
+    # é o contrário: produtos 179,11, bruto 179,11, frete 37,99 fora do bruto. Os deltas
+    # do repasse #35 terminavam em ,99 — faixa de frete, não arredondamento.
+    test "frete somado ao bruto sai da base e o repasse fecha" do
+      cenario(bruto: 196.64, valor_nota: 196.64,
+              fiscal: { "valor_produtos" => "154.65", "valor_frete" => "41.99" })
+
+      registro = conciliar(BigDecimal("196.64"))
+
+      assert_equal BigDecimal("0"), registro.diferenca.to_d
+      assert_equal "matched", registro.status
+    end
+
+    # Frete e parcelamento somados JUNTOS: a hipótese da soma é testada primeiro,
+    # senão o motor casaria só com uma das parcelas e deixaria a outra de fora.
+    test "frete e parcelamento somados juntos saem os dois" do
+      cenario(bruto: 200.00, valor_nota: 170.00,
+              fiscal: { "valor_produtos" => "160.00", "valor_frete" => "10.00" },
+              relatorio: { "FINANCING_FEE_AMOUNT" => "-30.00" })
+
+      registro = conciliar(BigDecimal("170.00"))
+
+      assert_equal BigDecimal("0"), registro.diferenca.to_d,
+                   "200 = produtos 160 + frete 10 + parcelamento 30"
+      assert_equal "matched", registro.status
+    end
+
+    # Sobra que NÃO bate com nenhuma hipótese nomeada não é subtraída: fica como
+    # diferença real. Subtrair a sobra inteira fecharia tudo por construção.
+    test "sobra que não bate com hipótese nenhuma continua diferença" do
+      cenario(bruto: 200.00, valor_nota: 170.00,
+              fiscal: { "valor_produtos" => "170.00" },
+              relatorio: { "FINANCING_FEE_AMOUNT" => "-3.00" })
+
+      registro = conciliar(BigDecimal("170.00"))
+
+      assert_equal BigDecimal("30.00"), registro.diferenca.to_d,
+                   "sobra 30 contra parcelamento 3: nenhuma hipótese explica, e fica"
+    end
+
     # O contrário: `bruto == produtos` significa que o parcelamento é custo do
     # VENDEDOR, subtraído do bruto como a comissão. Aí ele não abre lacuna e não pode
     # ser descontado — subtrair aqui foi o que me deu resíduo negativo em 19 de 35.
