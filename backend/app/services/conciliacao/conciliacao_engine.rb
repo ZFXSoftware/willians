@@ -342,7 +342,11 @@ module Conciliacao
       # Arredondado: a fração é uma divisão de BigDecimal e propaga trinta casas
       # decimais até a tela, onde R$ 99,999999999999 não é um valor, é um susto.
       cobertura[:encontradas].sum(BigDecimal("0")) do |ref|
-        omie_totals[ref] * (cobertura[:fracao_por_chave].to_h[ref] || 1)
+        # `+ desconto − frete`: traz o título para a mercadoria, que é o que o
+        # bruto do relatório mede. Ver `ajuste_por_chave`.
+        ajustado = omie_totals[ref] + cobertura[:ajuste_por_chave].to_h[ref].to_d
+
+        ajustado * (cobertura[:fracao_por_chave].to_h[ref] || 1)
       end.round(2)
     end
 
@@ -420,6 +424,29 @@ module Conciliacao
           [ Omie::Readers::ReceivableTotals.normalizar(nota.number), fracoes[nota.id] || 1 ]
         end
 
+        # O que separa o TÍTULO da MERCADORIA, por nota.
+        #
+        # A nota é `produtos + frete − desconto`, e o título no OMIE vale a nota
+        # inteira. O bruto do relatório é só a mercadoria: o frete que o comprador
+        # pagou não passa pelo bruto do vendedor (o Mercado Livre cobra o frete
+        # dele à parte, e os dois valores nem são iguais — na NF 850806 a nota traz
+        # frete de R$ 37,99 e a linha do relatório desconta R$ 21,65), e o desconto
+        # já está abatido na nota mas não no bruto.
+        #
+        # Medido: NF 850806 produtos 179,11 + frete 37,99 = nota 217,10 contra bruto
+        # 179,11; NF 40678 produtos 179,65 − desconto 4,00 = nota 175,65 contra bruto
+        # 179,65. Nos dois a distância é exatamente frete e desconto.
+        #
+        # Então o comparável é `título + desconto − frete`. Isso põe na BASE o que
+        # antes era explicado em prosa depois — e explicação que aparece em todo
+        # repasse ensina a ignorar a coluna.
+        ajuste_por_chave = por_nota.keys.to_h do |nota|
+          fiscal = nota.metadata.to_h["fiscal"].to_h
+
+          [ Omie::Readers::ReceivableTotals.normalizar(nota.number),
+            fiscal["valor_desconto"].to_d - fiscal["valor_frete"].to_d ]
+        end
+
         encontradas = esperadas.select { |ref| omie_totals.key?(ref) }
 
         # Quanto vale o que ainda não tem título no OMIE.
@@ -444,7 +471,9 @@ module Conciliacao
         valor_sem_titulo = faltando.sum(BigDecimal("0")) do |nota|
           chave = Omie::Readers::ReceivableTotals.normalizar(nota.number)
 
-          nota.total_amount.to_d * (fracao_por_chave[chave] || 1)
+          # Também ajustado à mercadoria: este número ocupa, na decomposição, o
+          # lugar do título que falta, e tem de ser medido como ele seria.
+          (nota.total_amount.to_d + ajuste_por_chave[chave].to_d) * (fracao_por_chave[chave] || 1)
         end.round(2)
 
         # As que não vão chegar: nota emitida sem valor não vira título nunca.
@@ -458,6 +487,7 @@ module Conciliacao
         {
           referencias: esperadas.size,
           fracao_por_chave: fracao_por_chave,
+          ajuste_por_chave: ajuste_por_chave,
           # Fora da diferença (ver `valor_interno_for`) e guardado para a frase e
           # para a tela: encargo do comprador, não receita do vendedor.
           parcelamento: parcelamento_de(payout),
@@ -603,15 +633,10 @@ module Conciliacao
         linhas[unidade.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
       end
 
-      cupom = lista.sum(BigDecimal("0")) do |unidade|
-        linhas[unidade.external_id].to_h["COUPON_AMOUNT"].to_d.abs
-      end
-
-      # O desconto é da nota inteira: entra pela fração que couber a este
-      # repasse, como o próprio valor da nota.
-      desconto = nota.metadata.to_h.dig("fiscal", "valor_desconto").to_d * fracao
-
-      parcelamento + [ cupom, desconto ].max
+      # Cupom e desconto NÃO entram mais aqui: o desconto foi para a base, em
+      # `ajuste_por_chave`, e o cupom é o mesmo abatimento visto do lado do
+      # relatório. Contar nos dois lugares abateria duas vezes.
+      parcelamento
     end
 
     # A linha do relatório de cada venda, em uma consulta para o lote.
@@ -814,9 +839,8 @@ module Conciliacao
       ajustes = cobertura[:valor_ajustes].to_d
 
       if ajustes.positive?
-        partes << "R$ #{format('%.2f', ajustes)} de parcelamento e desconto — o marketplace " \
-                  "soma ao valor da venda o custo do parcelamento que o comprador escolheu, " \
-                  "e a nota documenta a mercadoria já com o desconto abatido"
+        partes << "R$ #{format('%.2f', ajustes)} de custo de parcelamento que o relatório " \
+                  "soma ao bruto e a nota não documenta"
       end
 
       return "" if partes.empty?
@@ -906,7 +930,7 @@ module Conciliacao
           valor_liquido_repasse: payout.net_amount&.to_s,
           taxa_repasse: payout.fee_amount&.to_s,
           referencias: referencias_for(payout),
-          base_comparacao: "bruto",
+          base_comparacao: "bruto do relatório x título ajustado à mercadoria",
           # Informação, não exclusão: ver `valor_interno_for`.
           parcelamento: parcelamento_de(payout).to_s,
           # A decomposição como NÚMERO, e não só dentro da frase.

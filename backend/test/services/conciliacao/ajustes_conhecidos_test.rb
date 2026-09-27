@@ -65,14 +65,32 @@ module Conciliacao
       ConciliacaoRegistro.where(tenant_id: @tenant.id).order(:id).last
     end
 
-    test "o desconto da nota é descontado da diferença e ela sobra zerada" do
+    # O desconto está na BASE, não na explicação: o título vale a nota inteira e a
+    # nota já tem o abatimento, enquanto o bruto do relatório mostra o valor antes
+    # dele. Trazer o título para a mercadoria (`+ desconto − frete`) faz o repasse
+    # FECHAR, em vez de fechar "explicado" com R$ 6,00 de diferença que nunca foi
+    # dinheiro faltando.
+    test "desconto na nota não produz diferença nenhuma" do
       cenario(bruto: 184.65, valor_nota: 178.65, fiscal: { "valor_desconto" => "6.00" })
 
       registro = conciliar(BigDecimal("178.65"))
 
-      assert_equal BigDecimal("6.00"), registro.diferenca.to_d.abs
-      assert_includes registro.observacao.to_s, "parcelamento e desconto"
-      assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
+      assert_equal BigDecimal("0"), registro.diferenca.to_d
+      assert_equal "matched", registro.status
+    end
+
+    # Frete é o mesmo caso pelo outro lado: a nota documenta mercadoria + frete, e
+    # o bruto do relatório traz só a mercadoria — o frete que o comprador pagou não
+    # passa pelo bruto do vendedor. Medido na NF 850806: produtos 179,11 + frete
+    # 37,99 = nota 217,10 contra bruto 179,11.
+    test "frete na nota não produz diferença nenhuma" do
+      cenario(bruto: 179.11, valor_nota: 217.10,
+              fiscal: { "valor_produtos" => "179.11", "valor_frete" => "37.99" })
+
+      registro = conciliar(BigDecimal("217.10"))
+
+      assert_equal BigDecimal("0"), registro.diferenca.to_d
+      assert_equal "matched", registro.status
     end
 
     # O custo do parcelamento aparece no relatório e a nota não o documenta. Em
@@ -179,13 +197,15 @@ module Conciliacao
     # cliente fechavam ao centavo e a tela mostrava 17 divergências vermelhas,
     # pedindo revisão manual de algo que já tinha resposta.
     test "diferença explicada por inteiro sai como explicado, não divergente" do
-      cenario(bruto: 184.65, valor_nota: 178.65, fiscal: { "valor_desconto" => "6.00" })
+      # Parcelamento somado ao bruto, que é o que continua entrando como CAUSA
+      # depois de desconto e frete irem para a base.
+      cenario(bruto: 222.66, valor_nota: 194.65,
+              relatorio: { "FINANCING_FEE_AMOUNT" => "-28.01" })
 
-      registro = conciliar(BigDecimal("178.65"))
-
+      registro = conciliar(BigDecimal("194.65"))
 
       assert_equal "explicado", registro.status
-      assert_equal BigDecimal("6.00"), registro.diferenca.to_d.abs
+      assert_equal BigDecimal("28.01"), registro.diferenca.to_d.abs
 
       # E não abre divergência para alguém investigar.
       assert_equal 0, DivergenceReport.where(tenant_id: @tenant.id, status: :open).count
@@ -275,9 +295,12 @@ module Conciliacao
 
       registro = conciliar(BigDecimal("196.00"))
 
-      assert_includes registro.observacao.to_s, "R$ 4,00".tr(",", ".")
-      assert_includes registro.observacao.to_s, "sobra R$ 0,00".tr(",", ".")
-      assert_not_includes registro.observacao.to_s, "MAIS que a diferença"
+      # O cupom vinha rateado por venda (1,56 + 2,44) e o desconto da nota é o
+      # total (4,00) — era o caso em que somar as duas fontes contava o mesmo
+      # dinheiro duas vezes. Com o desconto na BASE o problema deixa de existir:
+      # o título ajustado é 196 + 4 = 200, igual ao bruto, e o repasse fecha.
+      assert_equal BigDecimal("0"), registro.diferenca.to_d
+      assert_equal "matched", registro.status
     end
   end
 end
