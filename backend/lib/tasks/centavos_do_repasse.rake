@@ -100,7 +100,9 @@ namespace :conciliacao do
         linhas[u.external_id].to_h["FINANCING_FEE_AMOUNT"].to_d.abs
       end
 
-      abatimento = [ fiscal["valor_desconto"].to_d, cupom ].max
+      # SÓ o desconto da nota, como o motor. O cupom fica na saída para comparação:
+      # é ele que me fez ajustar o esperado por uma fonte que não gerou o título.
+      abatimento = fiscal["valor_desconto"].to_d
 
       frete = fiscal["valor_frete"].to_d
 
@@ -122,9 +124,11 @@ namespace :conciliacao do
       next if delta.abs <= BigDecimal("0.01")
 
       linhas_saida << [ delta, format(
-        "  %-10s %5d %10.2f %10.2f %9.4f %10.2f %9.2f %9.2f %9s %10.2f",
+        "  %-10s %5d %10.2f %10.2f %9.4f %10.2f %8.2f %8.2f %8.2f %12s %10.2f",
         nota.number, vendas.size, titulo, bruto, fracao, esperado,
-        abatimento, frete, somado ? "sai" : "fica", delta
+        abatimento, frete, cupom,
+        parcelamento.zero? ? "—" : format("%.2f%s", parcelamento, somado ? " sai" : " fica"),
+        delta
       ) ]
     end
 
@@ -140,9 +144,9 @@ namespace :conciliacao do
     puts
 
     if linhas_saida.any?
-      puts format("  %-10s %5s %10s %10s %9s %10s %9s %9s %9s %10s",
-                  "NF", "vendas", "titulo", "bruto", "fração", "esperado", "abatim.", "frete",
-                  "parcel.", "delta")
+      puts format("  %-10s %5s %10s %10s %9s %10s %8s %8s %8s %12s %10s",
+                  "NF", "vendas", "titulo", "bruto", "fração", "esperado", "desconto", "frete",
+                  "cupom", "parcel.", "delta")
 
       linhas_saida.sort_by { |delta, _| -delta.abs }.first(20).each { |_, linha| puts linha }
 

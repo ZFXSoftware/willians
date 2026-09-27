@@ -79,23 +79,28 @@ module Conciliacao
       assert_equal "matched", registro.status
     end
 
-    # 327 notas do cliente têm cupom no relatório e NENHUM desconto na nota. Se o
-    # ajuste olhasse só o desconto, esses casos ficariam sem lugar: sem explicação,
-    # porque ela saiu de `causas_de`, e sem ajuste na base. Foi o que derrubou os
-    # `explicado` de 5 para 1 na primeira tentativa.
-    test "cupom do relatório sem desconto na nota também entra na base" do
-      cenario(bruto: 184.65, valor_nota: 178.65,
-              relatorio: { "COUPON_AMOUNT" => "-6.00" })
+    # Cupom no relatório NÃO ajusta o esperado. Eu afirmei o contrário aqui, e a
+    # medição nota por nota do repasse #17 desmentiu: a NF 041895 tem título 184,65
+    # igual ao bruto 184,65 e cupom 33,24 no relatório — o cupom existe e a nota não o
+    # abateu. Somá-lo ao esperado criava R$ -33,24 de delta onde não havia diferença.
+    #
+    # O título espelha a NOTA. Ajustá-lo por uma fonte que não gerou o título é
+    # inventar abatimento.
+    test "cupom do relatório não ajusta o esperado" do
+      cenario(bruto: 184.65, valor_nota: 184.65,
+              fiscal: { "valor_produtos" => "184.65" },
+              relatorio: { "COUPON_AMOUNT" => "-33.24" })
 
-      registro = conciliar(BigDecimal("178.65"))
+      registro = conciliar(BigDecimal("184.65"))
 
-      assert_equal BigDecimal("0"), registro.diferenca.to_d
+      assert_equal BigDecimal("0"), registro.diferenca.to_d,
+                   "título igual ao bruto: o cupom do relatório não pode criar diferença"
       assert_equal "matched", registro.status
     end
 
-    # Cupom e desconto são o MESMO dinheiro visto de dois lados: vale o maior,
-    # nunca a soma. Somar abateria 12 onde há 6 e produziria diferença negativa.
-    test "cupom e desconto juntos valem o maior, não a soma" do
+    # Com cupom E desconto presentes, vale o da NOTA — e somar os dois abateria 12
+    # onde há 6, produzindo diferença negativa.
+    test "cupom e desconto juntos não se somam" do
       cenario(bruto: 184.65, valor_nota: 178.65,
               fiscal: { "valor_desconto" => "6.00" },
               relatorio: { "COUPON_AMOUNT" => "-6.00" })
