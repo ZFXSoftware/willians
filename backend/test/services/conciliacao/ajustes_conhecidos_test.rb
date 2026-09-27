@@ -86,30 +86,29 @@ module Conciliacao
     #
     # O título espelha a NOTA. Ajustá-lo por uma fonte que não gerou o título é
     # inventar abatimento.
-    # ERRO CONHECIDO, documentado como teste para não se perder.
+    # RESOLVIDO por medição: o cupom do relatório nunca ajusta o esperado.
     #
-    # Quando o título é igual ao bruto e existe cupom no relatório, o cupom NÃO está
-    # refletido na nota — e somá-lo ao esperado cria diferença que não existe. Medido
-    # em sete notas do repasse #17 (NF 041895: título 184,65, bruto 184,65, cupom
-    # 33,24).
+    # Em 846 vendas com cupom, 756 têm `bruto == valor_produtos` — a nota não abateu o
+    # cupom — e ZERO têm `bruto − cupom == produtos`. O campo `valor_desconto` não
+    # distingue os casos: "0.00" em 484 e positivo em 272 dentro do mesmo grupo.
     #
-    # Tirar o cupom da regra piorou o conjunto: a soma dos 35 repasses subiu de
-    # R$ 14.029,73 para R$ 22.390,80, porque nas outras notas ele ESTÁ refletido.
-    # Falta medir o que distingue os dois casos; até lá vale a regra que erra menos, e
-    # este teste registra o preço dela.
-    test "cupom sem reflexo na nota ainda cria diferença (erro conhecido)" do
+    # Este teste já afirmou o contrário duas vezes. A segunda foi pior: eu mantive o
+    # cupom porque tirá-lo fazia a soma dos repasses SUBIR, e soma menor não é evidência
+    # de regra melhor — era o cupom fechando lacunas que não tem direito de fechar.
+    test "cupom do relatório não ajusta o esperado" do
       cenario(bruto: 184.65, valor_nota: 184.65,
               fiscal: { "valor_produtos" => "184.65" },
               relatorio: { "COUPON_AMOUNT" => "-33.24" })
 
       registro = conciliar(BigDecimal("184.65"))
 
-      assert_equal BigDecimal("-33.24"), registro.diferenca.to_d,
-                   "quando isto virar zero, a regra do cupom foi resolvida"
+      assert_equal BigDecimal("0"), registro.diferenca.to_d,
+                   "título igual ao bruto: o cupom não pode criar diferença"
+      assert_equal "matched", registro.status
     end
 
-    # Com cupom E desconto presentes, vale o da NOTA — e somar os dois abateria 12
-    # onde há 6, produzindo diferença negativa.
+    # Com cupom E desconto presentes, vale o da NOTA: o cupom não entra nem quando é
+    # maior, e somar os dois abateria 12 onde há 6.
     test "cupom e desconto juntos não se somam" do
       cenario(bruto: 184.65, valor_nota: 178.65,
               fiscal: { "valor_desconto" => "6.00" },

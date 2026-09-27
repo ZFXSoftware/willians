@@ -116,8 +116,15 @@ bruto do vendedor, e os dois valores nem coincidem (NF 850806 traz frete 37,99 n
 e o relatório desconta 21,65). Então somar o desconto e subtrair o frete devolve o
 título a `produtos`, que é o que o bruto mede.
 
-**`abatimento` = maior entre `valor_desconto` da nota e `COUPON_AMOUNT` do relatório**,
-nunca a soma. Ver o erro conhecido em §9.
+**`abatimento` = apenas o `valor_desconto` da NOTA.** O `COUPON_AMOUNT` do relatório
+**nunca** ajusta o esperado.
+
+Medido em 846 vendas com cupom (`conciliacao:reflexo_do_cupom`): em **756** delas
+`bruto == valor_produtos` — a nota NÃO abateu o cupom — e em **zero** delas
+`bruto − cupom == produtos`. As 90 restantes são nota de pacote, em que comparar o bruto
+de uma venda com os produtos da nota inteira não vale. O campo `valor_desconto` não
+distingue os casos: aparece `"0.00"` em 484 e positivo em 272 **dentro do mesmo grupo**,
+então não há regra condicional a escrever.
 
 **`fração`** = (bruto das vendas daquela nota **neste** repasse) ÷ (bruto de **todas** as
 vendas ligadas àquela nota). Para nota que não é de pacote dá 1. É rateio, não medição:
@@ -179,12 +186,11 @@ porque a tolerância é de um centavo sobre a soma de ~100 notas.
 
 ## 10. Erros conhecidos, medidos e não consertados
 
-**Cupom sem reflexo na nota.** Quando o título é igual ao bruto e existe
-`COUPON_AMOUNT`, a nota **não** abateu o cupom, e somá-lo ao esperado cria diferença que
-não existe — sete notas do repasse #17, R$ 4,62. Mas tirar o cupom da regra fez a soma
-dos 35 repasses **subir** de R$ 14.029,73 para R$ 22.390,80, porque nas outras notas ele
-**está** refletido. Falta medir o que distingue os dois casos
-(`conciliacao:reflexo_do_cupom`). Há teste registrando o preço da regra atual.
+**~~Cupom sem reflexo na nota~~ — RESOLVIDO** em 2026-09-27 por medição, e vale como
+lição de método. Eu mantive o cupom na regra porque tirá-lo fazia a soma dos 35 repasses
+**subir** de R$ 14.029,73 para R$ 22.390,80, e li a soma menor como regra melhor. Era o
+contrário: o cupom estava fechando lacunas que não tem direito de fechar, e **a diferença
+verdadeira é a maior**. Soma menor não é evidência de nada.
 
 **Nota sem `valor_produtos`.** A decisão do parcelamento (§4) não pode ser tomada, e ele
 fica na base por omissão.

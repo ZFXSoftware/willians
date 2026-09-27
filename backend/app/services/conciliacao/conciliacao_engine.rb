@@ -447,34 +447,46 @@ module Conciliacao
         # Então o comparável é `título + desconto − frete`. Isso põe na BASE o que
         # antes era explicado em prosa depois — e explicação que aparece em todo
         # repasse ensina a ignorar a coluna.
-        # O abatimento vale pelo MAIOR entre o desconto da nota e o cupom do
-        # relatório, nunca pela soma: são o mesmo dinheiro visto de dois lados — o
-        # cupom concedido ao comprador sai como desconto no documento. Medido na
-        # base do cliente: 109 notas com os dois iguais, 327 só com cupom, 94 só
-        # com desconto, e as "diferentes" eram pacote com o cupom rateado somando
-        # exatamente o desconto.
+        # SÓ o desconto da NOTA. O cupom do relatório NUNCA ajusta o esperado.
         #
-        # Usar só o desconto da nota deixava 327 casos sem lugar nenhum: sem
-        # explicação (ela saiu de `causas_de`) e sem ajuste na base. Foi o que fez
-        # os `explicado` cairem de 5 para 1 na primeira tentativa.
+        # Medido em 846 vendas com cupom (`conciliacao:reflexo_do_cupom`): em 756 delas
+        # `bruto == valor_produtos`, ou seja a nota NÃO abateu o cupom. Em ZERO delas
+        # `bruto − cupom == produtos`. As 90 restantes são nota de pacote, em que a
+        # comparação por venda isolada não vale.
+        #
+        # O campo `valor_desconto` não distingue nada: aparece "0.00" em 484 e positivo
+        # em 272 DENTRO do mesmo grupo. Então não há regra condicional a escrever — o
+        # cupom simplesmente não é abatimento do documento.
+        #
+        # Eu já havia tirado o cupom e voltado atrás, porque tirá-lo fez a soma dos 35
+        # repasses subir de R$ 14.029,73 para R$ 22.390,80. Esse foi o erro de método do
+        # dia: soma menor não é evidência de regra melhor. O cupom estava fechando
+        # lacunas que não tem direito de fechar, e a diferença verdadeira é a maior.
+        ajuste_por_chave = por_nota.keys.to_h do |nota|
+          fiscal = nota.metadata.to_h["fiscal"].to_h
+
+          [ Omie::Readers::ReceivableTotals.normalizar(nota.number),
+            fiscal["valor_desconto"].to_d - fiscal["valor_frete"].to_d ]
+        end
+
         linhas_para_ajuste = linhas_do_relatorio(unidades)
 
         # O PARCELAMENTO foi somado ao bruto nesta venda, ou é custo do vendedor?
         #
         # O relatório não diz: nas duas formas o líquido é
-        # `bruto − comissão − frete − parcelamento`. Mas a NOTA diz, por um caminho
-        # que não é circular: `valor_produtos` é a mercadoria, e o bruto do relatório
-        # deveria ser a mesma coisa. Quando `bruto − produtos` bate com o
-        # parcelamento informado, ele foi somado; quando `bruto == produtos`, não foi.
+        # `bruto − comissão − frete − parcelamento`. A NOTA diz, por um caminho que não é
+        # circular: `valor_produtos` é a mercadoria, e o bruto do relatório deveria ser a
+        # mesma coisa. Quando `bruto − produtos` bate com o parcelamento informado, ele
+        # foi somado; quando `bruto == produtos`, não foi.
         #
         # Medido: NF 40920 tem produtos 108,97 e bruto 124,43 com parcelamento 15,46
         # (somado); NF 40504 tem produtos 173,33 e bruto 173,33 com parcelamento 5,51
-        # (custo do vendedor). Subtrair sempre — que foi minha primeira tentativa —
-        # produziu resíduo negativo em 19 de 35 repasses.
+        # (custo do vendedor). Subtrair sempre — minha primeira tentativa — produziu
+        # resíduo negativo em 19 de 35 repasses.
         #
-        # Não é circular porque a decisão usa `valor_produtos`, e a comparação usa o
-        # TOTAL da nota: são campos diferentes, e a identidade que decide
-        # (`bruto − produtos == parcelamento`) não envolve o número comparado.
+        # Não é circular porque a decisão usa `valor_produtos` e a comparação usa o TOTAL
+        # da nota: campos diferentes, e a identidade que decide não envolve o número
+        # comparado.
         parcelamento_somado = por_nota.sum(BigDecimal("0")) do |nota, vendas|
           produtos = nota.metadata.to_h.dig("fiscal", "valor_produtos").to_d
 
@@ -490,37 +502,10 @@ module Conciliacao
 
           next BigDecimal("0") unless parcelamento.positive?
 
-          # Um centavo de folga: a fração é divisão e o rateio não é exato.
           sobra = bruto_aqui - (produtos * fracao)
 
           (sobra - parcelamento).abs <= TOLERANCIA_DE_ARREDONDAMENTO ? parcelamento : BigDecimal("0")
         end.round(2)
-
-        # O abatimento vale pelo MAIOR entre o desconto da nota e o cupom do
-        # relatório — restaurado depois de eu tentar usar só o desconto da nota.
-        #
-        # A medição nota por nota do repasse #17 mostrou sete casos em que o cupom NÃO
-        # está refletido na nota (NF 041895: título 184,65 igual ao bruto, cupom 33,24),
-        # e somá-lo criava diferença. Tirei o cupom por causa disso e a soma dos 35
-        # repasses SUBIU de R$ 14.029,73 para R$ 22.390,80: nas outras notas o cupom
-        # está refletido, e sem ele o esperado fica alto.
-        #
-        # Nenhuma das duas regras serve, e escolher pela que dá o número menor seria
-        # ajustar a conta ao resultado. Falta medir, por nota, quando `título == bruto`
-        # e quando `título == bruto − cupom` — e o que distingue os dois casos no dado.
-        # Enquanto isso, fica a regra que erra menos, com o erro conhecido e escrito.
-        ajuste_por_chave = por_nota.to_h do |nota, vendas|
-          fiscal = nota.metadata.to_h["fiscal"].to_h
-
-          cupom = vendas.sum(BigDecimal("0")) do |unidade|
-            linhas_para_ajuste[unidade.external_id].to_h["COUPON_AMOUNT"].to_d.abs
-          end
-
-          abatimento = [ fiscal["valor_desconto"].to_d, cupom ].max
-
-          [ Omie::Readers::ReceivableTotals.normalizar(nota.number),
-            abatimento - fiscal["valor_frete"].to_d ]
-        end
 
         encontradas = esperadas.select { |ref| omie_totals.key?(ref) }
 
