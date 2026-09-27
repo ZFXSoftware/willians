@@ -496,23 +496,30 @@ module Conciliacao
           (sobra - parcelamento).abs <= TOLERANCIA_DE_ARREDONDAMENTO ? parcelamento : BigDecimal("0")
         end.round(2)
 
-        # SÓ o desconto da NOTA, nunca o cupom do relatório.
+        # O abatimento vale pelo MAIOR entre o desconto da nota e o cupom do
+        # relatório — restaurado depois de eu tentar usar só o desconto da nota.
         #
-        # Eu usei `max(desconto, cupom)` porque os dois costumam ser o mesmo
-        # abatimento visto de dois lados. Medido nota por nota no repasse #17, está
-        # errado: a NF 041895 tem título 184,65 igual ao bruto 184,65 e cupom 33,24 no
-        # relatório — o cupom existe e a nota NÃO o abateu. Somá-lo ao esperado criava
-        # R$ -33,24 de delta, e sete notas assim eram os R$ 4,62 daquele repasse.
+        # A medição nota por nota do repasse #17 mostrou sete casos em que o cupom NÃO
+        # está refletido na nota (NF 041895: título 184,65 igual ao bruto, cupom 33,24),
+        # e somá-lo criava diferença. Tirei o cupom por causa disso e a soma dos 35
+        # repasses SUBIU de R$ 14.029,73 para R$ 22.390,80: nas outras notas o cupom
+        # está refletido, e sem ele o esperado fica alto.
         #
-        # A regra que resta é a única defensável: o título espelha a NOTA, então só o
-        # que a nota diz pode ajustá-lo. Cupom no relatório sem desconto na nota não é
-        # abatimento do documento, e inventar abatimento a partir dele é ajustar o
-        # esperado por uma fonte que não gerou o título.
-        ajuste_por_chave = por_nota.keys.to_h do |nota|
+        # Nenhuma das duas regras serve, e escolher pela que dá o número menor seria
+        # ajustar a conta ao resultado. Falta medir, por nota, quando `título == bruto`
+        # e quando `título == bruto − cupom` — e o que distingue os dois casos no dado.
+        # Enquanto isso, fica a regra que erra menos, com o erro conhecido e escrito.
+        ajuste_por_chave = por_nota.to_h do |nota, vendas|
           fiscal = nota.metadata.to_h["fiscal"].to_h
 
+          cupom = vendas.sum(BigDecimal("0")) do |unidade|
+            linhas_para_ajuste[unidade.external_id].to_h["COUPON_AMOUNT"].to_d.abs
+          end
+
+          abatimento = [ fiscal["valor_desconto"].to_d, cupom ].max
+
           [ Omie::Readers::ReceivableTotals.normalizar(nota.number),
-            fiscal["valor_desconto"].to_d - fiscal["valor_frete"].to_d ]
+            abatimento - fiscal["valor_frete"].to_d ]
         end
 
         encontradas = esperadas.select { |ref| omie_totals.key?(ref) }
