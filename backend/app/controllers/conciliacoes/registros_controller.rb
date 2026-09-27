@@ -31,12 +31,23 @@ module Conciliacoes
 
       scope = scope.where(conciliation_run: { platform: params[:plataforma] }) if params[:plataforma].present?
 
+      # Filtra pela data de PAGAMENTO, igual à ordenação.
+      #
+      # Filtrava por `conciliated_at` enquanto ordenava por `paid_at`: uma data para
+      # ordenar e outra para selecionar. E como cada execução recarimba TODOS os
+      # registros, filtrar por conferência não selecionava nada — "últimos 7 dias"
+      # devolvia os 35 repasses, inclusive os de julho.
+      #
+      # "Últimos 30 dias" passa a significar repasses PAGOS nos últimos 30 dias, que é o
+      # que a frase diz. Registro sem lote não tem data de pagamento e sai do recorte
+      # quando há filtro — estar sempre presente seria pior: ele apareceria em toda
+      # janela, inclusive nas que não o contêm.
       if (de = parse_date(params[:start_date]))
-        scope = scope.where(conciliated_at: de.beginning_of_day..)
+        scope = scope.where(payout_batches: { paid_at: de.beginning_of_day.. })
       end
 
       if (ate = parse_date(params[:end_date]))
-        scope = scope.where(conciliated_at: ..ate.end_of_day)
+        scope = scope.where(payout_batches: { paid_at: ..ate.end_of_day })
       end
 
       if params[:busca].present?

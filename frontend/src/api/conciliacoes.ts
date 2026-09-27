@@ -102,7 +102,11 @@ export interface FiltrosRegistros {
   status?: string
   plataforma?: string
   busca?: string
+  // Recorte pela data de PAGAMENTO do repasse — a mesma por que a lista é ordenada.
+  // Filtrava pela data de conferência, que é recarimbada a cada execução e por isso não
+  // selecionava nada: "últimos 7 dias" devolvia os 35, inclusive os de julho.
   start_date?: string
+  end_date?: string
   page?: number
   per_page?: number
 }
