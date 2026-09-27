@@ -13,9 +13,19 @@ module Conciliacoes
     private
 
     def escopo
+      # Pela data de PAGAMENTO do repasse, não pela de conferência.
+      #
+      # Ordenar por `conciliated_at` embaralhava a lista a cada execução: conferir de
+      # novo carimba a data e o repasse pula para o topo, então a mesma tela mostrava
+      # ordens diferentes sem nada ter mudado nos dados. A data do pagamento é do FATO —
+      # é ela que o cliente usa para achar o repasse de que está falando.
+      #
+      # `NULLS LAST` porque registro sem lote (raro, mas existe) não pode encabeçar a
+      # lista; e o `id DESC` desempata os repasses pagos no mesmo dia.
       scope = atuais
                 .includes(:conciliation_run, payout_batch: :financial_entry_allocations)
-                .order(conciliated_at: :desc, id: :desc)
+                .references(:payout_batch)
+                .order(Arel.sql("payout_batches.paid_at DESC NULLS LAST, conciliacao_registros.id DESC"))
 
       scope = scope.where(status: params[:status]) if params[:status].present?
 
