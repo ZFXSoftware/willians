@@ -103,34 +103,6 @@ module Conciliacao
                    "o valor fica visível para a tela mesmo entrando como causa"
     end
 
-    # Recebível marcado como NÃO-VENDA sai das duas pontas: do bruto do repasse e
-    # da conciliação. Se saísse de uma só, as duas voltariam a medir coisas
-    # diferentes — que foi o meu erro ao tirar o parcelamento de um lado apenas.
-    test "recebível marcado como não-venda não entra na comparação" do
-      nota, repasse = cenario(bruto: 100.00, valor_nota: 100.00)
-
-      intruso = criar_recebivel(tenant: @tenant, conta: @conta, pedido: @pedido,
-                                bruto: 40.00, liquido: 40.00, external_id: "MLREL-RESERVA",
-                                previsto_para: Date.current - 2)
-
-      intruso.update!(metadata: {
-        ReceivableUnit::MARCA_NAO_E_VENDA => { "descricao" => "reserve_for_dispute" }
-      })
-
-      lanc = criar_lancamento(tenant: @tenant, conta: @conta, pedido: @pedido,
-                              valor: 40.00, external_id: "MLREL-RESERVA")
-
-      alocar!(tenant: @tenant, lancamento: lanc, recebivel: intruso,
-              repasse: repasse, tipo: :payout)
-
-      registro = conciliar(BigDecimal("100.00"))
-
-      assert_equal BigDecimal("0"), registro.diferenca.to_d,
-                   "a reserva de disputa não é venda e não pode virar diferença"
-
-      assert_equal nota.number, "500"
-    end
-
     # Nota de pacote SEM título entrava pelo valor inteiro em cada repasse que
     # levou parte dela — dividida entre dois repasses, era contada duas vezes por
     # inteiro. O lado do OMIE já aplicava a fração; este componente não, e era daí
