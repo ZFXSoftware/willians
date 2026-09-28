@@ -297,7 +297,7 @@ module Marketplace
           return []
         end
 
-        return [saque(linha)] if SAQUE.include?(tipo)
+        return [ saque(linha) ] if SAQUE.include?(tipo)
 
         return disputa(linha, DISPUTAS[tipo]) if DISPUTAS.key?(tipo)
 
@@ -323,13 +323,43 @@ module Marketplace
       end
 
       def venda_com_deducoes(linha)
-        [venda(linha), *taxas(linha)].compact
+        return aporte(linha) if aporte?(linha)
+
+        [ venda(linha), *taxas(linha) ].compact
+      end
+
+      # Dinheiro que ENTRA na conta do Mercado Pago sem ser venda.
+      #
+      # Venda de marketplace sempre tem comissão e sempre carrega pedido ou referência
+      # externa. Uma linha `payment` sem comissão, sem ORDER_ID e sem EXTERNAL_REFERENCE
+      # é depósito na conta — o vendedor pondo dinheiro por fora, tipicamente para cobrir
+      # dívida (o relatório do cliente tem 3.985 linhas de `reserve_for_debt_payment`).
+      #
+      # Medido na base do cliente: a assinatura isola exatamente 3 lançamentos, R$
+      # 8.979,00, todos PIX, e o controle não pega nenhum falso positivo — não existe
+      # venda com comissão e sem pedido. Sem esta regra eles entravam como receita e
+      # infláavam o repasse #39 em 41% da diferença total da conciliação.
+      #
+      # As três condições juntas, nunca uma sozinha: existem 336 vendas sem comissão que
+      # TÊM pedido, e são legítimas.
+      def aporte?(linha)
+        return false unless decimal(linha["MP_FEE_AMOUNT"]).zero?
+
+        return false if linha["ORDER_ID"].to_s.strip.present?
+
+        linha["EXTERNAL_REFERENCE"].to_s.strip.blank?
+      end
+
+      def aporte(linha)
+        @ignorados["aporte na conta (sem comissão e sem pedido)"] += 1
+
+        []
       end
 
       # A linha de resumo traz o valor ora no crédito, ora no bruto, conforme o
       # tipo. Vale o primeiro que não for zero.
       def registrar_saldo(tipo, linha)
-        valor = [linha["NET_CREDIT_AMOUNT"], linha["GROSS_AMOUNT"], linha["NET_DEBIT_AMOUNT"]]
+        valor = [ linha["NET_CREDIT_AMOUNT"], linha["GROSS_AMOUNT"], linha["NET_DEBIT_AMOUNT"] ]
                 .map { |v| decimal(v) }
                 .find { |v| !v.zero? }
 
@@ -388,11 +418,11 @@ module Marketplace
 
         devolucao = valor.positive?
 
-        [base(linha,
+        [ base(linha,
               sufixo: devolucao ? "#{tipo.to_s.upcase}-VOLTA" : tipo.to_s.upcase,
               tipo: tipo,
               direcao: devolucao ? :credit : :debit,
-              valor: valor.abs)]
+              valor: valor.abs) ]
       end
 
       def saque(linha)
@@ -457,7 +487,7 @@ module Marketplace
       # pedido + data, que ainda é único por tipo de dedução.
       def identificador(linha, sufixo)
         chave = linha["SOURCE_ID"].to_s.strip.presence ||
-                [pedido_de(linha), linha["DATE"].to_s.strip].compact_blank.join("-")
+                [ pedido_de(linha), linha["DATE"].to_s.strip ].compact_blank.join("-")
 
         "MLREL-#{chave}-#{sufixo}"
       end

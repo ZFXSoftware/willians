@@ -53,7 +53,30 @@ namespace :conciliacao do
     end
     puts
 
-    externos = suspeitos.map(&:first)
+    # E os APORTES: dinheiro que entrou na conta sem ser venda. Venda de marketplace
+    # sempre tem comissão e sempre carrega pedido ou referência; as três ausências juntas
+    # isolam o depósito. Medido: 3 lançamentos, R$ 8.979,00, todos PIX, e zero falso
+    # positivo — não existe venda com comissão e sem pedido.
+    aportes = FinancialEntry
+                .where(tenant_id: tenant.id, entry_type: "sale")
+                .where("jsonb_typeof(raw_payload) = 'object'")
+                .where("COALESCE(NULLIF(raw_payload->>'MP_FEE_AMOUNT',''), '0')::numeric = 0")
+                .where("COALESCE(raw_payload->>'ORDER_ID', '') = ''")
+                .where("COALESCE(raw_payload->>'EXTERNAL_REFERENCE', '') = ''")
+                .pluck(:external_id, Arel.sql("raw_payload->>'PAYMENT_METHOD'"), :amount)
+
+    if aportes.any?
+      puts format("Aportes na conta (sem comissão, sem pedido, sem referência): %d · R$ %.2f",
+                  aportes.size, aportes.sum { |_, _, valor| valor.to_d })
+
+      aportes.group_by { |_, meio, _| meio }.each do |meio, lista|
+        puts format("  %-20s %4d · R$ %10.2f", meio.inspect, lista.size, lista.sum { |_, _, v| v.to_d })
+      end
+
+      puts
+    end
+
+    externos = suspeitos.map(&:first) + aportes.map(&:first)
 
     # Só os que ainda não estão marcados: rodar duas vezes não pode contar duas.
     alvos = ReceivableUnit.where(tenant_id: tenant.id, external_id: externos).vendas_reais.to_a
@@ -73,6 +96,7 @@ namespace :conciliacao do
     puts
 
     descricao_por_externo = suspeitos.to_h { |externo, descricao, _| [ externo, descricao ] }
+                                      .merge(aportes.to_h { |externo, meio, _| [ externo, "aporte na conta (#{meio})" ] })
 
     next puts("Nada foi gravado. Use APLICAR=1 para marcar.") unless aplicar
 
@@ -83,7 +107,9 @@ namespace :conciliacao do
         unidade.update!(metadata: (unidade.metadata || {}).merge(
           ReceivableUnit::MARCA_NAO_E_VENDA => {
             "descricao" => descricao_por_externo[unidade.external_id],
-            "motivo" => "linha do relatório não é venda (regressão RECORD_TYPE)",
+            "motivo" => descricao_por_externo[unidade.external_id].to_s.start_with?("aporte") ?
+                          "depósito na conta: sem comissão, sem pedido, sem referência" :
+                          "linha do relatório não é venda (regressão RECORD_TYPE)",
             "marcado_em" => Time.current
           }
         ))

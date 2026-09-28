@@ -92,9 +92,9 @@ module Marketplace
       frete = lancamentos.fetch("MLREL-PAY-111-SHIP")
       imposto = lancamentos.fetch("MLREL-PAY-111-TAX")
 
-      assert_equal [BigDecimal("15.50"), BigDecimal("8.00"), BigDecimal("2.25")],
-                   [tarifa, frete, imposto].map { |e| e[:amount] }
-      assert [tarifa, frete, imposto].all? { |e| e[:direction] == :debit }
+      assert_equal [ BigDecimal("15.50"), BigDecimal("8.00"), BigDecimal("2.25") ],
+                   [ tarifa, frete, imposto ].map { |e| e[:amount] }
+      assert [ tarifa, frete, imposto ].all? { |e| e[:direction] == :debit }
       # O razão não tem tipo para imposto; o sufixo do identificador é o que
       # mantém a distinção legível.
       assert_equal :fee, imposto[:entry_type]
@@ -483,6 +483,37 @@ module Marketplace
       assert_equal BigDecimal("355.52"), retencao[:amount].to_d
       assert_equal BigDecimal("355.52"), volta[:amount].to_d,
                    "o dinheiro voltou: o razão tem de creditar o mesmo valor"
+    end
+
+    # Depósito na conta do Mercado Pago não é venda. Venda de marketplace SEMPRE tem
+    # comissão e SEMPRE carrega pedido ou referência — as três condições juntas isolam o
+    # aporte, e nunca uma sozinha: há 336 vendas sem comissão que têm pedido.
+    #
+    # Medido: 3 lançamentos, R$ 8.979,00, todos PIX, entrando como receita e inflando o
+    # repasse #39 em 41% da diferença total da conciliação.
+    CSV_APORTE = <<~CSV
+      DATE,SOURCE_ID,EXTERNAL_REFERENCE,ORDER_ID,RECORD_TYPE,DESCRIPTION,GROSS_AMOUNT,MP_FEE_AMOUNT,SHIPPING_FEE_AMOUNT,TAXES_AMOUNT,NET_CREDIT_AMOUNT,NET_DEBIT_AMOUNT,PAYMENT_METHOD
+      2026-08-01T10:00:00Z,,,,initial_available_balance,,0,0,0,0,0,0,
+      2026-08-02T10:00:00Z,PIX-1,,,release,payment,4659.00,0,0,0,4659.00,0,pix
+      2026-08-03T10:00:00Z,PAY-888,,2000000888,release,payment,150.00,-15.50,0,0,134.50,0,credit_card
+      2026-08-04T10:00:00Z,PAY-999,REF-999,,release,payment,90.00,0,0,0,90.00,0,account_money
+    CSV
+
+    test "depósito na conta não vira venda, e venda com pedido continua entrando" do
+      lancamentos = eventos(CSV_APORTE).select { |e| e[:entry_type] == :sale }
+
+      assert_equal %w[MLREL-PAY-888-SALE MLREL-PAY-999-SALE], lancamentos.map { |e| e[:external_id] }.sort,
+                   "o PIX sem comissão e sem pedido não é venda; os outros dois são"
+
+      assert_not_includes lancamentos.map { |e| e[:external_id] }, "MLREL-PIX-1-SALE"
+    end
+
+    # A linha sem comissão mas COM referência externa continua sendo venda: são 336 na
+    # base do cliente, e tratá-las como aporte apagaria receita de verdade.
+    test "venda sem comissão mas com referência continua venda" do
+      lancamentos = eventos(CSV_APORTE).select { |e| e[:entry_type] == :sale }
+
+      assert_includes lancamentos.map { |e| e[:external_id] }, "MLREL-PAY-999-SALE"
     end
   end
 end
