@@ -51,7 +51,11 @@ module Financeiro
         saldo_inicial: saldo_inicial,
         por_tipo: por_tipo,
         # A resposta para "como o saldo chegou aqui", quando existe.
-        primeira_divergencia: primeira_divergencia,
+        primeira_divergencia: divergencias.first,
+        # TODAS elas, da maior para a menor. Cada salto é um movimento em que o nosso
+        # razão e o marketplace discordam, e cada um tem causa própria — a primeira
+        # responde "quando começou", a lista responde "o que consertar".
+        divergencias: divergencias.sort_by { |linha| -linha[:salto].abs }.first(limite),
         linhas: linhas_recentes,
         total_de_linhas: linhas.size
       }
@@ -128,6 +132,10 @@ module Financeiro
             movimento: descricao_de(grupo.first),
             referencia: chave.first,
             pedido: grupo.filter_map { |e| e.order&.external_id }.first,
+            # O que o marketplace escreveu na linha. `MELIPAYMENTS-COLLECTIONATTEMPT` é
+            # cobrança de dívida e não tem pedido nenhum — sem esta coluna a linha
+            # aparecia como um débito sem origem.
+            referencia_externa: grupo.filter_map { |e| payload(e)["EXTERNAL_REFERENCE"].presence }.first,
             lancamentos: grupo.size,
             valor: movimento,
             saldo_nosso: corrente,
@@ -140,32 +148,40 @@ module Financeiro
       end
     end
 
-    # A PRIMEIRA linha em que os dois saldos se separam, e o quanto se separaram nela.
+    # As linhas em que os dois saldos se separam, em ordem de data.
     #
-    # Depois da primeira, todas divergem — o erro é cumulativo. Reportar a última, ou
-    # todas, esconde a única que responde a pergunta.
-    def primeira_divergencia
-      # Começa em zero porque o saldo corrente já parte do saldo inicial: na primeira
-      # linha os dois lados coincidem por construção, e o primeiro salto que aparecer é
-      # movimento nosso que falta ou que sobra.
-      anterior = BigDecimal("0")
+    # O que identifica cada uma é o SALTO, não a distância acumulada: depois da primeira
+    # divergência todas as linhas estão distantes, porque o erro se carrega para frente.
+    # Ordenar pela distância listaria as 4.900 linhas seguintes como se cada uma fosse um
+    # problema.
+    #
+    # Medido no dado real: das 4.940 linhas do cliente, a distância final é R$ 3.050,44 e
+    # ela vem de poucos saltos — o primeiro é uma tentativa de cobrança do Mercado Livre
+    # (`MELIPAYMENTS-COLLECTIONATTEMPT`) que debitou R$ 1.325,02 num saldo de R$ 965,72:
+    # o saldo DELES foi a zero, o nosso a negativo, e os R$ 359,30 de diferença são
+    # dívida que o marketplace não conseguiu cobrar.
+    def divergencias
+      @divergencias ||= begin
+        # Começa em zero porque o saldo corrente já parte do saldo inicial: na primeira
+        # linha os dois lados coincidem por construção.
+        anterior = BigDecimal("0")
 
-      linhas.each do |linha|
-        distancia = linha[:distancia]
+        # Em ordem de data, e não a lista já recortada da tela: `linhas_recentes` mostra
+        # as últimas, e a primeira divergência costuma estar no começo.
+        linhas.filter_map do |linha|
+          distancia = linha[:distancia]
 
-        next if distancia.nil?
+          next if distancia.nil?
 
-        # O SALTO, e não a distância acumulada: é o salto que aponta o movimento culpado.
-        salto = (distancia - anterior).round(2)
+          salto = (distancia - anterior).round(2)
 
-        if salto.abs > TOLERANCIA
-          return linha.merge(salto: salto)
+          anterior = distancia
+
+          next if salto.abs <= TOLERANCIA
+
+          linha.merge(salto: salto)
         end
-
-        anterior = distancia
       end
-
-      nil
     end
 
     def linhas_recentes = linhas.last(limite).reverse

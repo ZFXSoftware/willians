@@ -72,7 +72,56 @@ export default function Extrato({ contas }: { contas: SaldoDaConta[] }) {
           {/* A resposta para "como o saldo chegou aqui", quando existe. Vem ANTES da
               lista: quem abre a tela com essa pergunta não deveria ter que rolar. */}
           {data.primeira_divergencia && (
-            <Divergencia linha={data.primeira_divergencia} />
+            <Divergencia
+              linha={data.primeira_divergencia}
+              quantas={data.divergencias.length}
+            />
+          )}
+
+          {/* A lista do que consertar. A primeira responde "quando começou"; estas
+              respondem "o que está errado", e cada uma tem causa própria. */}
+          {data.divergencias.length > 1 && (
+            <div className="mt-4">
+              <p className="text-xs uppercase tracking-wide text-zinc-500">
+                Todos os movimentos em que os saldos discordam, do maior
+              </p>
+
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-zinc-500 border-b border-zinc-800">
+                      <th className="py-2 pr-4 font-medium">Quando</th>
+                      <th className="py-2 px-4 font-medium">Movimento</th>
+                      <th className="py-2 px-4 font-medium">Origem</th>
+                      <th className="py-2 pl-4 font-medium text-right">Salto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.divergencias.map((linha) => (
+                      <tr
+                        key={`salto-${linha.referencia}-${linha.ocorrido_em}`}
+                        className="border-b border-zinc-800/60"
+                      >
+                        <td className="py-2 pr-4 text-zinc-400 whitespace-nowrap">
+                          {dataHoraBR(linha.ocorrido_em)}
+                        </td>
+                        <td className="py-2 px-4">{linha.movimento}</td>
+                        <td className="py-2 px-4 text-zinc-500 font-mono text-xs break-all">
+                          {linha.pedido ?? linha.referencia_externa ?? linha.referencia ?? "—"}
+                        </td>
+                        <td
+                          className={`py-2 pl-4 text-right font-medium ${
+                            Number(linha.salto) < 0 ? "text-red-300" : "text-amber-300"
+                          }`}
+                        >
+                          {brl(linha.salto)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
 
           {/* A conta que responde "o dinheiro chegou?", e que até agora não existia
@@ -187,7 +236,13 @@ function Parcela({ titulo, valor, tom }: { titulo: string; valor: string; tom?: 
   )
 }
 
-function Divergencia({ linha }: { linha: LinhaDoExtrato & { salto: string } }) {
+function Divergencia({
+  linha,
+  quantas,
+}: {
+  linha: LinhaDoExtrato & { salto: string }
+  quantas: number
+}) {
   return (
     <div className="mt-6 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5">
       <div className="flex items-start gap-3">
@@ -196,12 +251,18 @@ function Divergencia({ linha }: { linha: LinhaDoExtrato & { salto: string } }) {
         <div className="min-w-0">
           <p className="font-medium text-amber-200">
             O saldo se separou do da plataforma neste movimento
+            {quantas > 1 && ` — e em outros ${quantas - 1}`}
           </p>
 
           <p className="text-sm text-zinc-300 mt-2">
             Em {dataHoraBR(linha.ocorrido_em)}, no movimento{" "}
             <span className="font-medium">{linha.movimento}</span>
-            {linha.pedido && <> do pedido {linha.pedido}</>}, o nosso razão ficou em{" "}
+            {linha.pedido ? (
+              <> do pedido {linha.pedido}</>
+            ) : (
+              linha.referencia_externa && <> ({linha.referencia_externa})</>
+            )}
+            , o nosso razão ficou em{" "}
             <span className="font-medium">{brl(linha.saldo_nosso)}</span> e a plataforma em{" "}
             <span className="font-medium">{brl(linha.saldo_deles ?? "0")}</span> — um salto
             de <span className="font-medium">{brl(linha.salto)}</span>.

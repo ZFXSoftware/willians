@@ -73,6 +73,9 @@ export interface LinhaDoExtrato {
   movimento: string
   referencia: string | null
   pedido: string | null
+  // O que a plataforma escreveu na linha. `MELIPAYMENTS-COLLECTIONATTEMPT` é cobrança
+  // de dívida e não tem pedido nenhum — sem isso a linha aparece como débito sem origem.
+  referencia_externa: string | null
   lancamentos: number
   valor: string
   saldo_nosso: string
@@ -107,6 +110,9 @@ export interface ExtratoResponse {
   // A resposta para "como o saldo chegou aqui": a PRIMEIRA linha em que os dois
   // saldos se separaram. Depois dela todas divergem, porque o erro é cumulativo.
   primeira_divergencia: (LinhaDoExtrato & { salto: string }) | null
+  // Todas elas, da maior para a menor. Depois da primeira todas as linhas ficam
+  // distantes porque o erro se acumula — o que identifica cada problema é o SALTO.
+  divergencias: Array<LinhaDoExtrato & { salto: string }>
   linhas: LinhaDoExtrato[]
   total_de_linhas: number
 }

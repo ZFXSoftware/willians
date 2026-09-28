@@ -114,6 +114,29 @@ module Financeiro
       assert_nil resultado[:primeira_divergencia]
     end
 
+    # Depois da primeira divergência todas as linhas estão distantes. O que conta é o
+    # SALTO: duas divergências são dois saltos, e as linhas entre elas não são problema.
+    test "lista cada salto, e não cada linha distante" do
+      linha(source: "111", saldo: 100, quando: 6.days.ago, partes: [ [ :sale, :credit, 100 ] ])
+
+      # Salto 1: eles creditam 150, nós 50.
+      linha(source: "222", saldo: 250, quando: 5.days.ago, partes: [ [ :sale, :credit, 50 ] ])
+
+      # Distante, mas em paz: o movimento bate dos dois lados.
+      linha(source: "333", saldo: 300, quando: 4.days.ago, partes: [ [ :sale, :credit, 50 ] ])
+
+      # Salto 2, maior: eles debitam 300 e nós 50.
+      linha(source: "444", saldo: 0, quando: 3.days.ago, partes: [ [ :fee, :debit, 50 ] ])
+
+      resultado = extrato
+
+      assert_equal 2, resultado[:divergencias].size
+      # Ordenada pelo tamanho do salto: a maior primeiro, porque é por onde se começa.
+      assert_equal "444", resultado[:divergencias].first[:referencia]
+      # E a primeira ainda é a primeira NO TEMPO, que responde "quando começou".
+      assert_equal "222", resultado[:primeira_divergencia][:referencia]
+    end
+
     test "sem divergência nenhuma não aponta nada" do
       linha(source: "111", saldo: 100, quando: 4.days.ago, partes: [ [ :sale, :credit, 100 ] ])
       linha(source: "222", saldo: 160, quando: 3.days.ago, partes: [ [ :sale, :credit, 60 ] ])
