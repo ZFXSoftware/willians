@@ -367,15 +367,43 @@ lê a tela como "o quanto o cliente recebeu" lê o número errado — é o quant
 janela valeriam líquidas, e boa parte delas segue como saldo no marketplace.
 
 Essa segunda conferência é a **Conta Virtual** (`Financeiro::ConciliacaoDeSaldo`): saldo
-informado pela plataforma contra o nosso razão. Medido em 2026-09-27: total do relatório
-R$ 8.294,05 contra R$ 6.491,71 nosso, R$ 1.802,34 de distância. O par comparado
-(`total` do relatório × nosso `disponível + a liberar`) **não está verificado como
-semanticamente idêntico**, e o nosso saldo disponível está em −R$ 24.946,11, que é
-impossível numa conta real — os saques estão liquidados enquanto boa parte dos créditos
-segue `scheduled`. É problema de estado do lançamento, não de dinheiro.
+informado pela plataforma contra o nosso razão. O par comparado (`total` do relatório ×
+nosso `disponível + a liberar`) **não está verificado como semanticamente idêntico**.
 
-A conta que fecharia a pergunta — **saldo inicial + créditos − saques** — ainda não
-existe.
+### O extrato da conta virtual
+
+A conta que faltava — **saldo inicial + entradas − saídas** — existe desde 2026-09-28, em
+`Financeiro::ExtratoDaConta` e na tela de Saldos. O saldo disponível, que estava em
+−R$ 24.946,11 (impossível numa conta real), está em **+R$ 14.992,27** depois das marcações
+do dia, contra R$ 13.087,20 que o marketplace informa: **R$ 3.050,44 de distância**.
+
+O que torna o extrato útil é a coluna do marketplace. `BALANCE_AMOUNT` é o saldo corrente
+que ele mantém linha a linha, fonte independente da nossa, e onde os dois se separam está o
+movimento — não um total.
+
+**Três armadilhas, todas encontradas rodando no dado real e todas defeitos meus:**
+
+1. **Saldo inicial não é divergência.** Começar o corrente em zero acusava a primeira linha
+   do razão com um salto de −R$ 1.145,37, que era o saldo de 30/06 vindo de vendas
+   anteriores à janela. O inicial é deduzido do primeiro instante: `saldo informado − soma
+   dos movimentos dele`.
+2. **A comparação é por INSTANTE, não por linha.** Várias linhas no mesmo instante são
+   aplicadas por nós numa ordem e pelo marketplace na ordem dele; linha a linha, cada
+   instante gera dois saltos opostos que quase se cancelam (`payment +9.829,95` e
+   `reserve_for_dispute −9.821,95` no mesmo dia). Dentro do instante a ordem não importa.
+3. **O que identifica um problema é o SALTO, não a distância.** Depois da primeira
+   divergência todas as 4.900 linhas seguintes ficam distantes.
+
+**O fio que sobra: execução de dívida.** Os saltos se concentram em linhas cuja
+`EXTERNAL_REFERENCE` é `debt-execution-*` ou `MELIPAYMENTS-COLLECTIONATTEMPT-*` — o Mercado
+Livre cobrando dívidas da conta. São **176 lançamentos, todos débito, R$ 190.359,46, e
+nenhum crédito**. Um deles é explícito: débito de R$ 1.325,02 num saldo de R$ 965,72 — o
+saldo DELES foi a zero, o nosso a negativo, e os R$ 359,30 são dívida que não foi cobrada.
+
+**A distância líquida é pequena (R$ 3.050,44) diante do vaivém dos saltos**, o que quer
+dizer que eles em boa parte se cancelam. Isso aponta para **como** essas linhas são
+registradas, e não para dinheiro perdido — e é por isso que os R$ 190 mil de execução de
+dívida são um fio a puxar com o cliente, não uma conclusão.
 
 ## 13. Ferramentas de medição
 
