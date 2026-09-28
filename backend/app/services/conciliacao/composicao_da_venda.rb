@@ -63,11 +63,43 @@ module Conciliacao
         produtos: produtos, bruto: bruto, frete: frete, desconto: desconto,
         parcelamento: parcelamento, cupom: cupom, sobra: sobra.round(2),
         somado_ao_bruto: somado, hipotese: hipotese, valor_do_pedido: do_pedido,
-        # SÓ o desconto da nota. O cupom do relatório não ajusta o título: medido em 846
-        # vendas com cupom, 756 têm `bruto == produtos` (a nota não abateu) e ZERO têm
-        # `bruto − cupom == produtos`.
-        ajuste_do_titulo: desconto - frete
+        ajuste_do_titulo: ajuste(nota, produtos, frete, desconto)
       )
+    end
+
+    # Quanto somar ao título para trazê-lo à MERCADORIA.
+    #
+    # `produtos − total da nota`, e não `desconto − frete`. As duas são a MESMA conta
+    # sempre que a nota fecha com ela mesma, porque aí `total = produtos + frete −
+    # desconto`. A diferença aparece só quando a nota NÃO fecha — e aí a primeira está
+    # certa e a segunda erra exatamente pelo que falta.
+    #
+    # Medido em 2026-09-28 nas 39 notas do balde "delta sem causa nomeada", R$ 230,32:
+    # em 39 de 39 o total da nota difere de `produtos + frete − desconto`, e em 39 de 39
+    # o título do OMIE está igual ao total da nota. Duas formas:
+    #
+    #   34 notas · total = produtos − 3,00 ou − 4,00, sem desconto declarado
+    #    5 notas · total = produtos + 19,99 / 16,99 / 25,99, sem frete declarado
+    #
+    # A primeira é abatimento que o emissor deu e não pôs no campo de desconto; a segunda
+    # é o juro do parcelamento embutido no total e ausente de produtos. Nos dois casos o
+    # título espelha o total, então é do total que se desce até a mercadoria.
+    #
+    # Não é circular: o esperado sai do TÍTULO, que vem do OMIE, e só o ajuste vem da
+    # nota. Quando o título discorda do total da nota — título duplicado é o caso medido —
+    # a diferença continua aparecendo, porque o ajuste não a cancela.
+    #
+    # Sem `valor_produtos` não há mercadoria a que descer, e aí a conta antiga é o melhor
+    # que existe: usar `−total` zeraria o esperado e inventaria uma diferença do tamanho
+    # da nota.
+    def self.ajuste(nota, produtos, frete, desconto)
+      return desconto - frete unless produtos.positive?
+
+      total = nota.total_amount.to_d
+
+      return desconto - frete unless total.positive?
+
+      produtos - total
     end
 
     # Hipóteses NOMEADAS contra a sobra medida, em vez de ajustar um número até fechar.
@@ -129,6 +161,6 @@ module Conciliacao
       end
     end
 
-    private_class_method :testar, :ultimo_recurso, :soma
+    private_class_method :testar, :ultimo_recurso, :ajuste, :soma
   end
 end
