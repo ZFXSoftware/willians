@@ -49,11 +49,15 @@ class ConciliacaoRegistro < ApplicationRecord
   # para o que não conhece — a tela mostra status vazio e o `inalterado?`
   # compara nil com a string, nunca bate, e volta a gravar uma linha por
   # repasse a cada cinco minutos.
+  # `saque`: saiu dinheiro da conta do marketplace para o banco e nenhuma venda
+  # foi liberada na janela. Não há título a comparar — a conferência é contra o
+  # saldo que havia, e o relatório do marketplace traz esse saldo.
   enum :status, {
     pending: "pending",
     matched: "matched",
     divergent: "divergent",
     explicado: "explicado",
+    saque: "saque",
     manual_review: "manual_review",
     resolved: "resolved"
   }

@@ -78,6 +78,9 @@ const TONS: Record<string, string> = {
   // Azul de propósito: verde diria "está tudo igual", e não está; vermelho
   // mandaria investigar algo que já tem resposta.
   explicado: "bg-sky-500/15 text-sky-400 border-sky-500/20",
+  // Cinza: não é desfecho bom nem ruim, é movimento de outra natureza. Verde ou
+  // azul diriam que algo foi conferido contra o OMIE, e não foi.
+  saque: "bg-zinc-500/15 text-zinc-300 border-zinc-500/20",
   manual_review: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20",
   pending: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20",
   analyzing: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20",

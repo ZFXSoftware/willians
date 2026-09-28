@@ -21,7 +21,7 @@ import { Carregando, ErroAoCarregar, Selo, Vazio } from "../../components/Estado
 
 const PLATAFORMAS = ["mercado_livre", "shopee", "amazon", "magalu"]
 
-const STATUS = ["matched", "explicado", "divergent", "manual_review", "pending"]
+const STATUS = ["matched", "explicado", "saque", "divergent", "manual_review", "pending"]
 
 const ESPERA_MS = 4000
 

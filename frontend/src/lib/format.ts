@@ -106,6 +106,9 @@ const ROTULOS: Record<string, string> = {
   // título, parcelamento, desconto. Não é "conferido" — os valores diferem — nem
   // "divergente", que pede alguém investigar.
   explicado: "Diferença explicada",
+  // Saiu dinheiro para o banco e nenhuma venda foi liberada na janela: não há
+  // título a comparar. Confere-se contra o saldo, não contra nota fiscal.
+  saque: "Saque de saldo",
   settled: "Liquidado",
   reconciled: "Conciliado",
   cancelled: "Cancelado",

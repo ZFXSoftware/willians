@@ -21,6 +21,20 @@ module Conciliacao
     # valores não são iguais — nem `divergent`, que pede alguém investigar.
     STATUS_EXPLICADO = "explicado".freeze
 
+    # Saque de saldo acumulado: saiu dinheiro, mas nenhuma venda foi liberada na
+    # janela deste saque, então não há título a comparar.
+    #
+    # Medido em 2026-09-28: dois dos 36 repasses do cliente (#33 e #44) não têm
+    # recebível nenhum, e os dois caem no MESMO DIA de outro saque que consumiu a
+    # janela inteira antes deles. O motor procurava título no OMIE para eles, não
+    # achava, marcava `manual_review` e lançava o valor cheio como diferença:
+    # R$ 3.602,00 — metade da diferença de toda a empresa — mandando alguém caçar
+    # uma nota fiscal que não deveria existir.
+    #
+    # Saque não se confere contra nota. Confere-se contra o saldo que havia, e o
+    # próprio relatório do Mercado Livre traz esse saldo em `BALANCE_AMOUNT`.
+    STATUS_SAQUE = "saque".freeze
+
     STATUS_POR_RESULTADO = {
       ok: "matched",
       divergente: "divergent",
@@ -142,7 +156,11 @@ module Conciliacao
 
         # Contado como explicado, e não como divergência: é esse número que a
         # tela soma para dizer quantos repasses precisam de atenção.
-        counters[explicado?(payout, resultado) ? :explicado : resultado.status] += 1
+        #
+        # `saque` sai do balde de `nao_encontrado` por isto: `finalize_run!` soma
+        # divergentes a partir dos contadores, e um saque contado ali voltaria a
+        # aparecer como divergência mesmo com o status certo no registro.
+        counters[classe_de(payout, resultado)] += 1
 
         counters[:com_nf] += 1 if notas_fiscais_for(payout).any?
 
@@ -711,6 +729,8 @@ module Conciliacao
     # outras não. O segundo se resolve terminando o envio; o primeiro pode ser
     # nota não emitida, elo com o pedido faltando, ou título de fato ausente.
     def observacao_de(payout, resultado)
+      return observacao_do_saque(payout) if saque?(payout)
+
       cobertura = @coberturas[payout.id] || {}
 
       if resultado.valor_omie.present?
@@ -744,6 +764,30 @@ module Conciliacao
         "têm título no OMIE. Comparar o repasse inteiro com uma parte dos títulos " \
         "acusaria uma diferença que não existe. #{exclusoes(cobertura)}".strip
       end
+    end
+
+    # O saque explicado por inteiro, com o saldo que serve de prova e o irmão do
+    # mesmo dia que explica por que a janela ficou vazia.
+    def observacao_do_saque(payout)
+      linha = linha_de_origem(payout)
+
+      partes = [
+        "Saque de saldo acumulado: R$ #{format('%.2f', valor_transferido(payout))} saíram da " \
+        "conta do marketplace para o banco, e nenhuma venda foi liberada na janela deste saque.",
+        "O saldo do marketplace depois da saída era R$ #{format('%.2f', linha['BALANCE_AMOUNT'].to_d)} " \
+        "— o dinheiro que saiu já estava lá."
+      ]
+
+      irmaos = irmao_do_mesmo_dia(payout)
+
+      if irmaos.present?
+        partes << "Outro saque no mesmo dia (repasse #{irmaos.map { |id| "##{id}" }.join(', ')}) " \
+                  "liquidou as vendas do período."
+      end
+
+      partes << "Não há título a comparar: saque se confere contra o saldo, não contra nota fiscal."
+
+      partes.join(" ")
     end
 
     # Quanto do repasse entrou sem documento fiscal.
@@ -792,6 +836,97 @@ module Conciliacao
       return false if cobertura.blank?
 
       residuo(cobertura, resultado).abs <= TOLERANCIA_DE_ARREDONDAMENTO
+    end
+
+    # Um lugar só decide o desfecho, e o status e o contador saem dele. Quando
+    # eram duas expressões separadas, acrescentar um desfecho significava lembrar
+    # de mudar as duas.
+    def classe_de(payout, resultado)
+      return :saque if saque?(payout)
+
+      return :explicado if explicado?(payout, resultado)
+
+      resultado.status
+    end
+
+    def status_de(payout, resultado)
+      case classe_de(payout, resultado)
+      when :saque then STATUS_SAQUE
+      when :explicado then STATUS_EXPLICADO
+      else STATUS_POR_RESULTADO.fetch(resultado.status)
+      end
+    end
+
+    # Saque de saldo acumulado, e não repasse de vendas.
+    #
+    # Três condições, e a terceira é o que separa "saque legítimo" de "nossa
+    # ingestão perdeu as vendas":
+    #
+    #   1. nenhuma venda liberada na janela deste saque;
+    #   2. a linha de origem é saída de dinheiro (`payout`/`withdrawal`);
+    #   3. o saldo do Mercado Livre DEPOIS da saída não é negativo.
+    #
+    # A terceira vem de fonte independente — `BALANCE_AMOUNT` é o saldo corrente
+    # que o próprio marketplace calcula — e é ela que dá o direito de dizer que o
+    # dinheiro que saiu estava lá. Saldo negativo depois do saque significaria que
+    # faltam créditos do nosso lado, e aí `manual_review` está certo: fica.
+    #
+    # Sem a condição 3 isto seria a tautologia contra a qual o resto do arquivo
+    # avisa: "não achei venda, logo não preciso comparar" fecharia por construção
+    # qualquer repasse cuja ingestão falhou.
+    def saque?(payout)
+      @saques ||= {}
+
+      return @saques[payout.id] if @saques.key?(payout.id)
+
+      @saques[payout.id] = avaliar_saque(payout)
+    end
+
+    def avaliar_saque(payout)
+      return false if unidades_de(payout).any?
+
+      linha = linha_de_origem(payout)
+
+      return false unless Marketplace::MercadoLivre::ReleaseEvents::SAQUE.include?(linha["DESCRIPTION"].to_s)
+
+      saldo = linha["BALANCE_AMOUNT"]
+
+      # Saldo ausente não é saldo não-negativo. Sem a evidência, não há o que
+      # afirmar, e o repasse segue pedindo revisão.
+      return false if saldo.to_s.strip.empty?
+
+      saldo.to_d >= 0
+    end
+
+    def linha_de_origem(payout)
+      @linhas_de_origem ||= {}
+
+      @linhas_de_origem[payout.id] ||= begin
+        cru = FinancialEntry.find_by(id: payout.financial_entry_id)&.raw_payload
+
+        cru.is_a?(Hash) ? cru : {}
+      end
+    end
+
+    # O que SAIU, que é a única coisa desta linha que não é estimativa.
+    def valor_transferido(payout)
+      entrada = FinancialEntry.find_by(id: payout.financial_entry_id)&.amount.to_d
+
+      entrada.positive? ? entrada : payout.net_amount.to_d
+    end
+
+    # Outro saque no mesmo dia explica por que este ficou sem venda: o primeiro
+    # consumiu a janela. Dito na observação, ninguém precisa descobrir de novo.
+    def irmao_do_mesmo_dia(payout)
+      return nil if payout.paid_at.blank?
+
+      PayoutBatch
+        .where(tenant_id: tenant.id, platform_account_id: payout.platform_account_id)
+        .where(paid_at: payout.paid_at.to_date.all_day)
+        .where.not(id: payout.id)
+        .order(:paid_at)
+        .pluck(:id)
+        .presence
     end
 
     # Os números da decomposição, para a tela mostrar coluna em vez de prosa.
@@ -908,15 +1043,18 @@ module Conciliacao
 
         financial_entry_id: payout.financial_entry_id,
 
-        status: explicado?(payout, resultado) ? STATUS_EXPLICADO : STATUS_POR_RESULTADO.fetch(resultado.status),
+        status: status_de(payout, resultado),
 
         match_type: resultado.match_type&.to_s,
 
         confidence_score: resultado.confidence_score,
 
-        valor: resultado.valor_interno,
+        # No saque o valor é o que SAIU, e a diferença é zero porque não há dois
+        # lados para comparar. Deixar a diferença cheia era o defeito: R$ 3.102,00
+        # contra um título que não existe não é divergência, é comparação errada.
+        valor: saque?(payout) ? valor_transferido(payout) : resultado.valor_interno,
 
-        diferenca: resultado.diferenca,
+        diferenca: saque?(payout) ? BigDecimal("0") : resultado.diferenca,
 
         referencia: payout.external_id,
 
@@ -969,6 +1107,9 @@ module Conciliacao
       # era o que fazia a tela pedir revisão manual de 17 repasses cuja
       # diferença já estava atribuída ao centavo.
       return if explicado?(payout, resultado)
+
+      # Nem saque: não existe título a encontrar para ele.
+      return if saque?(payout)
 
       return if payout.financial_entry_id.blank?
 
@@ -1061,7 +1202,10 @@ module Conciliacao
           "repasses_com_nf" => counters[:com_nf],
           # Diferença atribuída por inteiro. Fica no metadata para a tela poder
           # dizer "17 explicados" em vez de somá-los às divergências.
-          "explicados" => counters[:explicado]
+          "explicados" => counters[:explicado],
+
+          # Saída de dinheiro sem venda na janela: fora da divergência, e visível.
+          "saques" => counters[:saque]
         )
       )
 
@@ -1078,6 +1222,7 @@ module Conciliacao
         "#{omie_totals.size} título(s) no OMIE entre #{start_date} e #{end_date}, " \
         "#{counters[:total]} repasse(s), #{counters[:com_nf]} com nota fiscal nossa, " \
         "#{counters[:ok]} conferido(s), #{counters[:explicado]} com diferença explicada, " \
+        "#{counters[:saque]} saque(s) de saldo, " \
         "#{counters[:nao_encontrado]} sem título correspondente, " \
         "#{counters[:divergencias_fechadas]} divergência(s) fechada(s)"
       )
