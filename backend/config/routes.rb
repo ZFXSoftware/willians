@@ -42,6 +42,7 @@ Rails.application.routes.draw do
 
   # Espelho da conta virtual das plataformas (briefing 2.4).
   get  "saldos", to: "saldos#index"
+  get  "saldos/extrato", to: "saldos#extrato"
   post "saldos/conferir", to: "saldos#conferir"
 
   # O razão inteiro. O painel mostra só as últimas movimentações, e com

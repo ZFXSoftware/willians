@@ -89,4 +89,50 @@ class SaldosTest < ActionDispatch::IntegrationTest
     # Sem integração conectada, a resposta honesta é "sem espelho".
     assert_equal 1, response.parsed_body.dig("resumo", "sem_espelho")
   end
+
+  # O extrato responde "como o saldo chegou aqui", que é a pergunta que o cartão de saldo
+  # não responde. Sem conta pedida, a primeira ativa: a tela abre com algo na frente do
+  # usuário em vez de um seletor vazio.
+  test "extrato traz os movimentos e aponta onde o saldo se separou" do
+    venda = criar_lancamento(tenant: @tenant, conta: @conta, valor: 100,
+                             ocorrido_em: 2.days.ago)
+
+    venda.update!(raw_payload: { "DESCRIPTION" => "payment", "SOURCE_ID" => "111",
+                                 "BALANCE_AMOUNT" => "100" })
+
+    # A plataforma diz 260; nós registramos 60 a mais dos 100. Faltam 100 do nosso lado.
+    outra = criar_lancamento(tenant: @tenant, conta: @conta, valor: 60,
+                             ocorrido_em: 1.day.ago)
+
+    outra.update!(raw_payload: { "DESCRIPTION" => "payment", "SOURCE_ID" => "222",
+                                 "BALANCE_AMOUNT" => "260" })
+
+    get "/saldos/extrato", headers: @cabecalhos
+
+    assert_response :success
+
+    corpo = response.parsed_body
+
+    assert_equal @conta.id, corpo.dig("conta", "id")
+    assert_equal 2, corpo["total_de_linhas"]
+    assert_equal "222", corpo.dig("primeira_divergencia", "referencia")
+    assert_equal "-100.0", corpo.dig("primeira_divergencia", "salto")
+  end
+
+  test "sem token não se lê o extrato" do
+    get "/saldos/extrato"
+
+    assert_response :unauthorized
+  end
+
+  # A conta pedida tem que ser DESTA empresa. Sem isso, trocar o id na URL leria o extrato
+  # de outro cliente — é o mesmo dado financeiro, só de outra pessoa.
+  test "extrato de conta de outra empresa não é lido" do
+    outra_empresa = criar_tenant
+    conta_alheia = criar_conta(tenant: outra_empresa)
+
+    get "/saldos/extrato", params: { platform_account_id: conta_alheia.id }, headers: @cabecalhos
+
+    assert_response :not_found
+  end
 end

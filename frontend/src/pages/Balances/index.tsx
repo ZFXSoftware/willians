@@ -13,6 +13,7 @@ import { errorMessage } from "../../api/client"
 import { useResource } from "../../hooks/useResource"
 import { brl, dataBR, rotulo } from "../../lib/format"
 import { Carregando, ErroAoCarregar, Vazio } from "../../components/Estados"
+import Extrato from "./Extrato"
 
 const SITUACOES: Record<SituacaoSaldo, { texto: string; classe: string; Icone: typeof CheckCircle2 }> = {
   confere: {
@@ -159,6 +160,11 @@ export default function Balances() {
               {data?.items.map((conta) => (
                 <LinhaDeSaldo key={conta.platform_account_id} conta={conta} />
               ))}
+
+              {/* Depois dos cartões: o cartão diz QUANTO, o extrato diz COMO chegou ali.
+                  Foi a pergunta "Disponível −R$ 24.946,11, como assim?" que mostrou que
+                  o primeiro sozinho não serve. */}
+              {data && data.items.length > 0 && <Extrato contas={data.items} />}
             </div>
           )}
         </>

@@ -65,6 +65,57 @@ export interface ConferenciaResponse {
   detalhes: DetalheConferencia[]
 }
 
+// O extrato da conta virtual: movimento por movimento, com o saldo corrente do
+// NOSSO razão ao lado do que o marketplace calculou. É a coluna dele que torna o
+// extrato útil: onde os dois se separam está o movimento que falta ou que sobra.
+export interface LinhaDoExtrato {
+  ocorrido_em: string | null
+  movimento: string
+  referencia: string | null
+  pedido: string | null
+  lancamentos: number
+  valor: string
+  saldo_nosso: string
+  saldo_deles: string | null
+  distancia: string | null
+  pendentes: number
+}
+
+export interface MovimentoPorTipo {
+  movimento: string
+  quantidade: number
+  credito: string
+  debito: string
+  resultado: string
+  pendentes: number
+}
+
+export interface ExtratoResponse {
+  conta: { id: number; nome: string; plataforma: string }
+  saldo: {
+    available_balance: string
+    future_balance: string
+    blocked_balance: string
+    total_balance: string
+  }
+  por_tipo: MovimentoPorTipo[]
+  // A resposta para "como o saldo chegou aqui": a PRIMEIRA linha em que os dois
+  // saldos se separaram. Depois dela todas divergem, porque o erro é cumulativo.
+  primeira_divergencia: (LinhaDoExtrato & { salto: string }) | null
+  linhas: LinhaDoExtrato[]
+  total_de_linhas: number
+}
+
+export async function fetchExtrato(
+  platformAccountId?: number,
+): Promise<ExtratoResponse> {
+  const { data } = await api.get<ExtratoResponse>("/saldos/extrato", {
+    params: { platform_account_id: platformAccountId },
+  })
+
+  return data
+}
+
 export async function fetchSaldos(): Promise<SaldosResponse> {
   const { data } = await api.get<SaldosResponse>("/saldos")
 

@@ -1,6 +1,7 @@
 # Briefing 2.4 — o espelho da conta virtual.
 #
-# GET  /saldos       último snapshot de cada conta, com os dois lados
+# GET  /saldos           último snapshot de cada conta, com os dois lados
+# GET  /saldos/extrato   movimento por movimento, com os dois saldos correntes
 # POST /saldos/conferir  roda a conferência agora
 class SaldosController < ApplicationController
   before_action :require_tenant!
@@ -12,6 +13,24 @@ class SaldosController < ApplicationController
       items: contas.map { |conta| serialize(conta, ultimos[conta.id]) },
       resumo: resumo
     }
+  end
+
+  # O extrato de UMA conta. Sem conta pedida, a primeira ativa — a tela abre já com algo
+  # na frente do usuário em vez de um seletor vazio.
+  def extrato
+    conta = conta_solicitada || contas.first
+
+    return render json: { error: "Nenhuma conta ativa" }, status: :not_found if conta.blank?
+
+    render json: Financeiro::ExtratoDaConta.new(
+      tenant: current_tenant,
+      platform_account: conta,
+      desde: parse_date(params[:start_date]),
+      ate: parse_date(params[:end_date]),
+      limite: params[:limite].presence || 200
+    ).call
+  rescue ArgumentError, Date::Error => e
+    render json: { error: e.message }, status: :bad_request
   end
 
   def conferir
