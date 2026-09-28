@@ -35,18 +35,23 @@ namespace :conciliacao do
     divergentes = []
 
     lotes.each do |lote|
-      # Sem os marcados como não-venda: se eles voltassem aqui, o recálculo
-      # reinflaria exatamente o que a marcação tirou.
+      # A conta vem do MESMO serviço que a ingestão usa (`Financeiro::TotaisDoRepasse`).
+      #
+      # Refazê-la aqui já me custou dois falsos achados nesta base: sonda que recalcula
+      # por conta própria mede a suposição de quem a escreveu, não o sistema. E duas
+      # contas do mesmo bruto divergem no dia em que alguém muda uma delas.
       unidades = lote.financial_entry_allocations
                      .filter_map(&:receivable_unit)
                      .uniq
                      .reject(&:nao_e_venda?)
 
-      bruto = unidades.sum(BigDecimal("0")) { |u| u.gross_amount.to_d }
+      totais = Financeiro::TotaisDoRepasse.para(lote)
 
-      taxa = unidades.sum(BigDecimal("0")) { |u| u.fee_amount.to_d }
+      bruto = totais[:gross_amount]
 
-      liquido = unidades.sum(BigDecimal("0")) { |u| u.net_amount.to_d }
+      taxa = totais[:fee_amount]
+
+      liquido = totais[:net_amount]
 
       gravado = lote.gross_amount.to_d
 

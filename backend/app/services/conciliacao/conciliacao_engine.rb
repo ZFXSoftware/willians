@@ -724,14 +724,43 @@ module Conciliacao
         .uniq
     end
 
+    # Os repasses da janela MAIS os que ainda não fecharam, de qualquer data.
+    #
+    # A janela do agendador é de 30 dias. Sem a segunda metade, repasse antigo
+    # congela com o status que tinha e melhoria de regra não o alcança nunca — foi o
+    # que aconteceu com o repasse #44 em 2026-09-28: pago em 25/07, ficou fora da
+    # janela, e continuou pedindo revisão manual por uma regra que já existia. Eu só
+    # descobri porque estava conferindo à mão.
+    #
+    # Repasse resolvido (`matched` ou `saque`) fica de fora: reconferir o que já fecha
+    # custa leitura do OMIE e não muda nada. Os não resolvidos são poucos por
+    # construção — são justamente o que alguém ainda precisa olhar —, então a conta
+    # extra é limitada pelo tamanho do problema.
+    RESOLVIDOS = [ "matched", STATUS_SAQUE ].freeze
+
     def payouts
       PayoutBatch
         .where(
           tenant: tenant,
           platform_account: platform_account
         )
-        .where(paid_at: start_date.beginning_of_day..end_date.end_of_day)
+        .where(id: ids_da_janela_ou_em_aberto)
         .includes(financial_entry_allocations: { receivable_unit: :invoice })
+    end
+
+    def ids_da_janela_ou_em_aberto
+      da_janela = PayoutBatch
+                    .where(tenant: tenant, platform_account: platform_account)
+                    .where(paid_at: start_date.beginning_of_day..end_date.end_of_day)
+                    .pluck(:id)
+
+      em_aberto = ConciliacaoRegistro
+                    .where(id: ConciliacaoRegistro.ids_dos_ultimos(tenant.id))
+                    .where.not(status: RESOLVIDOS)
+                    .where.not(payout_batch_id: nil)
+                    .pluck(:payout_batch_id)
+
+      (da_janela + em_aberto).uniq
     end
 
     # "Sem título correspondente" cobre dois casos com providências opostas:

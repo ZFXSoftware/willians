@@ -176,6 +176,14 @@ module Marketplace
           # Um pedido pode ter mais de um pagamento (parcelado em dois cartões,
           # retentativa depois de recusa). Todos apontam para o mesmo pedido.
           pagamentos: Array(pedido["payments"]).filter_map { |p| p["id"].to_s.presence },
+          # O estado de cada PAGAMENTO, junto com o do pedido.
+          #
+          # Pedido cancelado cujo pagamento segue aprovado não é a mesma coisa que
+          # cancelado e estornado: no primeiro o dinheiro ficou com o cliente e a venda
+          # vale; no segundo não houve venda. Guardar só o status do pedido apagaria
+          # essa distinção, e foi justamente ela que separou 38 cancelamentos de 4
+          # vendas reais sem nota em 2026-09-28.
+          situacoes_de_pagamento: Array(pedido["payments"]).filter_map { |p| p["status"].to_s.presence }.uniq,
           status: pedido["status"].to_s.presence,
           total: pedido["total_amount"],
           criado_em: pedido["date_created"],

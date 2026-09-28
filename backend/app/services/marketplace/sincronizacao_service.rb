@@ -134,6 +134,12 @@ module Marketplace
       # que ficaram sem nota porque o Mercado Livre devolveu `pack_id` nulo.
       inferir_pacotes(conta)
 
+      # DEPOIS do vínculo, porque é ele que acabou de reescrever o estado de cada
+      # pedido no marketplace, e ANTES dos repasses, para o lote nascer já sem o
+      # recebível de pedido cancelado — em vez de nascer inflado e depender de
+      # alguém rodar uma tarefa para desinflar.
+      canceladas = marcar_canceladas(conta)
+
       # Depois de tudo gravado, e não no after_commit de cada lançamento: o
       # repasse precisa que os recebíveis da mesma leva já existam, e a ordem
       # em que as linhas do extrato chegam não garante isso.
@@ -158,6 +164,9 @@ module Marketplace
         # à nota fiscal, e isso não pode ficar só no log.
         "vinculo_erro" => vinculos.is_a?(Hash) ? vinculos[:erro] : nil,
         "repasses_novos" => repasses.is_a?(Hash) ? repasses[:criados] : nil,
+        # Recebível que deixou de contar como venda porque o pedido foi cancelado e
+        # estornado. Vai para a tela: o número mudou, e quem olha merece saber por quê.
+        "canceladas_marcadas" => canceladas.is_a?(Hash) ? canceladas[:marcados] : nil,
         "periodo" => "#{start_date} a #{end_date}"
       })
 
@@ -244,6 +253,21 @@ module Marketplace
       ).call
     rescue StandardError => e
       Rails.logger.error "#{LOG_PREFIX} conta ##{conta.id}: vínculo de pedidos falhou: #{e.class} #{e.message}"
+
+      { erro: e.message }
+    end
+
+    # Pedido cancelado e estornado deixa de contar como receita, sem ninguém pedir.
+    #
+    # Não derruba a ingestão pelo mesmo motivo dos outros passos: os lançamentos já
+    # estão no razão e valem por si.
+    def marcar_canceladas(conta)
+      Marketplace::VendasCanceladas.new(
+        tenant: conta.tenant,
+        platform_account: conta
+      ).call
+    rescue StandardError => e
+      Rails.logger.error "#{LOG_PREFIX} conta ##{conta.id}: marcar canceladas falhou: #{e.class} #{e.message}"
 
       { erro: e.message }
     end

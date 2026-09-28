@@ -102,6 +102,9 @@ module Marketplace
         metadata: (registro.metadata || {}).merge(
           "origem" => registro.new_record? ? "mercado_livre" : registro.metadata["origem"],
           "status_ml" => pedido[:status],
+          # Vem junto do status do pedido e é o que distingue cancelamento COM estorno
+          # de cancelamento cujo pagamento ficou aprovado. Ver `VendasCanceladas`.
+          "situacoes_de_pagamento" => pedido[:situacoes_de_pagamento],
           # O pacote a que este pedido pertence, quando a compra levou mais de
           # um item. É por ele que a nota do Tiny encontra esta venda: a NF é
           # emitida para o PACOTE, e o extrato fala do pedido individual.
