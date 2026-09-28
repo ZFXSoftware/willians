@@ -98,6 +98,11 @@ export interface ExtratoResponse {
     blocked_balance: string
     total_balance: string
   }
+  // O saldo que a conta já tinha antes do primeiro movimento importado, deduzido do
+  // saldo que a plataforma informa. É a parcela que faltava para a conta
+  // `inicial + entradas − saídas` existir — e começar do zero fazia a primeira linha
+  // do razão aparecer como divergência.
+  saldo_inicial: string
   por_tipo: MovimentoPorTipo[]
   // A resposta para "como o saldo chegou aqui": a PRIMEIRA linha em que os dois
   // saldos se separaram. Depois dela todas divergem, porque o erro é cumulativo.

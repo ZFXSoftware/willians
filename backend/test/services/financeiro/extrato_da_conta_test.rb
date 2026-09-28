@@ -78,16 +78,40 @@ module Financeiro
       assert_equal BigDecimal("250"), divergencia[:saldo_deles]
     end
 
-    # A linha seguinte também está distante — mas ela não é a culpada, e por isso o que
-    # decide é o SALTO e não a distância acumulada.
-    test "a linha seguinte à divergência não é apontada como culpada" do
+    # O SALDO INICIAL não é divergência.
+    #
+    # Eu comecei o saldo corrente em zero, e no dado real do cliente a PRIMEIRA linha do
+    # razão saiu acusada como divergência com um salto de −R$ 1.145,37 — que era o saldo
+    # que a conta tinha em 30/06, de vendas anteriores à nossa janela. Chamar isso de
+    # divergência manda alguém investigar um movimento correto.
+    #
+    # Aqui a conta já tinha R$ 200 antes do primeiro movimento que importamos, e nada está
+    # errado: os dois lados andam juntos.
+    test "saldo que a conta já tinha não é apontado como divergência" do
       linha(source: "111", saldo: 250, quando: 4.days.ago,
             partes: [ [ :sale, :credit, 50 ] ])
 
       linha(source: "222", saldo: 300, quando: 3.days.ago,
             partes: [ [ :sale, :credit, 50 ] ])
 
-      assert_equal "111", extrato[:primeira_divergencia][:referencia]
+      resultado = extrato
+
+      assert_equal BigDecimal("200"), resultado[:saldo_inicial]
+      assert_nil resultado[:primeira_divergencia]
+
+      # E o saldo corrente parte dele, senão a coluna toda ficaria deslocada.
+      assert_equal BigDecimal("250"), resultado[:linhas].last[:saldo_nosso]
+    end
+
+    # Sem saldo informado pela plataforma não há saldo inicial a deduzir, e começar do zero
+    # é o melhor que existe — mas aí também não há com o que comparar.
+    test "sem saldo da plataforma o inicial é zero" do
+      criar_lancamento(tenant: @tenant, conta: @conta, valor: 10, ocorrido_em: 1.day.ago)
+
+      resultado = extrato
+
+      assert_equal BigDecimal("0"), resultado[:saldo_inicial]
+      assert_nil resultado[:primeira_divergencia]
     end
 
     test "sem divergência nenhuma não aponta nada" do

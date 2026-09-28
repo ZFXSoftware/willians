@@ -46,6 +46,9 @@ module Financeiro
           plataforma: platform_account.platform
         },
         saldo: BalanceEngine.new(tenant: tenant, platform_account: platform_account).call,
+        # `saldo inicial + entradas − saídas` é a conta que responde "o dinheiro chegou?",
+        # e até aqui ela não existia porque a primeira parcela não existia.
+        saldo_inicial: saldo_inicial,
         por_tipo: por_tipo,
         # A resposta para "como o saldo chegou aqui", quando existe.
         primeira_divergencia: primeira_divergencia,
@@ -82,14 +85,39 @@ module Financeiro
       end.sort_by { |linha| -(linha[:credito] + linha[:debito]) }
     end
 
+    # O saldo que a conta JÁ TINHA antes do primeiro movimento que importamos.
+    #
+    # Começar o saldo corrente em zero foi um erro meu, e ele apareceu no dado real: a
+    # primeira linha do razão do cliente saiu acusada como "primeira divergência" com um
+    # salto de −R$ 1.145,37, quando aquilo era o saldo que a conta tinha em 30/06 de
+    # vendas anteriores à nossa janela. Chamar saldo inicial de divergência manda alguém
+    # investigar um movimento que está correto.
+    #
+    # O marketplace informa o saldo DEPOIS de cada linha. Tirando dele o movimento da
+    # primeira linha, sobra o saldo de antes. É a única coisa nesta classe que não é soma
+    # do que temos — e é justamente a parcela que faltava para a conta
+    # `saldo inicial + créditos − saques` existir.
+    def saldo_inicial
+      return @saldo_inicial if defined?(@saldo_inicial)
+
+      @saldo_inicial = begin
+        chave, grupo = agrupar_por_linha.first
+
+        _ = chave
+
+        deles = grupo && saldo_do_marketplace(grupo)
+
+        deles ? (deles - movimento_de(grupo)).round(2) : BigDecimal("0")
+      end
+    end
+
     # As linhas do extrato, em ordem de data, com os dois saldos correntes.
     def linhas
       @linhas ||= begin
-        corrente = BigDecimal("0")
+        corrente = saldo_inicial
 
         agrupar_por_linha.map do |chave, grupo|
-          movimento = soma(grupo.select { |e| e.direction == "credit" }) -
-                      soma(grupo.select { |e| e.direction == "debit" })
+          movimento = movimento_de(grupo)
 
           corrente += movimento
 
@@ -117,6 +145,9 @@ module Financeiro
     # Depois da primeira, todas divergem — o erro é cumulativo. Reportar a última, ou
     # todas, esconde a única que responde a pergunta.
     def primeira_divergencia
+      # Começa em zero porque o saldo corrente já parte do saldo inicial: na primeira
+      # linha os dois lados coincidem por construção, e o primeiro salto que aparecer é
+      # movimento nosso que falta ou que sobra.
       anterior = BigDecimal("0")
 
       linhas.each do |linha|
@@ -150,6 +181,11 @@ module Financeiro
 
         chave.any?(&:present?) ? chave : [ "lancamento-#{lancamento.id}", "" ]
       end
+    end
+
+    def movimento_de(grupo)
+      soma(grupo.select { |e| e.direction == "credit" }) -
+        soma(grupo.select { |e| e.direction == "debit" })
     end
 
     def saldo_do_marketplace(grupo)

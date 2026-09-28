@@ -1,7 +1,12 @@
 import { useState } from "react"
 import { AlertTriangle, ListOrdered } from "lucide-react"
 
-import { fetchExtrato, type LinhaDoExtrato, type SaldoDaConta } from "../../api/saldos"
+import {
+  fetchExtrato,
+  type LinhaDoExtrato,
+  type MovimentoPorTipo,
+  type SaldoDaConta,
+} from "../../api/saldos"
 import { useResource } from "../../hooks/useResource"
 import { brl, dataHoraBR, rotulo } from "../../lib/format"
 import { Carregando, ErroAoCarregar, Vazio } from "../../components/Estados"
@@ -69,6 +74,16 @@ export default function Extrato({ contas }: { contas: SaldoDaConta[] }) {
           {data.primeira_divergencia && (
             <Divergencia linha={data.primeira_divergencia} />
           )}
+
+          {/* A conta que responde "o dinheiro chegou?", e que até agora não existia
+              porque a primeira parcela não existia. O saldo inicial é deduzido do saldo
+              que a plataforma informa na primeira linha. */}
+          <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <Parcela titulo="Saldo antes do primeiro movimento" valor={data.saldo_inicial} />
+            <Parcela titulo="Entrou" valor={soma(data.por_tipo, "credito")} tom="text-emerald-400" />
+            <Parcela titulo="Saiu" valor={soma(data.por_tipo, "debito")} tom="text-red-400" />
+            <Parcela titulo="Disponível hoje" valor={data.saldo.available_balance} />
+          </div>
 
           <div className="mt-6">
             <p className="text-xs uppercase tracking-wide text-zinc-500">
@@ -155,6 +170,19 @@ export default function Extrato({ contas }: { contas: SaldoDaConta[] }) {
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+function soma(tipos: MovimentoPorTipo[], campo: "credito" | "debito"): string {
+  return tipos.reduce((total, t) => total + Number(t[campo]), 0).toFixed(2)
+}
+
+function Parcela({ titulo, valor, tom }: { titulo: string; valor: string; tom?: string }) {
+  return (
+    <div className="bg-zinc-950/60 border border-zinc-800 rounded-2xl p-4">
+      <p className="text-xs text-zinc-500">{titulo}</p>
+      <p className={`text-lg font-semibold mt-1.5 ${tom ?? "text-zinc-200"}`}>{brl(valor)}</p>
     </div>
   )
 }
