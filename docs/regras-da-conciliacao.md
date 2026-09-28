@@ -11,12 +11,28 @@ verdade e este arquivo está velho.
 ## 1. O que é um repasse
 
 A linha `payout` do relatório de liberações do Mercado Pago: **dinheiro saindo da
-conta do Mercado Pago para o banco do cliente**. No período medido são 35 linhas e
-35 lotes, um para um. O `external_id` é `MLREL-<id do saque>-PAYOUT`.
+conta do Mercado Pago para o banco do cliente**. No período medido são 36 linhas e
+36 lotes, um para um — nenhuma transferência falta. O `external_id` é
+`MLREL-<id do saque>-PAYOUT`.
 
 Quem escolhe o valor é o cliente, ao sacar. **O valor sacado não tem relação com as
-vendas anexadas ao lote**: o repasse #32 transferiu R$ 500,00 e tem R$ 25.832,24 de
-vendas penduradas.
+vendas anexadas ao lote**, e a medição de 2026-09-28 mostra o tamanho disso: em
+**todos os 36** o líquido do lote difere do que saiu de verdade.
+
+| | |
+|---|---|
+| saiu para o banco (36 linhas `payout`) | **R$ 194.551,00** |
+| "líquido dos repasses" na tela | **R$ 482.683,78** |
+
+Os valores sacados são redondos — 500, 1.530, 3.102, 17.035 — porque são saque, não
+repasse casado com venda. O saldo corrente do marketplace (`BALANCE_AMOUNT`) termina
+em R$ 13.087,20 depois do último saque: a conta não acumula os R$ 288 mil de
+diferença, o que confirma que os dois números medem coisas diferentes.
+
+**O objeto `PayoutBatch` mistura duas coisas**: a transferência (sua linha de origem)
+e a janela de vendas liberadas até ela. `gross_amount`/`net_amount` são da janela,
+exceto quando a janela está vazia — aí caem para o valor do extrato. É a inconsistência
+que produziu o caso `saque` (§9).
 
 O dinheiro **entra** por venda, em cada linha `payment`, que credita a conta virtual.
 O repasse é o dinheiro **saindo** dela.
@@ -190,8 +206,22 @@ quando componente e base mediam coisas diferentes.
 |---|---|
 | `matched` | \|diferença\| ≤ **R$ 0,01** (`ResultadoConciliacao::TOLERANCIA`) |
 | `explicado` | é divergente, mas o resíduo ≤ R$ 0,10 — a diferença é inteiramente venda sem nota ou nota sem título |
+| `saque` | nenhuma venda na janela, linha de origem é saída de dinheiro, e o saldo do marketplace **depois** da saída não é negativo |
 | `divergent` | o resto |
 | `manual_review` | nenhum título encontrado |
+
+**`saque`** (2026-09-28). Dois dos 36 repasses não têm recebível nenhum — #33 e #44 —
+e os dois caem no **mesmo dia** de outro saque que consumiu a janela antes deles. O
+motor procurava título no OMIE, não achava, e lançava o valor cheio como diferença:
+**R$ 3.602,00**, metade da diferença de toda a empresa, mandando alguém caçar uma nota
+fiscal que não deveria existir. Saque se confere contra o **saldo**, não contra nota.
+
+A terceira condição é o que impede a tautologia. Sem exigir `BALANCE_AMOUNT >= 0`, a
+regra seria "não achei venda, logo está certo" — e fecharia por construção todo repasse
+cuja ingestão falhou. `BALANCE_AMOUNT` é o saldo que o **próprio marketplace** calcula,
+fonte independente da nossa; não-negativo depois da saída significa que o dinheiro que
+saiu estava lá. Saldo negativo, saldo ausente, ou linha que não é `payout`/`withdrawal`
+continuam em `manual_review`.
 
 ```
 confiança = (1 − |diferença| ÷ valor_interno) × 100
@@ -225,6 +255,11 @@ falha dessa leitura **aborta** o envio.
 **Que o dinheiro chegou.** O valor sacado não é comparado com nada. Esta conciliação
 confere **cobertura fiscal** — toda venda tem nota, toda nota tem título — e não que o
 Mercado Livre transferiu o valor correto.
+
+Medido em 2026-09-28 e vale repetir aqui porque a tela não avisa: dos R$ 482.683,78 que
+a coluna de líquido soma, **R$ 194.551,00 foram o que realmente saiu para o banco**. Quem
+lê a tela como "o quanto o cliente recebeu" lê o número errado — é o quanto as vendas da
+janela valeriam líquidas, e boa parte delas segue como saldo no marketplace.
 
 Essa segunda conferência é a **Conta Virtual** (`Financeiro::ConciliacaoDeSaldo`): saldo
 informado pela plataforma contra o nosso razão. Medido em 2026-09-27: total do relatório
