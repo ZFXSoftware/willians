@@ -667,11 +667,21 @@ module Conciliacao
         .to_h { |externo, cru| [ externo, cru.is_a?(Hash) ? cru : {} ] }
     end
 
+    # Recarregadas com `order` e `invoice` juntos porque a composição agora lê o valor
+    # do PEDIDO de cada venda (ver `ComposicaoDaVenda.ultimo_recurso`). Sem isto seriam
+    # duas consultas por venda, e um repasse tem até 317.
     def unidades_de(payout)
-      payout
-        .financial_entry_allocations
-        .filter_map(&:receivable_unit)
-        .uniq
+      ids = payout
+              .financial_entry_allocations
+              .filter_map(&:receivable_unit_id)
+              .uniq
+
+      return [] if ids.empty?
+
+      ReceivableUnit
+        .where(id: ids)
+        .includes(:order, :invoice)
+        .to_a
         .reject(&:nao_e_venda?)
     end
 
