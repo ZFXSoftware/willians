@@ -3,6 +3,7 @@ import { AlertTriangle, Landmark, Receipt, TrendingUp } from "lucide-react"
 import {
   fetchApuracao,
   type BaseDaApuracao,
+  type DoDocumento,
   type MesDaApuracao,
   type RegimeDaApuracao,
 } from "../../api/apuracao"
@@ -101,6 +102,28 @@ function Regimes({ regimes }: { regimes: RegimeDaApuracao[] }) {
   )
 }
 
+// Quantas notas do mês vieram do XML da NF-e.
+//
+// Amarelo quando falta alguma, e não vermelho: número parcial não é erro, é leitura em
+// andamento — o ciclo varre em lotes e o Tiny bloqueia por excesso de acesso. Mas quem
+// olha um imposto zerado precisa saber se a nota foi lida.
+function Documento({ do_documento }: { do_documento: DoDocumento }) {
+  const completo = do_documento.notas >= do_documento.de
+
+  return (
+    <td
+      className={`px-4 py-3 text-right ${completo ? "text-emerald-400" : "text-amber-400"}`}
+      title={
+        completo
+          ? "Todos os números deste mês vieram do XML da NF-e."
+          : "Parte dos números vem da visão do ERP, não do documento. A leitura do XML roda em lotes."
+      }
+    >
+      {do_documento.notas} de {do_documento.de}
+    </td>
+  )
+}
+
 function Meses({ meses, base }: { meses: MesDaApuracao[]; base: BaseDaApuracao }) {
   const mostraImposto = base === "imposto" || base === "mista"
 
@@ -118,6 +141,16 @@ function Meses({ meses, base }: { meses: MesDaApuracao[]; base: BaseDaApuracao }
             <th className="px-4 py-3 text-right">Sem ST</th>
             <th className="px-4 py-3 text-right">Indefinido</th>
             {mostraImposto && <th className="px-4 py-3 text-right">ICMS na nota</th>}
+            {/* PIS e COFINS só existem porque o XML da NF-e os trouxe — o JSON do ERP
+                não os entrega. Como o ICMS, aparecem só onde a base é imposto: no
+                Simples seriam três colunas de zero, e coluna de zero ensina a ignorar
+                a coluna. */}
+            {mostraImposto && <th className="px-4 py-3 text-right">PIS</th>}
+            {mostraImposto && <th className="px-4 py-3 text-right">COFINS</th>}
+            {/* De onde vieram os números. Sempre visível, inclusive no Simples: é aqui
+                que "o imposto está zero" deixa de ser ambíguo entre "a nota diz zero" e
+                "ninguém leu a nota". */}
+            <th className="px-4 py-3 text-right">Lidas do documento</th>
           </tr>
         </thead>
 
@@ -149,6 +182,13 @@ function Meses({ meses, base }: { meses: MesDaApuracao[]; base: BaseDaApuracao }
               {mostraImposto && (
                 <td className="px-4 py-3 text-right text-zinc-100">{brl(mes.impostos_na_nota.icms)}</td>
               )}
+              {mostraImposto && (
+                <td className="px-4 py-3 text-right text-zinc-100">{brl(mes.impostos_na_nota.pis)}</td>
+              )}
+              {mostraImposto && (
+                <td className="px-4 py-3 text-right text-zinc-100">{brl(mes.impostos_na_nota.cofins)}</td>
+              )}
+              <Documento do_documento={mes.do_documento} />
             </tr>
           ))}
         </tbody>

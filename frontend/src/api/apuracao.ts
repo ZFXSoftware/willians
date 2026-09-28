@@ -20,6 +20,19 @@ export interface ImpostosNaNota {
   icms_st: string
   ipi: string
   issqn: string
+  // Só o XML da NF-e os entrega: o JSON do Tiny não tem PIS nem COFINS.
+  pis: string
+  cofins: string
+}
+
+// Quantas notas do mês foram lidas do DOCUMENTO, e não da visão do ERP.
+//
+// Sem este número, "o ICMS está zero" é ambíguo: pode ser nota do Simples, onde
+// zero é a verdade, ou campo que o ERP não devolveu. Era essa dúvida que a
+// leitura do XML resolveu, e a tela precisa dizer de qual das duas fala.
+export interface DoDocumento {
+  notas: number
+  de: number
 }
 
 export interface CanalDaReceita {
@@ -52,6 +65,7 @@ export interface MesDaApuracao {
   devolucoes: { notas: number; valor: string }
   segregacao: Record<Tributacao, FatiaDaSegregacao>
   impostos_na_nota: ImpostosNaNota
+  do_documento: DoDocumento
   por_canal: CanalDaReceita[]
   por_regime: RegimeDaApuracao[]
 }
