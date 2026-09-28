@@ -16,7 +16,23 @@ module Fiscal
     # Uma requisição por nota, então o lote é limitado e a recusa é GRAVADA: sem isso o
     # ciclo de cinco minutos bateria para sempre nas mesmas notas que o ERP nega.
     class Enriquecimento
-      LOTE_PADRAO = 50
+      # O ERP barrou por excesso de acesso. Não é recusa da nota.
+      class Bloqueado < StandardError; end
+
+      # Um lote pequeno e com pausa, porque o Tiny bloqueia por excesso de acesso.
+      #
+      # Eu rodei sem pausa na primeira vez e o Tiny devolveu "API Bloqueada" em 1.292 de
+      # 1.310 notas — que o meu código gravou como RECUSA. `DetalheDaNota` já tinha
+      # resolvido exatamente isso e deixado escrito no arquivo: bloqueio é temporário, e
+      # marcá-lo como definitivo perde a nota para sempre por um erro que ia passar. Eu
+      # escrevi um serviço novo e repeti o erro que a base já tinha corrigido.
+      LOTE_PADRAO = 60
+
+      PAUSA_PADRAO = 1.0
+
+      # Bloqueio por excesso de acesso: muda sozinho em minutos. NÃO é recusa, e insistir
+      # no resto do lote só queima cota — a volta seguinte do ciclo continua de onde parou.
+      BLOQUEIO = /API Bloqueada|Excedido o número de acessos|codigo_erro>6</i
 
       LOG_PREFIX = "[Fiscal::Nfe]".freeze
 
@@ -42,10 +58,12 @@ module Fiscal
       # Depois disso a nota é velha e a falta de autorização é o estado final dela.
       JANELA_DE_NOVA_TENTATIVA = 15.days
 
-      def initialize(tenant:, limite: LOTE_PADRAO, cliente_tiny: nil, contas: nil)
+      def initialize(tenant:, limite: LOTE_PADRAO, pausa: PAUSA_PADRAO, cliente_tiny: nil, contas: nil)
         @tenant = tenant
 
         @limite = limite.to_i.clamp(1, 500)
+
+        @pausa = pausa
 
         @cliente_tiny = cliente_tiny
 
@@ -53,7 +71,7 @@ module Fiscal
       end
 
       def call
-        resumo = { lidas: 0, completadas: 0, recusadas: 0, sem_caminho: 0, erros: 0 }
+        resumo = { lidas: 0, completadas: 0, recusadas: 0, sem_caminho: 0, erros: 0, bloqueado: false }
 
         pendentes.each do |nota|
           resumo[:lidas] += 1
@@ -71,6 +89,19 @@ module Fiscal
           aplicar!(nota, Leitura.para(xml))
 
           resumo[:completadas] += 1
+
+          descansar
+        rescue Bloqueado => e
+          # Para o lote INTEIRO, e sem marcar a nota: ela continua pendente e a próxima
+          # volta do ciclo pega de onde parou. Seguir no lote só recebe o mesmo bloqueio
+          # nota após nota, que é como 1.292 delas foram marcadas erradas.
+          Rails.logger.warn "#{LOG_PREFIX} empresa ##{tenant.id}: #{e.message} — lote interrompido"
+
+          resumo[:bloqueado] = true
+
+          resumo[:lidas] -= 1
+
+          break
         rescue Leitura::NaoEhNfe => e
           # Recusa do ERP ou nota não autorizada: é resposta, e não erro a repetir.
           registrar!(nota, "recusado", e.message)
@@ -93,7 +124,7 @@ module Fiscal
 
       private
 
-      attr_reader :tenant, :limite
+      attr_reader :tenant, :limite, :pausa
 
       # As nunca lidas, mais as recusadas que ainda podem virar — nota recente cuja
       # autorização não havia saído quando tentamos.
@@ -128,6 +159,8 @@ module Fiscal
 
         cliente_tiny.obter_xml(nota.external_id)
       rescue Fiscal::Tiny::V2Client::ApiError => e
+        raise Bloqueado, "o Tiny bloqueou por excesso de acesso" if e.message.to_s.match?(BLOQUEIO)
+
         # "Nota Fiscal não autorizada" (código 34) é o caso medido: a nota existe no ERP e
         # não tem documento. Virar `NaoEhNfe` faz o chamador gravar a recusa em vez de
         # tentar de novo amanhã.
@@ -181,6 +214,12 @@ module Fiscal
             "tentado_em" => Time.current
           }
         ))
+      end
+
+      # Método normal, e não `def x = ... if ...`: ali o `if` condiciona a DEFINIÇÃO do
+      # método, não o corpo dele — e sem pausa nenhuma o método simplesmente não existia.
+      def descansar
+        sleep(pausa) if pausa.to_f.positive?
       end
 
       def cliente_tiny = @cliente_tiny ||= Fiscal::Tiny::V2Client.new

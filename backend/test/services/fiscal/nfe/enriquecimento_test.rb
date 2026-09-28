@@ -56,8 +56,17 @@ module Fiscal
         Fiscal::Tiny::V2Client::ApiError.new("O Tiny não devolveu a NF-e: Nota Fiscal não autorizada")
       end
 
+      # `pausa: 0` para o teste não dormir: o ritmo é medido no serviço, não aqui.
       def enriquecer(resposta = XML, limite: 50)
-        Enriquecimento.new(tenant: @tenant, limite: limite, cliente_tiny: TinyFalso.new(resposta)).call
+        Enriquecimento.new(tenant: @tenant, limite: limite, pausa: 0,
+                           cliente_tiny: TinyFalso.new(resposta)).call
+      end
+
+      def bloqueio
+        Fiscal::Tiny::V2Client::ApiError.new(
+          "O Tiny não devolveu a NF-e: <codigo_erro>6</codigo_erro><erro>API Bloqueada - " \
+          "Excedido o número de acessos a API, aguarde alguns minutos e tente novamente</erro>"
+        )
       end
 
       test "completa o que o ERP não trouxe" do
@@ -197,6 +206,41 @@ module Fiscal
 
         assert_equal 1, enriquecer[:sem_caminho]
         assert_equal "sem_caminho", registro.reload.metadata.dig("xml", "situacao")
+      end
+
+      # O defeito mais caro do dia: eu rodei sem pausa, o Tiny devolveu "API Bloqueada" e o
+      # meu código gravou isso como RECUSA em 1.292 de 1.310 notas. `DetalheDaNota` já
+      # tinha resolvido exatamente isso e deixado escrito no arquivo — bloqueio é
+      # temporário, e marcá-lo como definitivo perde a nota por um erro que ia passar.
+      test "bloqueio do ERP não marca a nota" do
+        registro = nota
+
+        resumo = enriquecer(bloqueio)
+
+        assert resumo[:bloqueado]
+        assert_equal 0, resumo[:recusadas]
+        assert_nil registro.reload.metadata["xml"], "a nota tem que continuar pendente"
+      end
+
+      # E para o lote INTEIRO: seguir só recebe o mesmo bloqueio nota após nota, que é como
+      # 1.292 delas foram marcadas erradas de uma vez.
+      test "bloqueio interrompe o lote em vez de queimar cota" do
+        5.times { |i| nota(numero: "90#{i}") }
+
+        assert_equal 0, enriquecer(bloqueio)[:lidas]
+
+        assert_equal 0, Invoice.where(tenant_id: @tenant.id).where.not("metadata->'xml' IS NULL").count
+      end
+
+      # E o bloqueio não pode ser confundido com a recusa de verdade, que continua marcando.
+      test "nota não autorizada continua sendo recusa, e não bloqueio" do
+        registro = nota
+
+        resumo = enriquecer(recusa)
+
+        refute resumo[:bloqueado]
+        assert_equal 1, resumo[:recusadas]
+        assert_equal "recusado", registro.reload.metadata.dig("xml", "situacao")
       end
 
       test "o limite corta o lote" do
