@@ -52,6 +52,10 @@ module Fiscal
         registro
       end
 
+      def recusa
+        Fiscal::Tiny::V2Client::ApiError.new("O Tiny não devolveu a NF-e: Nota Fiscal não autorizada")
+      end
+
       def enriquecer(resposta = XML, limite: 50)
         Enriquecimento.new(tenant: @tenant, limite: limite, cliente_tiny: TinyFalso.new(resposta)).call
       end
@@ -99,20 +103,71 @@ module Fiscal
         assert_equal "0.00", fiscal["valor_icms_st"]
       end
 
-      # "Nota Fiscal não autorizada" (código 34) é o caso medido: a nota existe no ERP e não
-      # tem documento. Sem gravar a recusa, o ciclo voltaria nela a cada cinco minutos.
-      test "recusa do ERP é gravada e a nota sai da fila" do
+      # "Nota Fiscal não autorizada" (código 34) é o caso medido: a nota existe no ERP e o
+      # documento ainda não saiu. A recusa é gravada com o motivo.
+      test "recusa do ERP é gravada com o motivo" do
         registro = nota
-
-        recusa = Fiscal::Tiny::V2Client::ApiError.new("O Tiny não devolveu a NF-e: Nota Fiscal não autorizada")
 
         assert_equal 1, enriquecer(recusa)[:recusadas]
 
         assert_equal "recusado", registro.reload.metadata.dig("xml", "situacao")
         assert_includes registro.metadata.dig("xml", "motivo"), "não autorizada"
+        assert_equal 1, registro.metadata.dig("xml", "tentativas")
+      end
 
-        # Segunda volta: não tenta de novo.
+      # O defeito que o dado real pegou: eu tratei recusa como definitiva. As 44 primeiras
+      # recusas do cliente eram TODAS notas emitidas nos três dias anteriores, que a SEFAZ
+      # ainda não havia autorizado — seriam autorizadas em horas e ficariam marcadas como
+      # recusadas para sempre, sem nunca serem lidas.
+      test "nota recente recusada é tentada de novo" do
+        registro = nota
+
+        enriquecer(recusa)
+
+        assert_equal 1, enriquecer[:lidas], "tinha que voltar nela"
+        assert_equal "lido", registro.reload.metadata.dig("xml", "situacao")
+        assert_equal "Venda de mercadorias Ecommerce", registro.metadata["fiscal"]["natureza_operacao"]
+      end
+
+      # Mas não para sempre: passado o limite, a nota não vai ter documento e insistir é
+      # ruído a cada cinco minutos.
+      test "para de tentar depois do limite" do
+        registro = nota
+
+        Enriquecimento::MAX_TENTATIVAS.times { enriquecer(recusa) }
+
+        assert_equal Enriquecimento::MAX_TENTATIVAS, registro.reload.metadata.dig("xml", "tentativas")
         assert_equal 0, enriquecer(recusa)[:lidas]
+      end
+
+      # Nota velha também sai da fila: ali a falta de autorização é o estado final dela.
+      test "nota antiga recusada não é tentada de novo" do
+        registro = nota
+
+        registro.update!(issued_at: 60.days.ago)
+
+        enriquecer(recusa)
+
+        assert_equal 0, enriquecer(recusa)[:lidas]
+      end
+
+      # A ORDEM: quem nunca foi lida vem primeiro. As recusadas são justamente as mais
+      # novas, e sem isso elas consumiriam o lote inteiro a cada volta — o histórico nunca
+      # seria varrido.
+      test "nota nunca lida tem prioridade sobre a recusada" do
+        antiga_recusada = nota(numero: "800")
+
+        enriquecer(recusa)
+
+        assert_equal "recusado", antiga_recusada.reload.metadata.dig("xml", "situacao")
+
+        nunca_lida = nota(numero: "801")
+
+        enriquecer(XML, limite: 1)
+
+        assert_equal "lido", nunca_lida.reload.metadata.dig("xml", "situacao")
+        assert_equal 1, antiga_recusada.reload.metadata.dig("xml", "tentativas"),
+                     "a recusada não deveria ter consumido o lote"
       end
 
       # Nota já lida também sai da fila, senão o lote de 50 leria sempre as mesmas 50.

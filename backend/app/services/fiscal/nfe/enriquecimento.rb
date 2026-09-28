@@ -28,8 +28,19 @@ module Fiscal
       # cobrado a menos.
       PREFERE_O_XML = %w[csts valor_icms_st base_icms_st].freeze
 
-      # Onde a tentativa fica registrada, para não repetir o que não tem resposta.
-      MARCA = "xml".freeze
+      # Quantas vezes se volta numa nota recusada antes de desistir.
+      #
+      # Recusa NÃO é sempre definitiva, e eu tratei como se fosse: das 44 primeiras
+      # recusas do cliente, TODAS eram notas emitidas entre 26 e 28/09 que a SEFAZ ainda
+      # não havia autorizado. Elas seriam autorizadas em horas — e ficariam marcadas como
+      # recusadas para sempre, sem nunca serem lidas.
+      #
+      # Cinco tentativas com a nota ainda nova é o suficiente para atravessar a
+      # autorização; passado isso, a nota não vai ter documento e insistir é ruído.
+      MAX_TENTATIVAS = 5
+
+      # Depois disso a nota é velha e a falta de autorização é o estado final dela.
+      JANELA_DE_NOVA_TENTATIVA = 15.days
 
       def initialize(tenant:, limite: LOTE_PADRAO, cliente_tiny: nil, contas: nil)
         @tenant = tenant
@@ -84,15 +95,23 @@ module Fiscal
 
       attr_reader :tenant, :limite
 
-      # As notas que ainda não foram lidas do XML, mais novas primeiro.
+      # As nunca lidas, mais as recusadas que ainda podem virar — nota recente cuja
+      # autorização não havia saído quando tentamos.
       #
-      # `metadata->'xml'` guarda a tentativa. Quem já tem — inclusive recusa — sai da fila,
-      # senão o agendador voltaria nela a cada cinco minutos para receber o mesmo "não".
+      # A ORDEM importa: quem nunca foi lida vem primeiro (`tentativas` zero), senão as
+      # recusadas, que são justamente as mais novas, consumiriam todo o lote a cada volta e
+      # o histórico nunca seria varrido.
       def pendentes
         Invoice
           .where(tenant_id: tenant.id)
-          .where("metadata->'xml' IS NULL")
-          .order(issued_at: :desc)
+          .where(
+            "metadata->'xml' IS NULL OR (" \
+            "  metadata->'xml'->>'situacao' = 'recusado'" \
+            "  AND COALESCE((metadata->'xml'->>'tentativas')::int, 1) < :max" \
+            "  AND invoices.issued_at >= :piso)",
+            max: MAX_TENTATIVAS, piso: JANELA_DE_NOVA_TENTATIVA.ago
+          )
+          .order(Arel.sql("COALESCE((metadata->'xml'->>'tentativas')::int, 0) ASC"), issued_at: :desc)
           .limit(limite)
       end
 
@@ -152,8 +171,15 @@ module Fiscal
       end
 
       def registrar!(nota, situacao, motivo)
+        anterior = nota.metadata.to_h["xml"].to_h
+
         nota.update!(metadata: nota.metadata.to_h.merge(
-          "xml" => { "situacao" => situacao, "motivo" => motivo.to_s.truncate(300), "tentado_em" => Time.current }
+          "xml" => {
+            "situacao" => situacao,
+            "motivo" => motivo.to_s.truncate(300),
+            "tentativas" => anterior["tentativas"].to_i + 1,
+            "tentado_em" => Time.current
+          }
         ))
       end
 
