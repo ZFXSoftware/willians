@@ -27,6 +27,10 @@ module Fiscal
         canais: ler_intermediadores,
         importacao: importar,
         vinculos: religar_notas,
+        # DEPOIS da importação, porque é ela que cria a nota, e ANTES do envio, para o
+        # título sair com o que o documento diz e não com a visão do ERP. Em lote: é uma
+        # requisição por nota, e 7.395 delas não cabem numa volta do ciclo.
+        xml: ler_xml,
         envio: enviar
       }
 
@@ -85,6 +89,18 @@ module Fiscal
       VinculoDeNotas.new(tenant: tenant).call
     rescue StandardError => e
       Rails.logger.error "#{LOG_PREFIX} empresa ##{tenant.id}: religar notas falhou: #{e.message}"
+
+      { erro: e.message }
+    end
+
+    # O XML da NF-e completa o que o ERP não entrega: natureza da operação (ausente em
+    # 2.102 notas do Tiny e em TODAS as 1.024 do Mercado Livre), CSOSN, PIS, COFINS e o
+    # total aproximado de tributos. Não derruba a rotina: a nota já está no banco e vale
+    # por si sem o documento.
+    def ler_xml
+      Nfe::Enriquecimento.new(tenant: tenant).call
+    rescue StandardError => e
+      Rails.logger.error "#{LOG_PREFIX} empresa ##{tenant.id}: leitura de XML falhou: #{e.message}"
 
       { erro: e.message }
     end

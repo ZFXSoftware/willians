@@ -31,6 +31,37 @@ module Fiscal
 
     def mes_de(resultado, mes) = resultado[:meses].find { |m| m[:mes] == mes }
 
+    # PIS e COFINS só existem porque o XML os trouxe: o JSON do Tiny não os entrega.
+    test "PIS e COFINS do XML entram na apuração" do
+      nota(numero: "30", valor: 100, fiscal: {
+        "valor_icms_st" => "0", "valor_pis" => "1.65", "valor_cofins" => "7.60"
+      })
+
+      impostos = mes_de(apurar, "2026-08")[:impostos_na_nota]
+
+      assert_equal "1.65", impostos[:pis]
+      assert_equal "7.6", impostos[:cofins]
+    end
+
+    # Sem este número, "o ICMS está zero" é ambíguo: pode ser nota do Simples, onde zero é a
+    # verdade, ou campo que o ERP não devolveu. Era essa dúvida que a leitura do XML resolveu,
+    # e a apuração precisa dizer de qual das duas está falando.
+    test "conta quantas notas foram lidas do documento" do
+      lida = nota(numero: "31", valor: 100, fiscal: { "valor_icms_st" => "0" })
+      lida.update!(metadata: lida.metadata.merge("xml" => { "situacao" => "lido" }))
+
+      recusada = nota(numero: "32", valor: 100, fiscal: { "valor_icms_st" => "0" })
+      recusada.update!(metadata: recusada.metadata.merge("xml" => { "situacao" => "recusado" }))
+
+      nota(numero: "33", valor: 100, fiscal: { "valor_icms_st" => "0" })
+
+      documento = mes_de(apurar, "2026-08")[:do_documento]
+
+      assert_equal 3, documento[:de]
+      # Só a lida conta: recusa e nota sem tentativa não viraram documento.
+      assert_equal 1, documento[:notas]
+    end
+
     test "receita bruta soma as vendas do mês e ignora a cancelada" do
       nota(numero: "1", valor: 100, fiscal: { "valor_icms_st" => "0" })
       nota(numero: "2", valor: 250, fiscal: { "valor_icms_st" => "0" })

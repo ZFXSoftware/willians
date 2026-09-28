@@ -119,6 +119,15 @@ module Fiscal
       Arel.sql("invoices.metadata->'fiscal'->>'base_icms' AS base_icms"),
       Arel.sql("invoices.metadata->'fiscal'->'csosns' AS csosns"),
       Arel.sql("invoices.metadata->'fiscal'->'csts' AS csts"),
+      # Só o XML entrega estes três: o JSON do Tiny não tem PIS nem COFINS, e o total
+      # aproximado de tributos não existia como campo. Ver `Fiscal::Nfe::Leitura`.
+      Arel.sql("invoices.metadata->'fiscal'->>'valor_pis' AS valor_pis"),
+      Arel.sql("invoices.metadata->'fiscal'->>'valor_cofins' AS valor_cofins"),
+      Arel.sql("invoices.metadata->'fiscal'->>'natureza_operacao' AS natureza_operacao"),
+      # De onde vieram os campos fiscais: `xml` é o documento, ausente é a visão do ERP.
+      # Sem isto, "o ICMS está zero" não distingue nota lida do documento de nota que só
+      # passou pelo ERP — e foi essa dúvida que motivou a leitura do XML.
+      Arel.sql("invoices.metadata->'xml'->>'situacao' AS xml_situacao"),
       Arel.sql("invoices.metadata->'intermediador'->>'nome' AS intermediador")
     ].freeze
 
@@ -136,7 +145,8 @@ module Fiscal
 
     def montar(valores)
       id, emitida_em, valor, operacao, tem_fiscal, icms_st, icms, ipi, issqn,
-        regime, base_icms, csosns, csts, intermediador = valores
+        regime, base_icms, csosns, csts, pis, cofins, natureza, xml_situacao,
+        intermediador = valores
 
       {
         id: id,
@@ -156,6 +166,11 @@ module Fiscal
         base_icms: base_icms.to_d,
         csosns: lista_de(csosns),
         csts: lista_de(csts),
+        pis: pis.to_d,
+        cofins: cofins.to_d,
+        natureza: natureza,
+        # `true` só quando o documento foi lido de verdade — recusa e erro não contam.
+        do_xml: xml_situacao.to_s == "lido",
         canal: Fiscal::Tiny::Canal.para(intermediador, tenant: tenant),
         intermediador: intermediador
       }
@@ -254,7 +269,20 @@ module Fiscal
           icms: vendas.sum(BigDecimal("0")) { |l| l[:icms] }.to_s,
           icms_st: vendas.sum(BigDecimal("0")) { |l| l[:icms_st] }.to_s,
           ipi: vendas.sum(BigDecimal("0")) { |l| l[:ipi] }.to_s,
-          issqn: vendas.sum(BigDecimal("0")) { |l| l[:issqn] }.to_s
+          issqn: vendas.sum(BigDecimal("0")) { |l| l[:issqn] }.to_s,
+          # Do XML: o JSON do Tiny não os entrega. Zero no Simples, e é a prova de que é
+          # zero — não de que ninguém olhou.
+          pis: vendas.sum(BigDecimal("0")) { |l| l[:pis] }.to_s,
+          cofins: vendas.sum(BigDecimal("0")) { |l| l[:cofins] }.to_s
+        },
+        # Quantas notas foram lidas do DOCUMENTO, e não da visão do ERP.
+        #
+        # Sem este número, "o ICMS está zero" é ambíguo: pode ser nota do Simples (verdade)
+        # ou campo que o ERP não devolveu (falta de dado). Era exatamente essa dúvida que
+        # a apuração não conseguia responder antes da leitura do XML.
+        do_documento: {
+          notas: vendas.count { |l| l[:do_xml] },
+          de: vendas.size
         }
       }
     end
