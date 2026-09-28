@@ -3,7 +3,9 @@ import { AlertTriangle, Landmark, Receipt, TrendingUp } from "lucide-react"
 import {
   fetchApuracao,
   type BaseDaApuracao,
+  type Classificacao,
   type DoDocumento,
+  type ImpostosNaNota,
   type MesDaApuracao,
   type RegimeDaApuracao,
 } from "../../api/apuracao"
@@ -102,6 +104,119 @@ function Regimes({ regimes }: { regimes: RegimeDaApuracao[] }) {
   )
 }
 
+// Os impostos que a NOTA carrega, sempre visíveis.
+//
+// Zero aqui é resposta, não falta de dado: emitente do Simples com CSOSN 102 não destaca
+// ICMS, e o XML da NF-e confirma isso em vez de supor. É para poder dizer exatamente essa
+// frase que a proveniência aparece ao lado.
+function ImpostosDaNota({
+  impostos,
+  documento,
+}: {
+  impostos: ImpostosNaNota
+  documento: DoDocumento
+}) {
+  const linhas: Array<[string, string]> = [
+    ["Base de ICMS", impostos.base_icms],
+    ["ICMS", impostos.icms],
+    ["ICMS-ST", impostos.icms_st],
+    ["IPI", impostos.ipi],
+    ["ISSQN", impostos.issqn],
+    ["PIS", impostos.pis],
+    ["COFINS", impostos.cofins],
+  ]
+
+  const tudo_zero = linhas.every(([, valor]) => numero(valor) === 0)
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-medium text-zinc-200">Impostos nas notas do período</h2>
+
+        <span className={`text-xs ${documento.notas >= documento.de ? "text-emerald-400" : "text-amber-400"}`}>
+          {documento.notas} de {documento.de} notas lidas do XML da NF-e
+        </span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+        {linhas.map(([nome, valor]) => (
+          <div key={nome}>
+            <p className="text-xs text-zinc-500">{nome}</p>
+            <p className={`mt-1 font-medium ${numero(valor) > 0 ? "text-zinc-100" : "text-zinc-500"}`}>
+              {brl(valor)}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* O aviso que impede o pior erro possível nesta tela. */}
+      <div className="mt-4 border-t border-zinc-800 pt-4">
+        <p className="text-xs text-zinc-500">Tributos aproximados (Lei da Transparência)</p>
+        <p className="mt-1 font-medium text-zinc-400">
+          {brl(impostos.total_aproximado_de_tributos)}
+        </p>
+        <p className="mt-2 text-xs text-amber-400/90">
+          Este NÃO é imposto pago. É a estimativa do IBPT que aparece no rodapé da nota —
+          somá-la como tributo recolhido erra por cerca de um terço da receita.
+        </p>
+      </div>
+
+      {tudo_zero && (
+        <p className="mt-4 text-xs text-zinc-400">
+          Todos zerados, e no Simples isso é o esperado: com CSOSN 102 a nota não destaca
+          imposto, e o tributo sai no DAS, mensal, sobre a receita bruta. O número de notas
+          lidas do XML acima é o que separa “a nota diz zero” de “ninguém leu a nota”.
+        </p>
+      )}
+    </div>
+  )
+}
+
+// CFOP e natureza da operação: o que a nota diz que a operação É.
+function Classificacoes({
+  titulo,
+  itens,
+  vazio,
+}: {
+  titulo: string
+  itens: Classificacao[]
+  vazio: string
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-5">
+      <h2 className="text-sm font-medium text-zinc-200">{titulo}</h2>
+
+      {itens.length === 0 ? (
+        <p className="mt-3 text-sm text-zinc-500">{vazio}</p>
+      ) : (
+        <>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-zinc-800">
+                {itens.map((item) => (
+                  <tr key={item.valor ?? "sem"}>
+                    <td className="py-2 pr-4">
+                      {item.valor ?? <span className="text-amber-400">não informado</span>}
+                    </td>
+                    <td className="py-2 px-4 text-right text-zinc-400">{item.notas} nota(s)</td>
+                    <td className="py-2 pl-4 text-right text-zinc-100">{brl(item.receita)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Sem isto, a soma passando da receita bruta parece divergência. */}
+          <p className="mt-3 text-xs text-zinc-500">
+            Nota com mais de um valor conta em cada um: é classificação da operação, não
+            rateio de receita, então a soma pode passar da receita bruta.
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
 // Quantas notas do mês vieram do XML da NF-e.
 //
 // Amarelo quando falta alguma, e não vermelho: número parcial não é erro, é leitura em
@@ -141,12 +256,6 @@ function Meses({ meses, base }: { meses: MesDaApuracao[]; base: BaseDaApuracao }
             <th className="px-4 py-3 text-right">Sem ST</th>
             <th className="px-4 py-3 text-right">Indefinido</th>
             {mostraImposto && <th className="px-4 py-3 text-right">ICMS na nota</th>}
-            {/* PIS e COFINS só existem porque o XML da NF-e os trouxe — o JSON do ERP
-                não os entrega. Como o ICMS, aparecem só onde a base é imposto: no
-                Simples seriam três colunas de zero, e coluna de zero ensina a ignorar
-                a coluna. */}
-            {mostraImposto && <th className="px-4 py-3 text-right">PIS</th>}
-            {mostraImposto && <th className="px-4 py-3 text-right">COFINS</th>}
             {/* De onde vieram os números. Sempre visível, inclusive no Simples: é aqui
                 que "o imposto está zero" deixa de ser ambíguo entre "a nota diz zero" e
                 "ninguém leu a nota". */}
@@ -181,12 +290,6 @@ function Meses({ meses, base }: { meses: MesDaApuracao[]; base: BaseDaApuracao }
               </td>
               {mostraImposto && (
                 <td className="px-4 py-3 text-right text-zinc-100">{brl(mes.impostos_na_nota.icms)}</td>
-              )}
-              {mostraImposto && (
-                <td className="px-4 py-3 text-right text-zinc-100">{brl(mes.impostos_na_nota.pis)}</td>
-              )}
-              {mostraImposto && (
-                <td className="px-4 py-3 text-right text-zinc-100">{brl(mes.impostos_na_nota.cofins)}</td>
               )}
               <Documento do_documento={mes.do_documento} />
             </tr>
@@ -277,6 +380,20 @@ export default function Apuracao() {
           dizer se têm substituição tributária, e chutar mudaria a base declarada.
         </div>
       )}
+
+      {/* Os impostos da nota, SEMPRE. Antes eles só apareciam quando a base era imposto, e
+          num cliente do Simples ficavam escondidos — exatamente a resposta que alguém abre
+          esta tela para ver. "Coluna de zero ensina a ignorar a coluna" valia para a tabela
+          mensal; esconder o número inteiro é outra coisa, e foi um erro meu. */}
+      <ImpostosDaNota impostos={data.total.impostos_na_nota} documento={data.total.do_documento} />
+
+      <Classificacoes titulo="Por CFOP" itens={data.por_cfop} vazio="Nenhum CFOP nas notas do período." />
+
+      <Classificacoes
+        titulo="Por natureza da operação"
+        itens={data.por_natureza}
+        vazio="Nenhuma natureza da operação nas notas do período — ela vem do XML da NF-e, e a leitura roda em lotes."
+      />
 
       {data.meses.length === 0 ? (
         <Vazio titulo="Nenhuma nota no período." descricao="Nada foi emitido na janela consultada." />

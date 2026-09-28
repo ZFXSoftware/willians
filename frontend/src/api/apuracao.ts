@@ -23,6 +23,18 @@ export interface ImpostosNaNota {
   // Só o XML da NF-e os entrega: o JSON do Tiny não tem PIS nem COFINS.
   pis: string
   cofins: string
+  // NÃO é imposto pago: é a estimativa do IBPT da Lei da Transparência, o "tributos
+  // aproximados" do rodapé da nota. Medido: R$ 434,80 sobre R$ 1.382,60 de produto —
+  // somá-lo como tributo recolhido erraria por ~31% da receita.
+  total_aproximado_de_tributos: string
+}
+
+// O QUE a nota diz que a operação é. Uma nota com dois CFOPs conta nos dois: é
+// classificação, não rateio, e por isso a soma das receitas pode passar da receita bruta.
+export interface Classificacao {
+  valor: string | null
+  notas: number
+  receita: string
 }
 
 // Quantas notas do mês foram lidas do DOCUMENTO, e não da visão do ERP.
@@ -103,6 +115,10 @@ export interface ApuracaoResponse {
   // dado.
   retido_pelo_marketplace: string
   regimes: RegimeDaApuracao[]
+  // As duas classificações que vêm do XML da NF-e, no período (não por mês): a pergunta
+  // que respondem é "que operações esta empresa emite?".
+  por_cfop: Classificacao[]
+  por_natureza: Classificacao[]
 }
 
 export async function fetchApuracao(params?: {

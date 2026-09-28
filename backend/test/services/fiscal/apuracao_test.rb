@@ -31,6 +31,58 @@ module Fiscal
 
     def mes_de(resultado, mes) = resultado[:meses].find { |m| m[:mes] == mes }
 
+    # A pergunta literal do cliente: "e a natureza da operação? CFOP?". Eles estavam no
+    # banco e em tela nenhuma.
+    test "classifica por CFOP e por natureza da operação" do
+      nota(numero: "40", valor: 100, fiscal: {
+        "valor_icms_st" => "0", "cfops" => [ "6108" ],
+        "natureza_operacao" => "Venda de mercadorias Ecommerce"
+      })
+
+      nota(numero: "41", valor: 50, fiscal: {
+        "valor_icms_st" => "0", "cfops" => [ "5102" ],
+        "natureza_operacao" => "Venda de mercadorias Ecommerce"
+      })
+
+      resultado = apurar
+
+      cfops = resultado[:por_cfop]
+
+      # Do maior em receita: é por onde alguém começa a olhar.
+      assert_equal [ "6108", "5102" ], cfops.map { |c| c[:valor] }
+      assert_equal "100.0", cfops.first[:receita]
+
+      natureza = resultado[:por_natureza]
+
+      assert_equal 1, natureza.size
+      assert_equal "Venda de mercadorias Ecommerce", natureza.first[:valor]
+      assert_equal 2, natureza.first[:notas]
+    end
+
+    # Nota com dois CFOPs conta nos DOIS: é classificação da operação, não rateio de
+    # receita. Sem dizer isso, a soma passando da receita bruta parece divergência.
+    test "nota com dois CFOPs aparece nos dois" do
+      nota(numero: "42", valor: 100, fiscal: { "valor_icms_st" => "0", "cfops" => [ "6108", "6102" ] })
+
+      cfops = apurar[:por_cfop]
+
+      assert_equal 2, cfops.size
+      assert_equal [ "100.0", "100.0" ], cfops.map { |c| c[:receita] }
+    end
+
+    # `vTotTrib` NÃO é imposto pago — é a estimativa da Lei da Transparência. Fica fora do
+    # grupo dos impostos de propósito, e com nome que não convida a somar.
+    test "o total aproximado de tributos vem separado dos impostos" do
+      nota(numero: "43", valor: 100, fiscal: {
+        "valor_icms_st" => "0", "valor_icms" => "0", "total_aproximado_de_tributos" => "31.50"
+      })
+
+      impostos = mes_de(apurar, "2026-08")[:impostos_na_nota]
+
+      assert_equal "31.5", impostos[:total_aproximado_de_tributos]
+      assert_equal "0.0", impostos[:icms], "não entra no ICMS"
+    end
+
     # PIS e COFINS só existem porque o XML os trouxe: o JSON do Tiny não os entrega.
     test "PIS e COFINS do XML entram na apuração" do
       nota(numero: "30", valor: 100, fiscal: {

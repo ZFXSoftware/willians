@@ -97,7 +97,15 @@ module Fiscal
         rbt12: rbt12,
         # A resposta à pergunta literal, medida e não suposta.
         retido_pelo_marketplace: retido_pelo_marketplace,
-        regimes: regimes_de(linhas.reject { |l| l[:devolucao] })
+        regimes: regimes_de(linhas.reject { |l| l[:devolucao] }),
+        # CFOP e natureza da operação: o QUE a nota diz que a operação é.
+        #
+        # Ficam no total e não por mês porque a pergunta que respondem — "que operações
+        # esta empresa emite?" — é do período, não do mês. Uma nota com dois CFOPs conta
+        # nos dois: é classificação, não rateio de receita, e por isso a soma das receitas
+        # aqui pode passar da receita bruta.
+        por_cfop: por_cfop(linhas.reject { |l| l[:devolucao] }),
+        por_natureza: por_natureza(linhas.reject { |l| l[:devolucao] })
       }
     end
 
@@ -124,6 +132,10 @@ module Fiscal
       Arel.sql("invoices.metadata->'fiscal'->>'valor_pis' AS valor_pis"),
       Arel.sql("invoices.metadata->'fiscal'->>'valor_cofins' AS valor_cofins"),
       Arel.sql("invoices.metadata->'fiscal'->>'natureza_operacao' AS natureza_operacao"),
+      # NÃO é imposto pago: é a estimativa do IBPT da Lei da Transparência. O nome carrega
+      # isso porque somá-lo como tributo recolhido erraria por ~31% da receita — medido.
+      Arel.sql("invoices.metadata->'fiscal'->>'total_aproximado_de_tributos' AS aprox_tributos"),
+      Arel.sql("invoices.metadata->'fiscal'->'cfops' AS cfops"),
       # De onde vieram os campos fiscais: `xml` é o documento, ausente é a visão do ERP.
       # Sem isto, "o ICMS está zero" não distingue nota lida do documento de nota que só
       # passou pelo ERP — e foi essa dúvida que motivou a leitura do XML.
@@ -145,8 +157,8 @@ module Fiscal
 
     def montar(valores)
       id, emitida_em, valor, operacao, tem_fiscal, icms_st, icms, ipi, issqn,
-        regime, base_icms, csosns, csts, pis, cofins, natureza, xml_situacao,
-        intermediador = valores
+        regime, base_icms, csosns, csts, pis, cofins, natureza, aprox_tributos, cfops,
+        xml_situacao, intermediador = valores
 
       {
         id: id,
@@ -169,6 +181,8 @@ module Fiscal
         pis: pis.to_d,
         cofins: cofins.to_d,
         natureza: natureza,
+        aprox_tributos: aprox_tributos.to_d,
+        cfops: lista_de(cfops),
         # `true` só quando o documento foi lido de verdade — recusa e erro não contam.
         do_xml: xml_situacao.to_s == "lido",
         canal: Fiscal::Tiny::Canal.para(intermediador, tenant: tenant),
@@ -234,6 +248,34 @@ module Fiscal
     # Os regimes encontrados, com rótulo e a base que cada um apura — e o nome
     # CRU de quem não reconhecemos. Sem o valor cru, "regime não identificado:
     # 40 notas" não diz o que mapear, e o próximo cliente cai no mesmo buraco.
+    # Por CFOP, do maior em receita. Uma nota com dois CFOPs aparece nos dois — é
+    # classificação da operação, não rateio, e a soma daqui pode passar da receita bruta.
+    # Dizer isso na tela evita que alguém leia como divergência.
+    def por_cfop(vendas)
+      classificar(vendas) { |linha| linha[:cfops].presence || [ nil ] }
+    end
+
+    # Por natureza da operação, o texto que o emitente escreveu na NF-e. Vem do XML: o ERP
+    # a entregava em 4.269 de 6.371 notas e em NENHUMA das 1.024 do Mercado Livre.
+    def por_natureza(vendas)
+      classificar(vendas) { |linha| [ linha[:natureza].presence ] }
+    end
+
+    def classificar(vendas)
+      balde = Hash.new { |h, k| h[k] = { notas: 0, receita: BigDecimal("0") } }
+
+      vendas.each do |linha|
+        yield(linha).each do |chave|
+          balde[chave][:notas] += 1
+          balde[chave][:receita] += linha[:valor]
+        end
+      end
+
+      balde
+        .sort_by { |_, dados| -dados[:receita] }
+        .map { |chave, dados| { valor: chave, notas: dados[:notas], receita: dados[:receita].to_s } }
+    end
+
     def regimes_de(vendas)
       vendas.group_by { |linha| linha[:regime] }.map do |regime, lista|
         {
@@ -273,7 +315,12 @@ module Fiscal
           # Do XML: o JSON do Tiny não os entrega. Zero no Simples, e é a prova de que é
           # zero — não de que ninguém olhou.
           pis: vendas.sum(BigDecimal("0")) { |l| l[:pis] }.to_s,
-          cofins: vendas.sum(BigDecimal("0")) { |l| l[:cofins] }.to_s
+          cofins: vendas.sum(BigDecimal("0")) { |l| l[:cofins] }.to_s,
+          # Fora do grupo por um motivo: NÃO é imposto pago. É a estimativa do IBPT da Lei
+          # da Transparência (o "tributos aproximados" do rodapé da nota). Medido: R$ 434,80
+          # sobre R$ 1.382,60 de produto — somá-lo como tributo recolhido erraria por ~31%
+          # da receita. A tela mostra com o aviso; sem ele, alguém soma.
+          total_aproximado_de_tributos: vendas.sum(BigDecimal("0")) { |l| l[:aprox_tributos] }.to_s
         },
         # Quantas notas foram lidas do DOCUMENTO, e não da visão do ERP.
         #
