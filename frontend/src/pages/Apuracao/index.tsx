@@ -21,22 +21,22 @@ const BASES: Record<BaseDaApuracao, { titulo: string; explicacao: string }> = {
   receita: {
     titulo: "Apuração sobre a receita",
     explicacao:
-      "Simples Nacional: o imposto é apurado sobre a receita bruta do mês, e a parcela com substituição tributária entra segregada no PGDAS. O imposto dentro da nota sai zero — e isso está correto.",
+      "Simples Nacional: apuração sobre a receita bruta do mês, com a parcela de substituição tributária segregada no PGDAS.",
   },
   imposto: {
     titulo: "Apuração sobre o imposto da nota",
     explicacao:
-      "Regime Normal: o que vale é o imposto debitado em cada nota, com a base de cálculo ao lado. A receita bruta aqui é contexto, não a apuração.",
+      "Regime Normal: apuração pelo imposto debitado em cada nota. A receita bruta é contexto.",
   },
   mista: {
     titulo: "Dois regimes no mesmo período",
     explicacao:
-      "Há notas de Simples e de Regime Normal na janela. Cada mês apura pela sua base — somar as duas num número só seria inventar. Veja a coluna de regime em cada mês.",
+      "Há notas de Simples e de Regime Normal no período. Cada mês apura pela sua própria base.",
   },
   indefinida: {
     titulo: "Regime não identificado",
     explicacao:
-      "Nenhuma nota informa um regime que saibamos ler. Os números aparecem, mas nenhum deles é a apuração enquanto o regime não for mapeado.",
+      "Nenhuma nota informa um regime reconhecido. Os números não constituem apuração até o regime ser mapeado.",
   },
 }
 
@@ -96,9 +96,8 @@ function Regimes({ regimes }: { regimes: RegimeDaApuracao[] }) {
         </div>
       ))}
 
-      <p className="mt-2 text-xs text-zinc-400">
-        Essas notas ficam fora da apuração até alguém dizer qual é o regime. Não são contadas como
-        Simples por omissão.
+      <p className="mt-2 text-xs text-zinc-500">
+        Ficam fora da apuração até o regime ser mapeado.
       </p>
     </div>
   )
@@ -149,23 +148,18 @@ function ImpostosDaNota({
         ))}
       </div>
 
-      {/* O aviso que impede o pior erro possível nesta tela. */}
-      <div className="mt-4 border-t border-zinc-800 pt-4">
-        <p className="text-xs text-zinc-500">Tributos aproximados (Lei da Transparência)</p>
-        <p className="mt-1 font-medium text-zinc-400">
-          {brl(impostos.total_aproximado_de_tributos)}
+      {/* Curto, mas não removível: sem o aviso, alguém soma isto como imposto recolhido e
+          erra por cerca de um terço da receita. */}
+      <div className="mt-4 flex flex-wrap items-baseline justify-between gap-2 border-t border-zinc-800 pt-4">
+        <p className="text-xs text-zinc-500" title="Estimativa do IBPT exigida pela Lei da Transparência, impressa no rodapé da nota.">
+          Tributos aproximados · <span className="text-amber-400/90">não é imposto recolhido</span>
         </p>
-        <p className="mt-2 text-xs text-amber-400/90">
-          Este NÃO é imposto pago. É a estimativa do IBPT que aparece no rodapé da nota —
-          somá-la como tributo recolhido erra por cerca de um terço da receita.
-        </p>
+        <p className="font-medium text-zinc-400">{brl(impostos.total_aproximado_de_tributos)}</p>
       </div>
 
       {tudo_zero && (
-        <p className="mt-4 text-xs text-zinc-400">
-          Todos zerados, e no Simples isso é o esperado: com CSOSN 102 a nota não destaca
-          imposto, e o tributo sai no DAS, mensal, sobre a receita bruta. O número de notas
-          lidas do XML acima é o que separa “a nota diz zero” de “ninguém leu a nota”.
+        <p className="mt-3 text-xs text-zinc-500">
+          Sem imposto destacado nas notas — o esperado no Simples Nacional.
         </p>
       )}
     </div>
@@ -206,10 +200,11 @@ function Classificacoes({
             </table>
           </div>
 
-          {/* Sem isto, a soma passando da receita bruta parece divergência. */}
+          {/* Curto, mas não removível: sem ele a soma passando da receita bruta parece
+              divergência. */}
           <p className="mt-3 text-xs text-zinc-500">
-            Nota com mais de um valor conta em cada um: é classificação da operação, não
-            rateio de receita, então a soma pode passar da receita bruta.
+            Nota com mais de um valor conta em cada linha, então a soma pode passar da
+            receita bruta.
           </p>
         </>
       )}
@@ -231,7 +226,7 @@ function Documento({ do_documento }: { do_documento: DoDocumento }) {
       title={
         completo
           ? "Todos os números deste mês vieram do XML da NF-e."
-          : "Parte dos números vem da visão do ERP, não do documento. A leitura do XML roda em lotes."
+          : "Parte dos números vem do ERP. A leitura do XML roda em lotes."
       }
     >
       {do_documento.notas} de {do_documento.de}
@@ -363,21 +358,18 @@ export default function Apuracao() {
 
       {!rbt12.completo && rbt12.projecao_anual && (base === "receita" || base === "mista") && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-zinc-300">
-          <span className="font-medium text-amber-300">A RBT12 ainda não fechou doze meses.</span>{" "}
-          O valor acima é piso, não total — não leia como “longe do teto”. No ritmo dos{" "}
-          {rbt12.meses_com_dados} mês(es) que temos, doze meses dariam{" "}
-          <span className="font-medium text-zinc-100">{brl(rbt12.projecao_anual)}</span>. Projeção,
-          não apuração: serve para saber se o assunto é urgente. Quem decide o que fazer com isso é
-          a contabilidade.
+          <span className="font-medium text-amber-300">RBT12 parcial:</span> há{" "}
+          {rbt12.meses_com_dados} mês(es) de notas, e a conta pede 12. Nesse ritmo, o ano fecharia
+          em <span className="font-medium text-zinc-100">{brl(rbt12.projecao_anual)}</span> —
+          projeção, não apuração.
         </div>
       )}
 
       {data.cobertura.sem_bloco_fiscal > 0 && (
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 text-sm text-zinc-300">
-          {data.cobertura.sem_bloco_fiscal} de {data.cobertura.notas} notas estão sem detalhe
-          fiscal, somando {brl(data.cobertura.receita_sem_detalhe)}. Elas aparecem como{" "}
-          <span className="text-amber-400">indefinido</span>: sem CSOSN nem valor de ST, não dá para
-          dizer se têm substituição tributária, e chutar mudaria a base declarada.
+          {data.cobertura.sem_bloco_fiscal} de {data.cobertura.notas} notas sem detalhe fiscal,
+          somando {brl(data.cobertura.receita_sem_detalhe)}. Aparecem como{" "}
+          <span className="text-amber-400">indefinido</span> por falta de CSOSN e de valor de ST.
         </div>
       )}
 
@@ -392,7 +384,7 @@ export default function Apuracao() {
       <Classificacoes
         titulo="Por natureza da operação"
         itens={data.por_natureza}
-        vazio="Nenhuma natureza da operação nas notas do período — ela vem do XML da NF-e, e a leitura roda em lotes."
+        vazio="Nenhuma natureza da operação nas notas do período. A leitura do XML roda em lotes."
       />
 
       {data.meses.length === 0 ? (
@@ -429,8 +421,7 @@ export default function Apuracao() {
           </div>
 
           <p className="mt-2 text-xs text-zinc-500">
-            A conciliação de repasses só enxerga o Mercado Livre. Esta é a única tela que soma o
-            faturamento de todos os canais.
+            Faturamento de todos os canais de venda.
           </p>
         </div>
       )}

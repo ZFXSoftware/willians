@@ -36,7 +36,7 @@ export default function Extrato({ contas }: { contas: SaldoDaConta[] }) {
           <div>
             <h3 className="font-semibold text-lg">Extrato da conta virtual</h3>
             <p className="text-sm text-zinc-400 mt-0.5">
-              Cada linha do relatório, com o nosso saldo ao lado do saldo da plataforma.
+              Movimento a movimento, com o nosso saldo ao lado do saldo da plataforma.
             </p>
           </div>
         </div>
@@ -83,7 +83,7 @@ export default function Extrato({ contas }: { contas: SaldoDaConta[] }) {
           {data.divergencias.length > 1 && (
             <div className="mt-4">
               <p className="text-xs uppercase tracking-wide text-zinc-500">
-                Todos os movimentos em que os saldos discordam, do maior
+                Movimentos em que os saldos discordam
               </p>
 
               <div className="mt-3 overflow-x-auto">
@@ -124,9 +124,8 @@ export default function Extrato({ contas }: { contas: SaldoDaConta[] }) {
             </div>
           )}
 
-          {/* A conta que responde "o dinheiro chegou?", e que até agora não existia
-              porque a primeira parcela não existia. O saldo inicial é deduzido do saldo
-              que a plataforma informa na primeira linha. */}
+          {/* O saldo inicial é deduzido do saldo que a plataforma informa na primeira
+              linha: sem ele, a primeira linha do razão aparecia como divergência. */}
           <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
             <Parcela titulo="Saldo antes do primeiro movimento" valor={data.saldo_inicial} />
             <Parcela titulo="Entrou" valor={soma(data.por_tipo, "credito")} tom="text-emerald-400" />
@@ -268,14 +267,13 @@ function Divergencia({
             de <span className="font-medium">{brl(linha.salto)}</span>.
           </p>
 
-          {/* Depois da primeira, todas divergem: o erro é cumulativo. Dizer isso evita
-              que alguém tente consertar as outras uma por uma. */}
+          {/* Curto, mas não removível: sem a segunda frase alguém tenta consertar as
+              linhas seguintes, que só carregam a diferença desta. */}
           <p className="text-xs text-zinc-500 mt-3">
-            Daqui para frente todos os saldos ficam distantes, porque a diferença se
-            acumula. É este movimento que precisa ser olhado, não os seguintes.
             {Number(linha.salto) < 0
-              ? " Saldo menor aqui: há crédito que não entrou no nosso razão."
-              : " Saldo maior aqui: há débito que a plataforma registrou e nós não."}
+              ? "Crédito que não entrou no nosso razão."
+              : "Débito que a plataforma registrou e nós não."}{" "}
+            Os saldos seguintes herdam esta diferença.
           </p>
         </div>
       </div>

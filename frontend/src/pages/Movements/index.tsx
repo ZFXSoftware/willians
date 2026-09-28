@@ -45,7 +45,7 @@ export default function Movements() {
       <Acao
         Icone={Receipt}
         titulo="Pagamentos feitos na plataforma"
-        descricao="Pagamento de nota fiscal feito direto no marketplace é localizado no contas a pagar do OMIE e baixado. Valor que não confere não é baixado: vira divergência."
+        descricao="Localiza o pagamento no contas a pagar do OMIE e dá baixa. Valor que não confere vira divergência."
         executar={pagar}
       />
     </div>

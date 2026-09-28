@@ -151,7 +151,7 @@ export default function Processes() {
         ) : dados && dados.conciliacoes.length === 0 ? (
           <Vazio
             titulo="Nenhuma execução registrada"
-            descricao="Assim que a conciliação rodar, cada execução aparece aqui com o que ela encontrou."
+            descricao="Cada execução da conciliação aparece aqui."
           />
         ) : (
           <div className="overflow-x-auto">

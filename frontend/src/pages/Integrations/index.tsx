@@ -403,7 +403,7 @@ export default function Integrations() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl">
               <Vazio
                 titulo="Nenhuma conta conectada ainda"
-                descricao="Conecte um marketplace acima. Se as chaves de API dele ainda não estiverem preenchidas, comece por Chaves de API."
+                descricao="Conecte um marketplace acima. Comece pelas chaves de API se ainda não estiverem preenchidas, por Chaves de API."
               />
             </div>
           ) : (
@@ -834,8 +834,7 @@ function NotasRecusadasPainel({ recusadas }: { recusadas: NotasRecusadas }) {
             {recusadas.total} nota(s) não têm como virar título no OMIE
           </p>
           <p className="text-xs text-zinc-400 mt-1">
-            Saíram da fila para não serem tentadas de novo a cada ciclo. Enquanto
-            ficarem assim, o repasse que contiver uma delas não fecha a comparação.
+            O repasse que contiver uma delas não fecha a comparação.
             {aberto ? " Toque para esconder." : " Toque para ver quais."}
           </p>
         </div>
@@ -1322,9 +1321,7 @@ function ResumoDaSincronizacao({ resumo }: { resumo: ResumoSincronizacao | null 
           não passa. */}
       {resumo.pedidos === 0 && (
         <p className="mt-2 text-xs text-yellow-300 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-2 py-1.5">
-          Nenhum pedido no período. Se o cliente vende neste marketplace, a conta
-          conectada provavelmente não é a da operação — desconecte e conecte com
-          o login que faz as vendas.
+          Nenhum pedido no período. Confira se a conta conectada é a da operação.
         </p>
       )}
 

@@ -125,7 +125,7 @@ export default function Divergences() {
         ) : data && data.items.length === 0 ? (
           <Vazio
             titulo="Nenhuma divergência"
-            descricao="Quando um repasse não bater com os títulos do OMIE, o caso aparece aqui."
+            descricao="Repasses que não baterem com os títulos do OMIE aparecem aqui."
           />
         ) : (
           <div className="overflow-x-auto">

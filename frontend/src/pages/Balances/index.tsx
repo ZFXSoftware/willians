@@ -92,9 +92,7 @@ export default function Balances() {
           <p className="text-zinc-400 text-sm">Conciliação Financeira</p>
           <h1 className="text-3xl font-bold tracking-tight mt-1">Conta virtual</h1>
           <p className="text-sm text-zinc-400 mt-2 max-w-2xl">
-            O saldo que a plataforma diz ter, ao lado do que o nosso razão
-            calcula. A diferença aponta dinheiro que entrou ou saiu sem passar
-            por um lançamento.
+            O saldo informado pela plataforma ao lado do saldo do nosso razão.
           </p>
         </div>
 
@@ -161,9 +159,7 @@ export default function Balances() {
                 <LinhaDeSaldo key={conta.platform_account_id} conta={conta} />
               ))}
 
-              {/* Depois dos cartões: o cartão diz QUANTO, o extrato diz COMO chegou ali.
-                  Foi a pergunta "Disponível −R$ 24.946,11, como assim?" que mostrou que
-                  o primeiro sozinho não serve. */}
+              {/* O cartão diz QUANTO; o extrato diz como o saldo chegou ali. */}
               {data && data.items.length > 0 && <Extrato contas={data.items} />}
             </div>
           )}
@@ -213,7 +209,7 @@ function LinhaDeSaldo({ conta }: { conta: SaldoDaConta }) {
 
       {conta.situacao === "nao_conferido" ? (
         <p className="mt-5 text-sm text-zinc-500 border-t border-zinc-800 pt-5">
-          Ainda não houve conferência para esta conta. Use “Conferir agora”.
+          Sem conferência para esta conta.
         </p>
       ) : (
         <div className="mt-5 border-t border-zinc-800 pt-5 grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -265,9 +261,7 @@ function LinhaDeSaldo({ conta }: { conta: SaldoDaConta }) {
                 : "—"}
             </p>
             {conta.situacao === "divergente" && (
-              <p className="text-xs text-zinc-500 mt-2">
-                Também registrada em Divergências, para acompanhamento.
-              </p>
+              <p className="text-xs text-zinc-500 mt-2">Registrada em Divergências.</p>
             )}
           </div>
         </div>

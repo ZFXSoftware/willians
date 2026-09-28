@@ -41,8 +41,7 @@ function leitura(e: ExecucaoConciliacao): { tom: string; texto: string } {
     return {
       tom: "text-sky-300",
       texto:
-        "Nenhum repasse no período. A conciliação compara repasses do marketplace " +
-        "com títulos do OMIE — sem repasse, não há o que comparar.",
+        "Nenhum repasse no período.",
     }
   }
 
@@ -50,9 +49,7 @@ function leitura(e: ExecucaoConciliacao): { tom: string; texto: string } {
     return {
       tom: "text-yellow-300",
       texto:
-        "Nenhum título encontrado no OMIE no período. Enquanto eles não estiverem lá, " +
-        "todo repasse aparece como divergente — não por diferença de valor, mas por " +
-        "não haver contra o que comparar.",
+        "Nenhum título no OMIE no período. Sem eles, não há contra o que comparar.",
     }
   }
 
@@ -60,8 +57,8 @@ function leitura(e: ExecucaoConciliacao): { tom: string; texto: string } {
     return {
       tom: "text-yellow-300",
       texto:
-        `${e.titulos_no_omie} título(s) no OMIE, mas nenhum repasse tem nota fiscal ligada ` +
-        "do nosso lado. É o número da NF que casa os dois — sem ele, não há chave.",
+        `${e.titulos_no_omie} título(s) no OMIE, e nenhum repasse com nota fiscal ligada. ` +
+        "É o número da NF que casa os dois.",
     }
   }
 
@@ -76,7 +73,7 @@ function leitura(e: ExecucaoConciliacao): { tom: string; texto: string } {
       `${e.conferidos} de ${e.repasses} repasse(s) conferiram com o OMIE. ` +
       `${e.sem_titulo ?? 0} não encontraram título correspondente.` +
       (foraDaJanela > 0
-        ? ` Outros ${foraDaJanela} repasse(s) estão fora desta janela — aumente o período para incluí-los.`
+        ? ` Outros ${foraDaJanela} estão fora da janela: aumente o período para incluí-los.`
         : ""),
   }
 }
@@ -125,7 +122,7 @@ export default function ReconciliationDashboard() {
     setProcessando(true)
     setAviso(
       `Conciliando os últimos ${dias} dias de repasses...` +
-        (dias > 30 ? " Períodos longos demoram: são mais títulos para ler do OMIE." : ""),
+        (dias > 30 ? " Períodos longos levam mais tempo." : ""),
     )
 
     try {
@@ -226,10 +223,7 @@ export default function ReconciliationDashboard() {
 
       {jaRodando && (
         <div className="bg-sky-500/10 border border-sky-500/20 rounded-2xl px-5 py-4 text-sm text-sky-200 flex flex-wrap items-center justify-between gap-3">
-          <span>
-            Já existe uma conciliação em andamento. Os números abaixo só mudam
-            quando ela terminar.
-          </span>
+          <span>Conciliação em andamento. Os números mudam quando ela terminar.</span>
 
           <Link to="/processos" className="underline hover:text-sky-100 shrink-0">
             acompanhar
@@ -237,16 +231,13 @@ export default function ReconciliationDashboard() {
         </div>
       )}
 
-      {/* Enquanto houver nota na fila, TODO número desta tela é provisório.
-          Sem dizer isso, o cliente lê como resultado final — e "esperado R$
-          300 contra recebido R$ 12.000" parece dinheiro sumido, quando é só o
-          envio pela metade. */}
+      {/* Curto, mas não removível: sem o aviso, "esperado R$ 300 contra recebido R$
+          12.000" parece dinheiro sumido, quando é o envio pela metade. */}
       {(resumo?.notas_a_enviar ?? 0) > 0 && (
         <div className="bg-sky-500/10 border border-sky-500/20 rounded-2xl px-5 py-4 text-sm text-sky-200 flex flex-wrap items-center justify-between gap-3">
           <span>
-            <strong>Números provisórios.</strong> Ainda faltam{" "}
-            {resumo?.notas_a_enviar} nota(s) para virar título no OMIE — até lá,
-            os repasses são comparados contra uma parte dos títulos.
+            <strong>Números provisórios:</strong> {resumo?.notas_a_enviar} nota(s) ainda
+            vão virar título no OMIE.
           </span>
 
           <Link
@@ -258,17 +249,12 @@ export default function ReconciliationDashboard() {
         </div>
       )}
 
-      {/* Espera tem fim; isto não tem. A nota emitida sem valor não vira
-          título nunca, e o repasse que a contém é comparado sem ela — a
-          diferença que aparece é dinheiro que entrou sem documento fiscal.
-          Sem dizer isso, a divergência parece defeito do sistema. */}
+      {/* Diferente do aviso acima: esta espera não termina sozinha. */}
       {(resumo?.notas_recusadas ?? 0) > 0 && (
         <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl px-5 py-4 text-sm text-amber-200 flex flex-wrap items-center justify-between gap-3">
           <span>
             <strong>{resumo?.notas_recusadas} nota(s) emitidas sem valor.</strong>{" "}
-            Não viram título no OMIE, e o repasse que contiver uma delas é
-            comparado sem ela — a diferença apontada é venda sem documento
-            fiscal, e a correção é no Tiny.
+            Não viram título no OMIE. A correção é no Tiny.
           </span>
 
           <Link to="/integracoes" className="underline hover:text-amber-100 shrink-0">
@@ -383,7 +369,7 @@ export default function ReconciliationDashboard() {
         ) : data && data.items.length === 0 ? (
           <Vazio
             titulo="Nenhum repasse conciliado"
-            descricao="Assim que houver repasses na janela e títulos correspondentes no OMIE, eles aparecem aqui."
+            descricao="Repasses com título correspondente no OMIE aparecem aqui."
           />
         ) : (
           <>
@@ -534,7 +520,7 @@ export default function ReconciliationDashboard() {
                                 }`}
                                 title={
                                   sobra < -0.01
-                                    ? "Negativo significa que a decomposição descontou mais que a diferença: duas parcelas contando o mesmo dinheiro. É defeito do cálculo, não do seu dinheiro."
+                                    ? "Resíduo negativo indica erro de cálculo na decomposição, não falta de dinheiro."
                                     : undefined
                                 }
                               >
@@ -756,8 +742,7 @@ function VendasDoRepasseTabela({ repasseId, row }: { repasseId: number; row: Reg
 
       {data.total > data.exibidas && (
         <p className="text-xs text-zinc-500">
-          Mostrando {data.exibidas} de {data.total} vendas. Os totais acima são
-          do repasse inteiro.
+          {data.exibidas} de {data.total} vendas. Os totais são do repasse inteiro.
         </p>
       )}
     </div>

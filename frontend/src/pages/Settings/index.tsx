@@ -268,8 +268,7 @@ function CartaoCertificado() {
       </div>
 
       <p className="mt-4 text-xs text-zinc-500">
-        O arquivo é guardado cifrado e nunca pode ser baixado de volta. A senha é
-        conferida na hora: se o certificado não abrir, nada é guardado.
+        Guardado cifrado, sem download. A senha é conferida no envio.
       </p>
     </div>
   )
