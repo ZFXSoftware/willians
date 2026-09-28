@@ -137,6 +137,52 @@ module Financeiro
       assert_equal "222", resultado[:primeira_divergencia][:referencia]
     end
 
+    # O artefato que eu quase entreguei como achado: várias linhas no MESMO instante,
+    # aplicadas por nós numa ordem e pelo marketplace na ordem dele. Comparando linha a
+    # linha, o instante gera dois saltos opostos que quase se cancelam — no dado real
+    # apareceu como `payment +9.829,95` e `reserve_for_dispute −9.821,95` no mesmo dia.
+    #
+    # Dentro do instante a ordem não importa: o que importa é o saldo ao final dele.
+    test "linhas no mesmo instante não geram saltos opostos falsos" do
+      agora = 3.days.ago.change(usec: 0)
+
+      # Nós somamos o crédito primeiro; o marketplace debitou primeiro. Os saldos
+      # intermediários discordam, o final não.
+      linha(source: "111", saldo: 900, quando: agora,
+            partes: [ [ :sale, :credit, 1000 ] ])
+
+      linha(source: "222", saldo: 900, quando: agora, descricao: "reserve_for_dispute",
+            partes: [ [ :dispute, :debit, 100 ] ])
+
+      resultado = extrato
+
+      assert_empty resultado[:divergencias],
+                   "ordem dentro do mesmo instante não é divergência"
+      assert_nil resultado[:primeira_divergencia]
+    end
+
+    # E o contrário continua valendo: se o saldo ao FINAL do instante não bate, é real.
+    #
+    # O instante tem que ser o SEGUNDO. No primeiro não pode haver divergência por
+    # construção: é dele que o saldo inicial é deduzido.
+    test "instante cujo saldo final não bate continua sendo divergência" do
+      linha(source: "000", saldo: 100, quando: 5.days.ago, partes: [ [ :sale, :credit, 100 ] ])
+
+      agora = 3.days.ago.change(usec: 0)
+
+      # Movemos +900 no instante; eles saem de 100 para 1400, ou seja +1300.
+      linha(source: "111", saldo: 1400, quando: agora, partes: [ [ :sale, :credit, 1000 ] ])
+      linha(source: "222", saldo: 1400, quando: agora, descricao: "reserve_for_dispute",
+            partes: [ [ :dispute, :debit, 100 ] ])
+
+      divergencias = extrato[:divergencias]
+
+      assert_equal 1, divergencias.size
+      assert_equal BigDecimal("-400"), divergencias.first[:salto]
+      # O nome do instante traz os dois movimentos: o culpado pode ser qualquer um deles.
+      assert_equal "payment + reserve_for_dispute", divergencias.first[:movimento]
+    end
+
     test "sem divergência nenhuma não aponta nada" do
       linha(source: "111", saldo: 100, quando: 4.days.ago, partes: [ [ :sale, :credit, 100 ] ])
       linha(source: "222", saldo: 160, quando: 3.days.ago, partes: [ [ :sale, :credit, 60 ] ])

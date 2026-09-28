@@ -104,14 +104,23 @@ module Financeiro
     def saldo_inicial
       return @saldo_inicial if defined?(@saldo_inicial)
 
+      # Do primeiro INSTANTE inteiro, e não da primeira linha. Quando o instante tem
+      # várias linhas, o saldo que o marketplace informa nele é o de DEPOIS de todas —
+      # deduzir só o movimento da primeira deixa o resto como falsa divergência.
       @saldo_inicial = begin
-        chave, grupo = agrupar_por_linha.first
+        grupos = agrupar_por_linha.values
 
-        _ = chave
+        if grupos.empty?
+          BigDecimal("0")
+        else
+          instante = grupos.first.first.occurred_at
 
-        deles = grupo && saldo_do_marketplace(grupo)
+          primeiros = grupos.take_while { |grupo| grupo.first.occurred_at == instante }
 
-        deles ? (deles - movimento_de(grupo)).round(2) : BigDecimal("0")
+          deles = primeiros.reverse.filter_map { |grupo| saldo_do_marketplace(grupo) }.first
+
+          deles ? (deles - primeiros.sum(BigDecimal("0")) { |g| movimento_de(g) }).round(2) : BigDecimal("0")
+        end
       end
     end
 
@@ -160,15 +169,23 @@ module Financeiro
     # (`MELIPAYMENTS-COLLECTIONATTEMPT`) que debitou R$ 1.325,02 num saldo de R$ 965,72:
     # o saldo DELES foi a zero, o nosso a negativo, e os R$ 359,30 de diferença são
     # dívida que o marketplace não conseguiu cobrar.
+    # A comparação é por INSTANTE, e não por linha. Isto não é detalhe.
+    #
+    # Quando várias linhas do relatório caem no mesmo instante, nós aplicamos os
+    # movimentos numa ordem e o marketplace calculou o saldo dele na ordem DELE. Comparando
+    # linha a linha, cada instante desses gera DOIS saltos opostos que quase se cancelam —
+    # e eu quase entreguei 40 "divergências" das quais metade era isso. A assinatura era
+    # visível: `payment +9.829,95` e `reserve_for_dispute −9.821,95` no mesmo dia.
+    #
+    # Dentro de um instante a ordem não importa: o que importa é o saldo ao final dele. O
+    # nosso é a soma dos movimentos do instante; o deles é o `BALANCE_AMOUNT` da ÚLTIMA
+    # linha, e "última" é por `id`, que segue a ordem das linhas do arquivo porque a
+    # ingestão lê o CSV de cima para baixo.
     def divergencias
       @divergencias ||= begin
-        # Começa em zero porque o saldo corrente já parte do saldo inicial: na primeira
-        # linha os dois lados coincidem por construção.
         anterior = BigDecimal("0")
 
-        # Em ordem de data, e não a lista já recortada da tela: `linhas_recentes` mostra
-        # as últimas, e a primeira divergência costuma estar no começo.
-        linhas.filter_map do |linha|
+        por_instante.filter_map do |linha|
           distancia = linha[:distancia]
 
           next if distancia.nil?
@@ -181,6 +198,25 @@ module Financeiro
 
           linha.merge(salto: salto)
         end
+      end
+    end
+
+    # Uma entrada por instante, com o saldo dos dois lados ao final dele.
+    def por_instante
+      linhas.group_by { |linha| linha[:ocorrido_em] }.map do |_, grupo|
+        ultima = grupo.last
+
+        # O saldo deles ao final do instante: o da última linha que o informou.
+        deles = grupo.reverse.find { |l| l[:saldo_deles] }&.fetch(:saldo_deles)
+
+        ultima.merge(
+          # O movimento e a descrição do instante inteiro, para a tela nomear o culpado.
+          valor: grupo.sum(BigDecimal("0")) { |l| l[:valor] },
+          movimento: grupo.map { |l| l[:movimento] }.uniq.join(" + "),
+          lancamentos: grupo.sum { |l| l[:lancamentos] },
+          saldo_deles: deles,
+          distancia: deles && (ultima[:saldo_nosso] - deles).round(2)
+        )
       end
     end
 
