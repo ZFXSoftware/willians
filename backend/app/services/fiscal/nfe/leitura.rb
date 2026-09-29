@@ -39,6 +39,13 @@ module Fiscal
         "valor_pis" => "vPIS",
         "valor_cofins" => "vCOFINS",
         "valor_outras" => "vOutro",
+        # DIFAL: partilha do ICMS na venda interestadual a não contribuinte. Os três estão
+        # no `ICMSTot` do layout 4.00 — CONFERIDO contra as notas do cliente, onde vêm
+        # AUSENTES, o que é o certo para emitente do Simples: ele não recolhe DIFAL como
+        # remetente. Ficam capturados para o cliente de Regime Normal que vem.
+        "valor_difal_destino" => "vICMSUFDest",
+        "valor_difal_remetente" => "vICMSUFRemet",
+        "valor_fcp_destino" => "vFCPUFDest",
         "valor_nota" => "vNF",
         # NÃO é imposto pago: é o total aproximado de tributos da Lei da Transparência.
         # O nome carrega isso porque chamá-lo de `valor_tributos` convidaria a somá-lo
@@ -66,6 +73,7 @@ module Fiscal
           "csts" => de_dentro_do_icms("CST"),
           "csts_ipi" => de_dentro_de("IPI", "CST"),
           "csts_pis" => de_dentro_de("PIS", "CST"),
+          **reforma,
           **totais,
           "fonte" => "xml"
         }.compact
@@ -101,6 +109,26 @@ module Fiscal
 
           bloco&.xpath(".//#{tag}")&.first&.text&.strip.presence
         end.uniq.presence
+      end
+
+      # CBS e IBS, os tributos da reforma.
+      #
+      # NÃO VERIFICADO contra documento real: as notas do cliente estão no layout 4.00 e o
+      # grupo `IBSCBSTot` vem AUSENTE — conferido em 2026-09-29. Fica capturado porque o
+      # custo são estas linhas e a alternativa é descobrir a falta quando o emitente
+      # migrar, com a tela mostrando zero sem ninguém saber se é zero ou se é cegueira.
+      #
+      # Lido de dentro de `IBSCBSTot` e não do documento inteiro, pelo mesmo motivo do CST:
+      # `vIBS` também aparece por item, e somar os dois contaria o mesmo tributo duas vezes.
+      def reforma
+        bloco = doc.at_xpath("//IBSCBSTot")
+
+        return {} if bloco.nil?
+
+        {
+          "valor_ibs" => bloco.at_xpath(".//vIBS")&.text&.strip.presence,
+          "valor_cbs" => bloco.at_xpath(".//vCBS")&.text&.strip.presence
+        }.compact
       end
 
       # `vST` é o nome do ICMS-ST no total da nota, e `vICMSST` é o nome dele no item. Os

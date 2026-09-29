@@ -10,6 +10,7 @@ import {
   KeyRound,
   Receipt,
   Landmark,
+  FileCheck2,
   Users,
   LogOut,
 } from "lucide-react"
@@ -65,6 +66,11 @@ export default function Sidebar() {
       label: "Apuração fiscal",
       icon: Landmark,
       path: "/apuracao",
+    },
+    {
+      label: "ConciliaNota",
+      icon: FileCheck2,
+      path: "/concilianota",
     },
     {
       // O razão. Fica logo depois da conciliação porque é o que ela compara —

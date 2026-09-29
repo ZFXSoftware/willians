@@ -107,6 +107,59 @@ module Fiscal
         assert_equal "0.00", lido["valor_cofins"]
       end
 
+      # DIFAL: a partilha do ICMS na venda interestadual a não contribuinte. Está no
+      # `ICMSTot` do layout 4.00, e vem ausente nas notas do Simples — que é o certo, o
+      # emitente não recolhe DIFAL como remetente.
+      test "lê o DIFAL quando a nota o traz" do
+        xml = nfe.sub("<vNF>158.65</vNF>",
+                      "<vICMSUFDest>7.50</vICMSUFDest><vICMSUFRemet>1.20</vICMSUFRemet>" \
+                      "<vFCPUFDest>0.80</vFCPUFDest><vNF>158.65</vNF>")
+
+        lido = Leitura.para(xml)
+
+        assert_equal "7.50", lido["valor_difal_destino"]
+        assert_equal "1.20", lido["valor_difal_remetente"]
+        assert_equal "0.80", lido["valor_fcp_destino"]
+      end
+
+      test "nota sem DIFAL não inventa o campo" do
+        assert_nil Leitura.para(nfe)["valor_difal_destino"]
+      end
+
+      # CBS e IBS, os tributos da reforma. As notas do cliente estão no layout 4.00 e não
+      # os trazem; o teste monta o grupo para que a leitura já esteja pronta — e para que
+      # a falta, quando o emitente migrar, apareça como teste vermelho e não como zero
+      # silencioso na tela.
+      test "lê CBS e IBS do total da reforma" do
+        xml = nfe.sub("</total>",
+                      "<IBSCBSTot><vBCIBSCBS>159.65</vBCIBSCBS>" \
+                      "<gIBS><gIBSTot><vIBS>14.37</vIBS></gIBSTot></gIBS>" \
+                      "<gCBS><vCBS>1.44</vCBS></gCBS></IBSCBSTot></total>")
+
+        lido = Leitura.para(xml)
+
+        assert_equal "14.37", lido["valor_ibs"]
+        assert_equal "1.44", lido["valor_cbs"]
+      end
+
+      # Lido de DENTRO do total: `vIBS` também aparece por item, e somar os dois contaria o
+      # mesmo tributo duas vezes.
+      test "o IBS do item não é confundido com o do total" do
+        xml = nfe
+          .sub("<IPI><IPINT><CST>53</CST></IPINT></IPI>",
+               "<IPI><IPINT><CST>53</CST></IPINT></IPI><IBSCBS><gIBSCBS><vIBS>99.99</vIBS></gIBSCBS></IBSCBS>")
+          .sub("</total>", "<IBSCBSTot><gIBS><vIBS>14.37</vIBS></gIBS></IBSCBSTot></total>")
+
+        assert_equal "14.37", Leitura.para(xml)["valor_ibs"]
+      end
+
+      test "nota sem o grupo da reforma não inventa CBS nem IBS" do
+        lido = Leitura.para(nfe)
+
+        assert_nil lido["valor_ibs"]
+        assert_nil lido["valor_cbs"]
+      end
+
       test "guarda a chave da NF-e sem o prefixo" do
         assert_equal "35260912345678901234550010000123451234567890", Leitura.para(nfe)["chave"]
       end
