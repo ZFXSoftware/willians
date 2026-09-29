@@ -1,9 +1,18 @@
-/* Reset básico */
-* {
+/* Reset ESCOPADO no container do login.
+ *
+ * Era `*`, valendo para o app inteiro: uma folha importada por duas telas mudava a fonte
+ * de todas as outras, porque CSS não tem escopo por rota. E pedia `"Inter"`, que nunca é
+ * carregada em lugar nenhum — cada sistema caía numa fonte diferente, e a mesma tela
+ * mudava de largura e de altura de linha de máquina para máquina.
+ *
+ * A pilha de fontes agora é a do app (`--sans`, em `index.css`), que lista fontes que
+ * existem em cada sistema. */
+.login-container,
+.login-container * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  font-family: "Inter", sans-serif;
+  font-family: var(--sans);
 }
 
 /* Fundo da tela */
