@@ -10,6 +10,8 @@ export type StatusDevolucao =
 export interface NotaDaDevolucao {
   id: number
   numero: string
+  // O par número + série identifica a nota: o mesmo número se repete entre séries.
+  serie: string | null
   emitida_em: string | null
   valor: string | null
   chave: string | null

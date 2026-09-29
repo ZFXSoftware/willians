@@ -63,7 +63,12 @@ module Conciliacoes
         liberado_em: unidade.expected_on,
         valor: unidade.gross_amount,
         nf: nota&.number,
+        # O par NÚMERO + SÉRIE identifica a nota. O cliente usa quatro séries (5, 2, 9 e
+        # 4), e o mesmo número se repete entre elas: sozinho, ele é ambíguo.
         serie: nota&.series,
+        # A chave de acesso de 44 dígitos — o número que o DANFE traz para consulta na
+        # SEFAZ. Presente em 7.298 das 7.450 notas.
+        chave: nota&.access_key,
         valor_nf: nota&.total_amount,
         # O canal declarado na própria NF-e. É o que denuncia venda de outro
         # marketplace dentro da conciliação do Mercado Livre.

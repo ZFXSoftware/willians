@@ -843,8 +843,16 @@ function NotasRecusadasPainel({ recusadas }: { recusadas: NotasRecusadas }) {
       {aberto && (
         <ul className="mt-3 space-y-2 border-t border-amber-500/10 pt-3">
           {recusadas.itens.map((item) => (
-            <li key={item.nf} className="text-xs flex flex-wrap gap-x-3 gap-y-1">
-              <span className="font-medium text-zinc-200">NF {item.nf}</span>
+            <li key={`${item.nf}-${item.serie ?? ""}`} className="text-xs flex flex-wrap gap-x-3 gap-y-1">
+              <span className="font-medium text-zinc-200">
+                NF {item.nf}
+                {item.serie && <span className="text-zinc-500"> · sér. {item.serie}</span>}
+              </span>
+              {item.chave && (
+                <span className="font-mono text-zinc-600" title={`Chave de acesso: ${item.chave}`}>
+                  {item.chave.slice(0, 8)}…{item.chave.slice(-6)}
+                </span>
+              )}
               <span className="text-zinc-500">
                 {item.emitida_em ? dataHoraBR(item.emitida_em) : "sem data"}
               </span>
@@ -1225,7 +1233,9 @@ function EnvioAoOmie({
                 <div className="text-xs text-zinc-400 space-y-1">
                   {previa.amostra.map((item) => (
                     <p key={item.nf}>
-                      NF {item.nf} · {item.comprador} · R$ {item.valor}
+                      NF {item.nf}
+                      {item.serie && ` · sér. ${item.serie}`} · {item.comprador} · R${" "}
+                      {item.valor}
                     </p>
                   ))}
                 </div>

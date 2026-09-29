@@ -101,6 +101,8 @@ export interface NotasRecusadas {
   total: number
   itens: Array<{
     nf: string
+    serie: string | null
+    chave: string | null
     emitida_em: string | null
     valor: string | number | null
     motivo: "sem_valor" | "sem_comprador" | string | null
@@ -275,7 +277,13 @@ export interface ResultadoEnvioOmie {
   // comprador, ou sem valor. Não são falha do envio — o OMIE nem foi chamado.
   recusadas_por_nos: number
   falhas: number
-  amostra?: Array<{ nf: string; comprador: string; valor: number }>
+  amostra?: Array<{
+    nf: string
+    serie?: string | null
+    chave?: string | null
+    comprador: string
+    valor: number
+  }>
   erros?: string[]
   aviso?: string
   motivo_da_simulacao?: string

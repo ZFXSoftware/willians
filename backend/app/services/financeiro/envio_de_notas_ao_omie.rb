@@ -269,7 +269,9 @@ module Financeiro
       resumo[:previstas] += 1
 
       if resumo[:amostra].size < 5
-        resumo[:amostra] << { nf: nota.number, comprador: cliente[:razao_social],
+        resumo[:amostra] << { nf: nota.number, serie: nota.series,
+                              chave: nota.access_key,
+                              comprador: cliente[:razao_social],
                               valor: nota.total_amount.to_f }
       end
 

@@ -53,7 +53,8 @@ class DevolucoesController < ApplicationController
   def nota(invoice)
     return if invoice.blank?
 
-    { id: invoice.id, numero: invoice.number, emitida_em: invoice.issued_at,
+    { id: invoice.id, numero: invoice.number, serie: invoice.series,
+      emitida_em: invoice.issued_at,
       valor: invoice.total_amount, chave: invoice.access_key }
   end
 

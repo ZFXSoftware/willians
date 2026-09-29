@@ -18,6 +18,7 @@ import { errorMessage } from "../../api/client"
 import { useResource } from "../../hooks/useResource"
 import { brl, dataHoraBR, desde, rotulo } from "../../lib/format"
 import { Carregando, ErroAoCarregar, Selo, Vazio } from "../../components/Estados"
+import NotaFiscal from "../../components/NotaFiscal"
 
 const PLATAFORMAS = ["mercado_livre", "shopee", "amazon", "magalu"]
 
@@ -693,21 +694,16 @@ function VendasDoRepasseTabela({ repasseId, row }: { repasseId: number; row: Reg
                 <td className="px-3 py-2 text-zinc-500">{venda.liberado_em ?? "—"}</td>
                 <td className="px-3 py-2 text-right">{brl(venda.valor)}</td>
                 <td className="px-3 py-2">
-                  {venda.nf ? (
-                    <span className="text-zinc-300">
-                      {venda.nf}
-                      {/* Nota de pacote aparece em mais de uma venda com o
-                          valor do CONJUNTO. Sem esta marca, a linha parece ter
-                          NF maior que a venda — e parece erro. */}
-                      {venda.pacote && (
-                        <span className="text-sky-400 ml-1" title="Nota de um pacote: vale por mais de uma venda">
-                          pacote
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    <span className="text-amber-400">sem nota</span>
-                  )}
+                  <NotaFiscal numero={venda.nf} serie={venda.serie} chave={venda.chave}>
+                    {/* Nota de pacote aparece em mais de uma venda com o valor do
+                        CONJUNTO. Sem esta marca, a linha parece ter NF maior que a
+                        venda — e parece erro. */}
+                    {venda.pacote && (
+                      <span className="text-sky-400 ml-1" title="Nota de um pacote: vale por mais de uma venda">
+                        pacote
+                      </span>
+                    )}
+                  </NotaFiscal>
                 </td>
                 <td className="px-3 py-2 text-right text-zinc-400">
                   {venda.nf ? brl(venda.valor_nf) : "—"}

@@ -164,7 +164,11 @@ export interface VendaDoRepasse {
   liberado_em: string | null
   valor: string | null
   nf: string | null
+  // O par NÚMERO + SÉRIE identifica a nota: o cliente usa quatro séries e o mesmo
+  // número se repete entre elas.
   serie: string | null
+  // A chave de acesso de 44 dígitos — o número que o DANFE traz para consulta.
+  chave: string | null
   valor_nf: string | null
   canal: string | null
   // Nota de pacote vale por várias vendas: sem dizer isso, a linha parece ter

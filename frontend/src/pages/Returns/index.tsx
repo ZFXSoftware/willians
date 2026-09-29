@@ -169,7 +169,13 @@ function Cartao({ devolucao }: { devolucao: Devolucao }) {
         <Elo
           Icone={FileText}
           titulo="NF da venda"
-          valor={devolucao.nota_de_venda?.numero ?? null}
+          valor={
+            devolucao.nota_de_venda
+              ? `${devolucao.nota_de_venda.numero}${
+                  devolucao.nota_de_venda.serie ? ` · sér. ${devolucao.nota_de_venda.serie}` : ""
+                }`
+              : null
+          }
           legenda={
             devolucao.nota_de_venda?.emitida_em
               ? dataBR(devolucao.nota_de_venda.emitida_em)
@@ -180,7 +186,13 @@ function Cartao({ devolucao }: { devolucao: Devolucao }) {
         <Elo
           Icone={FileText}
           titulo="NF de devolução"
-          valor={devolucao.nota_de_devolucao?.numero ?? null}
+          valor={
+            devolucao.nota_de_devolucao
+              ? `${devolucao.nota_de_devolucao.numero}${
+                  devolucao.nota_de_devolucao.serie ? ` · sér. ${devolucao.nota_de_devolucao.serie}` : ""
+                }`
+              : null
+          }
           legenda={
             devolucao.nota_de_devolucao?.emitida_em
               ? dataBR(devolucao.nota_de_devolucao.emitida_em)

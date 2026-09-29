@@ -83,6 +83,10 @@ class IntegracoesController < ApplicationController
 
         {
           nf: nota.number,
+          # A SÉRIE junto do número: nota é identificada pelo par, e o mesmo número se
+          # repete entre séries. Sem ela, "NF 1234" pode ser duas notas diferentes.
+          serie: nota.series,
+          chave: nota.access_key,
           emitida_em: nota.issued_at,
           valor: nota.total_amount,
           motivo: recusa["motivo"],
