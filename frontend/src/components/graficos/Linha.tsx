@@ -59,6 +59,40 @@ export default function Linha({
   // que um eixo esparso.
   const passo = Math.max(1, Math.ceil(pontos.length / 8))
 
+  // Os picos, já afastados entre si. Calculado antes de desenhar porque decidir o desvio
+  // exige conhecer os outros rótulos — dentro do `map` cada um só enxerga a si mesmo.
+  const picos =
+    series.length > 1
+      ? series
+          .map((serie, indice) => {
+            const i = serie.pontos.reduce(
+              (melhor, ponto, atual) => (ponto.y > serie.pontos[melhor].y ? atual : melhor),
+              0,
+            )
+
+            return {
+              indice,
+              nome: serie.nome,
+              i,
+              valor: serie.pontos[i]?.y ?? 0,
+              // Encostado na borda o texto sai do desenho: ali ele ancora para dentro.
+              paraDentro: i > serie.pontos.length - 8,
+              deslocamento: 0,
+            }
+          })
+          .filter((pico) => pico.valor > 0)
+          .map((pico, ordem, todos) => {
+            const perto = todos.filter(
+              (outro, j) =>
+                j < ordem &&
+                Math.abs(x(outro.i) - x(pico.i)) < 70 &&
+                Math.abs(y(outro.valor) - y(pico.valor)) < 16,
+            )
+
+            return { ...pico, deslocamento: perto.length * 14 }
+          })
+      : []
+
   return (
     <div className="relative">
       {/* Legenda SEMPRE, a partir de duas séries. Com uma só, o título do cartão já a
@@ -125,39 +159,28 @@ export default function Linha({
         )}
 
         {/* Rótulo DIRETO no PICO de cada série, além da legenda.
-            
+
             Era no último ponto, e no dado real o último dia da janela é HOJE — ainda sem
             venda e sem saque. Os dois rótulos saíam "0", empilhados em cima do eixo e
             ilegíveis. O pico responde algo ("o melhor dia foram R$ 18 mil"); o fim da
-            janela não respondia nada. */}
-        {series.length > 1 &&
-          series.map((serie, indice) => {
-            if (serie.pontos.length === 0) return null
+            janela não respondia nada.
 
-            const pico = serie.pontos.reduce(
-              (melhor, ponto, i) => (ponto.y > serie.pontos[melhor].y ? i : melhor),
-              0,
-            )
-
-            if (serie.pontos[pico].y <= 0) return null
-
-            // Encostado na borda o texto sai do desenho: ali ele ancora para dentro.
-            const perto_do_fim = pico > serie.pontos.length - 8
-
-            return (
-              <text
-                key={`pico-${serie.nome}`}
-                x={x(pico) + (perto_do_fim ? -6 : 6)}
-                y={y(serie.pontos[pico].y) - 8}
-                textAnchor={perto_do_fim ? "end" : "start"}
-                fontSize={11}
-                fill={corDaSerie(indice)}
-                fontWeight={600}
-              >
-                {formatar(serie.pontos[pico].y)}
-              </text>
-            )
-          })}
+            Os picos são AFASTADOS quando caem perto: no dado do cliente o pico das vendas
+            e o do saque são quase no mesmo dia, e os dois rótulos saíam um por cima do
+            outro — que é o mesmo que não ter rótulo. */}
+        {picos.map(({ indice, nome, i, valor, deslocamento, paraDentro }) => (
+          <text
+            key={`pico-${nome}`}
+            x={x(i) + (paraDentro ? -6 : 6)}
+            y={y(valor) - 8 - deslocamento}
+            textAnchor={paraDentro ? "end" : "start"}
+            fontSize={11}
+            fill={corDaSerie(indice)}
+            fontWeight={600}
+          >
+            {formatar(valor)}
+          </text>
+        ))}
 
         {series.map((serie, indice) => (
           <polyline
