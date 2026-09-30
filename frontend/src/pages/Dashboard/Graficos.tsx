@@ -122,7 +122,7 @@ export default function Graficos({
 
             <Cartao
               titulo="Para onde vai o bruto"
-              legenda="As deduções do marketplace e o que sobra. As quatro partes somam o bruto do período."
+              legenda="Do Mercado Livre, que é de onde vem o extrato. As quatro partes somam o bruto do período — o faturamento ao lado é maior porque inclui os outros canais."
             >
               <Rosca
                 formatar={(v) => brl(String(v))}

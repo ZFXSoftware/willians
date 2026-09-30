@@ -61,6 +61,22 @@ export default function Linha({
 
   return (
     <div className="relative">
+      {/* Legenda SEMPRE, a partir de duas séries. Com uma só, o título do cartão já a
+          nomeia e uma caixa de legenda seria ruído. */}
+      {series.length > 1 && (
+        <ul className="flex flex-wrap gap-x-5 gap-y-1 mb-2">
+          {series.map((serie, indice) => (
+            <li key={serie.nome} className="flex items-center gap-2 text-xs text-zinc-400">
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ background: corDaSerie(indice) }}
+              />
+              {serie.nome}
+            </li>
+          ))}
+        </ul>
+      )}
+
       <svg
         viewBox={`0 0 ${largura} ${ALTURA}`}
         className="w-full"
@@ -107,6 +123,38 @@ export default function Linha({
             </text>
           ) : null,
         )}
+
+        {/* Rótulo DIRETO no fim de cada linha, além da legenda: com duas a quatro séries
+            o guia pede os dois, e assim a identidade não depende de ir e voltar até a
+            legenda. Só no último ponto — número em todo ponto é caos e não se lê. */}
+        {series.length > 1 &&
+          series.map((serie, indice) => {
+            const ultimo = serie.pontos[serie.pontos.length - 1]
+
+            if (!ultimo) return null
+
+            // Quando os dois fins quase se encostam, um sobe e o outro desce: rótulo em
+            // cima de rótulo não é rótulo.
+            const outro = series[indice === 0 ? 1 : 0]?.pontos[serie.pontos.length - 1]
+
+            const colide = outro != null && Math.abs(y(outro.y) - y(ultimo.y)) < 14
+
+            const desvio = colide ? (indice === 0 ? -8 : 8) : 0
+
+            return (
+              <text
+                key={`fim-${serie.nome}`}
+                x={x(serie.pontos.length - 1) - 6}
+                y={y(ultimo.y) - 8 + desvio}
+                textAnchor="end"
+                fontSize={11}
+                fill={corDaSerie(indice)}
+                fontWeight={600}
+              >
+                {formatar(ultimo.y)}
+              </text>
+            )
+          })}
 
         {series.map((serie, indice) => (
           <polyline
