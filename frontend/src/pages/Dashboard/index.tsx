@@ -1,12 +1,20 @@
+import { useState } from "react"
 import { ArrowDownRight, ArrowUpRight } from "lucide-react"
 
-import { fetchPainel } from "../../api/painel"
+import { fetchPainel, fetchSeries } from "../../api/painel"
 import { useResource } from "../../hooks/useResource"
 import { brl, dataBR, desde, numero, rotulo } from "../../lib/format"
 import { Carregando, ErroAoCarregar, Selo, Vazio } from "../../components/Estados"
+import Graficos from "./Graficos"
 
 export default function Dashboard() {
   const { data, loading, error, reload } = useResource(fetchPainel)
+
+  // O período dos gráficos, acima deles e numa linha só — filtro é UI, e a regra é que
+  // ele fique junto do que muda.
+  const [dias, setDias] = useState(90)
+
+  const series = useResource(() => fetchSeries(dias), [dias])
 
   if (loading) return <Carregando />
   if (error) return <ErroAoCarregar mensagem={error} onRetry={reload} />
@@ -55,6 +63,15 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      <Graficos
+        dados={series.data}
+        carregando={series.loading}
+        erro={series.error}
+        recarregar={series.reload}
+        dias={dias}
+        aoTrocarPeriodo={setDias}
+      />
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl">
         <div className="p-5 border-b border-zinc-800">

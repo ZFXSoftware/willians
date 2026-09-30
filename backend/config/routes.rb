@@ -11,6 +11,7 @@ Rails.application.routes.draw do
   end
 
   get "painel", to: "painel#show"
+  get "painel/series", to: "painel#series"
 
   # Quem tem acesso à empresa.
   get    "equipe", to: "equipe#index"

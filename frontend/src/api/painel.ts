@@ -37,3 +37,42 @@ export async function fetchPainel(): Promise<Painel> {
 
   return data
 }
+
+// As séries dos gráficos do painel. Endpoint próprio: o resumo abre a tela, isto varre a
+// janela inteira, e juntar faria toda abertura pagar as duas.
+export interface DiaDoPainel {
+  dia: string
+  vendas_quantidade: number
+  vendas_valor: string
+  saques: string
+}
+
+export interface CanalDoPainel {
+  canal: string | null
+  rotulo: string
+  receita: string
+}
+
+export interface StatusDoPainel {
+  status: string
+  quantidade: number
+}
+
+export interface ParteDoBruto {
+  parte: string
+  valor: string
+}
+
+export interface SeriesDoPainel {
+  periodo: { de: string; ate: string; dias: number }
+  por_dia: DiaDoPainel[]
+  por_canal: CanalDoPainel[]
+  conciliacao: StatusDoPainel[]
+  composicao: ParteDoBruto[]
+}
+
+export async function fetchSeries(dias = 90): Promise<SeriesDoPainel> {
+  const { data } = await api.get<SeriesDoPainel>("/painel/series", { params: { dias } })
+
+  return data
+}
