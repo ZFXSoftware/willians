@@ -168,19 +168,28 @@ export default function Linha({
             Os picos são AFASTADOS quando caem perto: no dado do cliente o pico das vendas
             e o do saque são quase no mesmo dia, e os dois rótulos saíam um por cima do
             outro — que é o mesmo que não ter rótulo. */}
-        {picos.map(({ indice, nome, i, valor, deslocamento, paraDentro }) => (
-          <text
-            key={`pico-${nome}`}
-            x={x(i) + (paraDentro ? -6 : 6)}
-            y={y(valor) - 8 - deslocamento}
-            textAnchor={paraDentro ? "end" : "start"}
-            fontSize={11}
-            fill={corDaSerie(indice)}
-            fontWeight={600}
-          >
-            {formatar(valor)}
-          </text>
-        ))}
+        {picos.map(({ indice, nome, i, valor, deslocamento, paraDentro }) => {
+          const acima = y(valor) - 8 - deslocamento
+
+          // Não cabendo acima, vai ABAIXO do ponto. O pico da série maior encosta no
+          // topo do desenho, e empurrá-lo para cima o jogava para fora — foi assim que o
+          // rótulo do saque sumiu depois do conserto anterior.
+          const cabe = acima >= MARGEM.topo + 9
+
+          return (
+            <text
+              key={`pico-${nome}`}
+              x={x(i) + (paraDentro ? -6 : 6)}
+              y={cabe ? acima : y(valor) + 16 + deslocamento}
+              textAnchor={paraDentro ? "end" : "start"}
+              fontSize={11}
+              fill={corDaSerie(indice)}
+              fontWeight={600}
+            >
+              {formatar(valor)}
+            </text>
+          )
+        })}
 
         {series.map((serie, indice) => (
           <polyline
